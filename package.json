@@ -1,0 +1,12 @@
+{
+  "name": "trained-assist-hh-skill",
+  "version": "0.1.0",
+  "description": "HeadHunter recruiting skill extracted from trained-assist-agent",
+  "scripts": {
+    "test": "vitest run && node --test tests/*.run.cjs"
+  },
+  "devDependencies": {
+    "nock": "^14.0.17",
+    "vitest": "^2.1.9"
+  }
+}
