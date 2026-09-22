@@ -332,35 +332,8 @@ describe('hhStatus — HH token expiry awareness', () => {
   });
 });
 
-describe('HH_DISCONNECT_INTENT regex — /hh_disconnect + natural-language matches', () => {
-  // The regex may live in src/runner/index.js, src/runner/intent-engine.js, or
-  // src/domains/hh/intents.js depending on refactor stage (issue #942).
-  const fs = require('fs'), path = require('path');
-  const src = ['src/runner/index.js', 'src/runner/intent-engine.js', 'src/domains/hh/intents.js']
-    .map(f => { try { return fs.readFileSync(path.join(__dirname, '../..', f), 'utf8'); } catch { return ''; } })
-    .join('\n');
-  const m = src.match(/const HH_DISCONNECT_INTENT\s*=\s*(\/[^;]+\/[gimsuy]*);/);
-  if (!m) throw new Error('HH_DISCONNECT_INTENT not found in src/runner/index.js, src/runner/intent-engine.js, or src/domains/hh/intents.js — update this test');
-  const HH_DISCONNECT_INTENT = new RegExp(m[1].slice(1, m[1].lastIndexOf('/')), m[1].slice(m[1].lastIndexOf('/') + 1));
-
-  it('slash /hh_disconnect matches', () => {
-    expect(HH_DISCONNECT_INTENT.test('/hh_disconnect')).toBe(true);
-  });
-
-  it.each([
-    'отключи hh', 'отключить hh', 'отключи хх', 'отключи headhunter',
-    'удали hh', 'удали headhunter',
-    'hh отключи', 'hh удали',
-    'сброс hh авторизации', 'сброс headhunter',
-    'выключи hh', 'reset hh',
-  ])('natural language matches: %s', (msg) => {
-    expect(HH_DISCONNECT_INTENT.test(msg)).toBe(true);
-  });
-
-  it.each([
-    '/hh_status', '/hh_connect', '/hh_vacancies', '/hh_send',
-    'случайный текст', 'подключи hh', 'покажи вакансии',
-  ])('does NOT match: %s', (msg) => {
-    expect(HH_DISCONNECT_INTENT.test(msg)).toBe(false);
-  });
-});
+// HH_DISCONNECT_INTENT and the rest of the intent-routing regexes live in the
+// main repo's src/domains/hh/intents.js (loaded by src/runner/intent-engine.js).
+// That file is intentionally NOT part of this skill repo — it's main-repo
+// dispatch/routing logic, not HH skill logic. Coverage for that regex lives in
+// trained-assist-agent's own test suite.
