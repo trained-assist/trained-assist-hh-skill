@@ -628,14 +628,19 @@ module.exports = {
           } catch (e) { return hhAuthAwareError(e); }
         }
 
-        // Fetch vacancy name to store human-readable label
+        // Fetch vacancy name + area to store — area feeds proactive/cold search so it
+        // searches THIS vacancy's own location instead of falling back to a hardcoded
+        // one (owner report 2026-09-23: cold search stayed Moscow-only regardless of
+        // the vacancy's actual city because this value never carried area at all).
         let title = vacancy_id;
+        let area = null;
         try {
           const v = await hhGet(`/vacancies/${vacancy_id}`, token);
           title = v.name || vacancy_id;
+          if (v.area?.id) area = { id: String(v.area.id), name: v.area.name || '' };
         } catch { /* best-effort */ }
 
-        const value = { id: vacancy_id, title, set_at: new Date().toISOString() };
+        const value = { id: vacancy_id, title, area, set_at: new Date().toISOString() };
         writeContext('hh', 'active_vacancy', value);
         const activeVacancies = addActiveVacancy(value);
 
