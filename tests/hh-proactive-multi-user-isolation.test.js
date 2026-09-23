@@ -43,21 +43,25 @@ const tokensDir = mkdtempSync(join(tmpdir(), 'hh-iso-tokens-'));
 const dataDir = mkdtempSync(join(tmpdir(), 'hh-iso-data-'));
 const mockHh = createMockHhServer({
   coldResumes: [
-    // Shared external pool both users search against — hhResumeSearch hardcodes
-    // area='1', so both resumes must carry _area_id '1' to be returned at all.
+    // Shared external pool both users search against. Neither test user's
+    // active_vacancy carries an area, so runProactiveSearch resolves the
+    // documented no-location fallback — whole-Russia, HH area id '113' (see
+    // hh-proactive-location.test.js) — both resumes must carry that id to be
+    // returned at all. (Previously hhResumeSearch hardcoded area='1'/Moscow;
+    // fixed 2026-09-23 — see HH_AREA_RUSSIA_ALL in hh-proactive-search.js.)
     {
       id: 'res-shared-1', alternate_url: 'https://hh.ru/resume/res-shared-1',
       first_name: 'Ирина', last_name: 'Петрова', title: 'Менеджер по продажам B2B',
       area: { name: 'Москва' }, total_experience: { months: 36 },
       experience: [{ company: 'ООО Ромашка', position: 'Менеджер по продажам', start: '2022-01', end: null, description: 'Холодные звонки, продажи' }],
-      _professional_role_id: '70', _area_id: '1',
+      _professional_role_id: '70', _area_id: '113',
     },
     {
       id: 'res-shared-2', alternate_url: 'https://hh.ru/resume/res-shared-2',
       first_name: 'Олег', last_name: 'Сидоров', title: 'Специалист поддержки',
       area: { name: 'Москва' }, total_experience: { months: 40 },
       experience: [{ company: 'ООО Клиентский сервис', position: 'Саппорт-менеджер', start: '2021-01', end: null, description: 'Поддержка клиентов' }],
-      _professional_role_id: '70', _area_id: '1',
+      _professional_role_id: '70', _area_id: '113',
     },
   ],
 });

@@ -7,9 +7,14 @@ const { readHhToken } = require('./hh-utils');
 
 const HH_API_BASE = process.env.HH_API_BASE_URL || 'https://api.hh.ru';
 const HH_CONTACT = process.env.HH_APP_CONTACT || 'support@recruiter-assistant.ru';
+// HH area id for "Russia" (all regions) — the explicit, documented fallback when no
+// vacancy location is known. Must never be a specific city: silently narrowing an
+// unknown location to Moscow (area '1') is the bug this constant replaces (owner
+// report 2026-09-23 — cold search stayed Moscow-only regardless of vacancy location).
+const HH_AREA_RUSSIA_ALL = '113';
 
-async function hhResumeSearch(query, token) {
-  const params = new URLSearchParams({ text: query, area: '1', page: '0', per_page: '50', order_by: 'relevance' });
+async function hhResumeSearch(query, token, areaId) {
+  const params = new URLSearchParams({ text: query, area: areaId || HH_AREA_RUSSIA_ALL, page: '0', per_page: '50', order_by: 'relevance' });
   const res = await fetch(`${HH_API_BASE}/resumes?${params}`, {
     signal: AbortSignal.timeout(20_000),
     headers: {
@@ -708,8 +713,8 @@ PASS/REVIEW считаются относительно суммы весов э
 // `refreshAccessToken` is an optional async fn (username) => newAccessToken|null.
 // server.js wires it to refreshHhToken() so the proactive-search path auto-survives
 // the same 14-day access_token expiry that /hh/review already handles (916a938).
-async function hhResumeSearchWithRefresh(query, token, username, refreshAccessToken) {
-  const tryFetch = (tok) => hhResumeSearch(query, tok);
+async function hhResumeSearchWithRefresh(query, token, username, refreshAccessToken, areaId) {
+  const tryFetch = (tok) => hhResumeSearch(query, tok, areaId);
   try {
     return await tryFetch(token);
   } catch (e) {
@@ -772,6 +777,12 @@ async function runProactiveSearch(username, workDir, options = {}) {
     throw new Error(`ATS конфиг настроен для другой вакансии («${atsConfig.vacancy_title || atsConfig.vacancy_id}»), а активна «${activeVacancy.title || activeVacancy.id}». Вызови hh_extract_ats_config заново для текущей вакансии.`);
   }
 
+  // Location is a property of THIS vacancy, not a global constant — an explicit
+  // override in the ATS config wins, otherwise use the area hh.ru has on file for the
+  // active vacancy, otherwise fall back to whole-Russia (never silently Moscow-only).
+  const areaId = atsConfig.filters?.area_id ? String(atsConfig.filters.area_id)
+    : (activeVacancy?.area?.id ? String(activeVacancy.area.id) : HH_AREA_RUSSIA_ALL);
+
   // Read OpenRouter key for AI enrichment + query generation
   const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
   const orKeyFile = path.join(tokensBase, String(username), 'openrouter');
@@ -806,7 +817,7 @@ async function runProactiveSearch(username, workDir, options = {}) {
   const allCandidates = new Map();
 
   for (const query of queries) {
-    const data = await hhResumeSearchWithRefresh(query, token, username, refreshAccessToken);
+    const data = await hhResumeSearchWithRefresh(query, token, username, refreshAccessToken, areaId);
     for (const r of (data.items || [])) {
       if (r.id && !allCandidates.has(r.id)) allCandidates.set(r.id, r);
     }
@@ -1068,6 +1079,7 @@ function saveSchedule(username, data) {
 }
 
 module.exports = {
+  HH_AREA_RUSSIA_ALL,
   runProactiveSearch,
   buildScoringPromptText,
   scoreUnscoredProactiveCandidates,
