@@ -7,6 +7,7 @@ const os = require('os');
 const https = require('https');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('../../hh-message-prompts');
 const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
+const { resolveHhPublicBase, savePublishDomain, loadPublishDomain } = require('../../hh-quick');
 
 const USER_ID = process.env.USER_ID || '';
 
@@ -640,7 +641,7 @@ module.exports = {
         const activeVacancies = addActiveVacancy(value);
 
         // Kick off background negotiations sync so /hh/review is instant on first open
-        const agentBase = (process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+        const agentBase = resolveHhPublicBase(USER_ID, `http://localhost:${process.env.PORT || 3001}`);
         fetch(`${agentBase}/hh/sync-negotiations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1068,7 +1069,7 @@ module.exports = {
           // scoring reads. Criteria/weights are reviewed and finalized in /hh/ats-editor,
           // not by the chat LLM re-writing context on the recruiter's behalf.
           writeContext('hh', activeVacancy?.id ? `ats_config_draft:${activeVacancy.id}` : 'ats_config_draft', config);
-          const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
+          const agentBase = resolveHhPublicBase(USER_ID, 'http://localhost:3001');
           const agentSecret = process.env.AGENT_SECRET || '';
           const editorToken = agentSecret
             ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
@@ -1224,6 +1225,26 @@ module.exports = {
         }
         saveRejectionTemplate(USER_ID, template);
         return { saved: true, template };
+      },
+    },
+
+    hh_set_publish_domain: {
+      description: 'Get or set a custom public domain for this recruiter\'s generated Cold Search / vacancy / review pages, overriding the shared platform default. No args — returns current override (or null if unset). Pass domain to save it. Note: this only points generated links at the domain — DNS/TLS/hosting setup for a custom domain is a separate, manual step.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          domain: { type: 'string', description: 'Base URL to publish pages under, e.g. https://coldsearch.myagency.ru. Omit to just view current override.' },
+        },
+      },
+      handler: async ({ domain } = {}) => {
+        if (!domain) {
+          return {
+            domain: loadPublishDomain(USER_ID),
+            note: 'Передай domain чтобы сохранить свой домен для страниц (например https://coldsearch.myagency.ru). Без него используется общий домен платформы.',
+          };
+        }
+        savePublishDomain(USER_ID, domain);
+        return { saved: true, domain: domain.trim() };
       },
     },
 
@@ -1453,7 +1474,7 @@ module.exports = {
           const vacCtx = readContext('hh', 'active_vacancy');
           const vacancyTitle = vacCtx?.value?.title || vacancy_id;
 
-          const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
+          const agentBase = resolveHhPublicBase(USER_ID, 'http://localhost:3001');
           const agentSecret = process.env.AGENT_SECRET || '';
           const reviewToken = agentSecret
             ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
@@ -1667,9 +1688,7 @@ module.exports = {
           enriched.push({ ...c, draft_message: draft, already_sent: alreadySent });
         }
 
-        const callbackBase = process.env.AGENT_PUBLIC_URL
-          ? process.env.AGENT_PUBLIC_URL.replace(/\/$/, '')
-          : 'http://localhost:3001';
+        const callbackBase = resolveHhPublicBase(USER_ID, 'http://localhost:3001');
         const html = generateReviewHtml(enriched, vacancy_name, {
           callbackBase,
           username: USER_ID,
@@ -1821,7 +1840,7 @@ module.exports = {
       description: 'Open the ATS Template Editor — a visual web page for designing the recruiting pipeline stages and ATS scoring config. Saves to context on click. Returns the URL to open in a browser.',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
-        const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
+        const agentBase = resolveHhPublicBase(USER_ID, 'http://localhost:3001');
         const agentSecret = process.env.AGENT_SECRET || '';
         const editorToken = agentSecret
           ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
