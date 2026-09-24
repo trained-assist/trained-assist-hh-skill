@@ -6,27 +6,42 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: hh-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
+  unit:
+    uses: ./.github/workflows/skill-ci-reusable.yml
+    with:
+      suite: unit
+  contract:
+    uses: ./.github/workflows/skill-ci-reusable.yml
+    with:
+      suite: contract
+  browser:
+    uses: ./.github/workflows/skill-ci-reusable.yml
+    with:
+      suite: staging
   ci:
+    name: ci
+    needs: [unit, contract]
+    if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm test
+      - name: Require successful unit and consumer-contract suites
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+          CONTRACT_RESULT: ${{ needs.contract.result }}
+        run: test "$UNIT_RESULT" = success && test "$CONTRACT_RESULT" = success
   staging-gate:
+    name: staging-gate
+    needs: browser
+    if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - name: Replay isolated cold-search lifecycle with HH transport fixtures
-        run: npx vitest run tests/hh-cold-search-transport.test.js tests/hh-proactive-multi-user-isolation.test.js tests/approved-manifest.test.js
+      - name: Require successful executable browser scenario
+        env:
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: test "$BROWSER_RESULT" = success

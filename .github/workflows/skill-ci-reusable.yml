@@ -1,0 +1,40 @@
+name: Skill CI reusable
+on:
+  workflow_call:
+    inputs:
+      suite:
+        required: true
+        type: string
+        description: 'unit, contract, or staging; scripts/test-isolated.cjs is the common runner contract'
+      node-version:
+        default: '22'
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+      - run: npm ci --include=dev
+      - if: inputs.suite == 'staging'
+        run: npx playwright install --with-deps chromium
+      - name: Run isolated skill suite
+        env:
+          SKILL_SUITE: ${{ inputs.suite }}
+        run: node scripts/test-isolated.cjs "$SKILL_SUITE"
+      - if: failure() && inputs.suite == 'staging'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
