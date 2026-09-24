@@ -7,7 +7,6 @@ const { createHmac } = require('crypto');
 const {
   runProactiveSearch,
   buildScoringPromptText,
-  buildProactiveDigest,
   loadSchedule,
   saveSchedule,
   atsConfigHash,
@@ -36,35 +35,6 @@ function proactiveUrl(username, vacancyId) {
 
 const { latestProactiveFile } = require('../../hh-cold-search-snapshots');
 
-function readChatId(username) {
-  try { return fs.readFileSync(path.join(os.homedir(), 'agent-tokens', String(username), '.chatid'), 'utf8').trim() || null; }
-  catch { return null; }
-}
-
-function buildNotifyChat(username) {
-  return async (info) => {
-    const chatId = readChatId(username);
-    const botToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-    if (!chatId || !botToken) return;
-    const text = buildProactiveDigest({
-      vacancyTitle: info.vacancyTitle,
-      newCount: info.newCount,
-      totalNewCount: info.totalNewCount,
-      totalSeen: info.totalSeen,
-      newCandidates: info.newCandidates,
-      threshold: info.threshold,
-      url: info.proactiveUrl,
-    });
-    const tgBase = (process.env.TELEGRAM_API_URL || 'https://api.telegram.org').replace(/\/$/, '');
-    await fetch(`${tgBase}/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
-      signal: AbortSignal.timeout(10_000),
-    });
-  };
-}
-
 module.exports = {
   isReady: () => USER_ID ? fs.existsSync(path.join(os.homedir(), 'agent-tokens', USER_ID, 'hh')) : false,
   setupTools: [],
@@ -81,7 +51,6 @@ module.exports = {
             vacancyId: args.vacancy_id,
             ...(Object.prototype.hasOwnProperty.call(args, 'area') ? { area: args.area } : {}),
             proactiveUrl: proactiveUrl(userId),
-            notifyChat: buildNotifyChat(userId),
           });
           // vacancy_id is only known after runProactiveSearch resolves it — rebuild
           // the URL with it so the chat-facing link opens directly on the right tab.
@@ -217,28 +186,25 @@ module.exports = {
     },
 
     hh_proactive_schedule: {
-      description: 'Независимое управление автопоиском и Telegram: notifications_off/notifications_on выключают/включают ТОЛЬКО уведомления, поиск продолжается. disable/enable останавливают/запускают поиск, сохраняя настройки уведомлений. Без vacancy_id отключение и уведомления применяются ко всему профилю, выбор вакансии не нужен. status показывает оба состояния.',
+      description: 'Управление автопоиском: enable/disable/status. Telegram-уведомления холодного поиска удалены; старые notifications_on/off возвращают это объяснение без изменения расписания.',
       inputSchema: {
         type: 'object',
         properties: {
           vacancy_id: { type: 'string', description: 'Вакансия: enable/status — по умолчанию текущая; disable без ID — все вакансии профиля' },
           action: { type: 'string', enum: ['status', 'enable', 'disable', 'notifications_on', 'notifications_off'], description: 'status | enable | disable | notifications_on | notifications_off' },
           interval_hours: { type: 'number', description: 'Интервал запуска в часах (для action=enable, по умолчанию 24)' },
-          notify_threshold: { type: 'number', description: 'Минимальная оценка кандидата (0-100%, нормализовано под критерии вакансии) для попадания в Telegram-уведомление о новых кандидатах. 0 (по умолчанию) — уведомлять обо всех новых, без фильтра. Задаётся вместе с action=enable.' },
         },
         required: ['action'],
       },
-      handler: async ({ action, interval_hours, notify_threshold, vacancy_id }) => {
+      handler: async ({ action, interval_hours, vacancy_id }) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
         const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
-        const { getSchedules, updateSchedule, disableSearches, setNotifications, deliveryEnabled } = require('../../hh-cold-search-schedule');
+        const { getSchedules, updateSchedule, disableSearches, deliveryEnabled } = require('../../hh-cold-search-schedule');
         if (action === 'notifications_off' || action === 'notifications_on') {
-          const enabled = action === 'notifications_on';
-          setNotifications(userId, workDir, enabled, vacancy_id);
-          return { ok: true, notifications_enabled: enabled, scope: vacancy_id ? 'vacancy' : 'profile',
-            message: `Уведомления холодного поиска в Telegram ${enabled ? 'включены' : 'выключены'}. Настройки автопоиска не изменены.` };
+          return { ok: true, notifications_enabled: false, retired: true, scope: 'global',
+            message: 'Уведомления холодного поиска выключены: функция удалена для всех пользователей. Настройки автопоиска не изменены.' };
         }
         if (action === 'disable') {
           disableSearches(userId, workDir, vacancy_id);
@@ -251,7 +217,7 @@ module.exports = {
           const schedules = getSchedules(userId, workDir);
           const enabled = Object.entries(schedules).filter(([, s]) => s.enabled && !s.archived).map(([id]) => id);
           return { enabled: enabled.length > 0, notifications_enabled: deliveryEnabled(userId, workDir), enabled_vacancy_ids: enabled, schedules,
-            message: `${enabled.length ? `Автопоиск включён для ${enabled.length} вакансий.` : 'Автопоиск выключен.'} Уведомления по умолчанию: ${deliveryEnabled(userId, workDir) ? 'включены' : 'выключены'}.` };
+            message: `${enabled.length ? `Автопоиск включён для ${enabled.length} вакансий.` : 'Автопоиск выключен.'} Уведомления холодного поиска удалены.` };
         }
         const id = vacancy_id || require('../../hh-utils').readHhContext(workDir, 'hh', 'active_vacancy')?.value?.id;
         if (!id) return { error: 'Сначала выбери вакансию.' };
@@ -263,11 +229,10 @@ module.exports = {
             return {
               enabled: false,
               notifications_enabled: deliveryEnabled(userId, workDir, id),
-              message: 'Автоматический проактивный поиск выключен. Запусти action=enable чтобы включить — агент будет сам искать новых кандидатов. Уведомления управляются отдельно.',
+              message: 'Автоматический проактивный поиск выключен. Запусти action=enable чтобы включить — агент будет сам искать новых кандидатов. Уведомления холодного поиска удалены.',
             };
           }
           const hours = schedule.interval_hours || 24;
-          const threshold = schedule.notify_threshold || 0;
           const nextRunTs = schedule.last_run
             ? new Date(new Date(schedule.last_run).getTime() + hours * 3600000).toISOString()
             : '~10 мин после старта сервера';
@@ -275,29 +240,23 @@ module.exports = {
             enabled: true,
             notifications_enabled: deliveryEnabled(userId, workDir, id),
             interval_hours: hours,
-            notify_threshold: threshold,
             last_run: schedule.last_run || null,
             next_run: nextRunTs,
-            message: `Автопоиск включён. Уведомления: ${deliveryEnabled(userId, workDir, id) ? 'включены' : 'выключены'}. Интервал: каждые ${hours} ч.\n${threshold > 0 ? `Порог уведомлений: ≥${threshold}% — слабее не присылаем.` : 'Порог уведомлений не задан — уведомляем обо всех новых кандидатах.'}\nПоследний запуск: ${schedule.last_run || 'ещё не было'}.\nСледующий: ${nextRunTs}.`,
+            message: `Автопоиск включён. Уведомления холодного поиска удалены. Интервал: каждые ${hours} ч.\nПоследний запуск: ${schedule.last_run || 'ещё не было'}.\nСледующий: ${nextRunTs}.`,
           };
         }
 
         if (action === 'enable') {
           const hours = interval_hours && interval_hours > 0 ? interval_hours : (schedule.interval_hours || 24);
-          const threshold = (notify_threshold !== undefined && notify_threshold !== null)
-            ? Math.max(0, Math.min(100, Number(notify_threshold) || 0))
-            : (schedule.notify_threshold || 0);
           schedule.enabled = true;
           schedule.interval_hours = hours;
-          schedule.notify_threshold = threshold;
           persist();
           return {
             ok: true,
             enabled: true,
             notifications_enabled: deliveryEnabled(userId, workDir, id),
             interval_hours: hours,
-            notify_threshold: threshold,
-            message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов. Уведомления в Telegram: ${deliveryEnabled(userId, workDir, id) ? 'включены' : 'выключены'}.${threshold > 0 ? ` В уведомление попадут только кандидаты с оценкой ≥${threshold}%.` : ''} Первый запуск в течение 30 мин.\n\n⚠️ Это встроенный планировщик агента — он НЕ появится в списке cron_list (там только внешние Cloud Scheduler задачи). Проверить статус: hh_proactive_schedule action=status.`,
+            message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов. Результаты доступны на странице холодного поиска. Первый запуск в течение 30 мин.\n\n⚠️ Это встроенный планировщик агента — он НЕ появится в списке cron_list (там только внешние Cloud Scheduler задачи). Проверить статус: hh_proactive_schedule action=status.`,
           };
         }
 
