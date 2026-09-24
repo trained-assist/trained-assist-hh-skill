@@ -29,4 +29,4 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Replay isolated cold-search lifecycle with HH transport fixtures
-        run: npx vitest run tests/hh-cold-search-transport.test.js tests/hh-proactive-multi-user-isolation.test.js
+        run: npx vitest run tests/hh-cold-search-transport.test.js tests/hh-proactive-multi-user-isolation.test.js tests/approved-manifest.test.js
