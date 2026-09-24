@@ -647,7 +647,7 @@ module.exports = {
         fetch(`${agentBase}/hh/sync-negotiations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: USER_ID, vacancy_id }),
+          body: JSON.stringify({ username: USER_ID, vacancy_id, token: require('crypto').createHmac('sha256', process.env.AGENT_SECRET || '').update(USER_ID).digest('hex').slice(0, 16) }),
         }).catch(() => {}); // fire-and-forget
 
         return {
@@ -997,7 +997,10 @@ module.exports = {
             ok: true,
             vacancy_id: resolvedVacancyId,
             vacancy_title: vacancyTitle,
+            // Compatibility name: stage total, not newly arrived since the last poll.
             new_responses: counts.response || 0,
+            responses_pending: counts.response || 0,
+            response_count_semantics: 'Total currently in HH response stage; not new arrivals since the previous check.',
             unread_messages: unreadMessages,
             active_total: activeTotal,
             by_stage: {
@@ -1456,12 +1459,7 @@ module.exports = {
           const vacCtx = readContext('hh', 'active_vacancy');
           const vacancyTitle = vacCtx?.value?.title || vacancy_id;
 
-          const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
-          const agentSecret = process.env.AGENT_SECRET || '';
-          const reviewToken = agentSecret
-            ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
-            : '';
-          const reviewUrl = `${agentBase}/hh/review?username=${encodeURIComponent(USER_ID)}&token=${reviewToken}&vacancy_id=${encodeURIComponent(vacancy_id)}`;
+          const reviewUrl = require('../../hh-quick').hhReviewUrl(USER_ID, vacancy_id);
 
           const telegram_summary = await formatBatchResultForTelegram(results, vacancyTitle, reviewUrl, apiKey);
 
@@ -1686,10 +1684,11 @@ module.exports = {
 
         return {
           ok: true,
+          url: require('../../hh-quick').hhReviewUrl(USER_ID, resolvedVacancyId),
           file_path: filePath,
           candidates_count: enriched.length,
           actionable: enriched.filter(c => c.verdict !== 'ОТКЛОНИТЬ').length,
-          note: `Страница ревью сохранена. Открой ${filePath} в браузере.`,
+          note: `Актуальные отклики, звезда и архив: ${require('../../hh-quick').hhReviewUrl(USER_ID, resolvedVacancyId)}. Локальный HTML — снимок на момент создания.`,
         };
       },
     },
