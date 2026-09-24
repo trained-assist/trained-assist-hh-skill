@@ -131,26 +131,15 @@ module.exports = {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        // Resolve vacancy_id from the current ATS config
-        const workDir = process.cwd();
-        let atsConfig = null;
-        let vacancyId = null;
-        try {
-          const raw = JSON.parse(fs.readFileSync(path.join(workDir, 'contexts', 'hh', 'ats_config.json'), 'utf8'));
-          atsConfig = raw?.value;
-          vacancyId = atsConfig?.vacancy_id ? String(atsConfig.vacancy_id) : null;
-        } catch {}
-        if (!vacancyId) {
-          try {
-            const av = JSON.parse(fs.readFileSync(path.join(workDir, 'contexts', 'hh', 'active_vacancy.json'), 'utf8'))?.value;
-            if (av?.id) vacancyId = String(av.id);
-          } catch {}
-        }
-        if (!vacancyId) return { error: 'Не удалось определить ID вакансии. Вызови hh_set_active_vacancy или hh_extract_ats_config заново.' };
+        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        let resolved;
+        try { resolved = require('../../hh-cold-search-context').resolveSearchContext(workDir); }
+        catch (e) { return { error: e.message }; }
+        const { config: atsConfig, vacancyId } = resolved;
 
         // Must include current exclusions — same as runProactiveSearch — so stale check
         // doesn't false-positive when there are no config changes but comments exist.
-        const exclusionsForHash = getSearchExclusions(userId);
+        const exclusionsForHash = getSearchExclusions(userId, vacancyId);
         const configHash = atsConfig ? atsConfigHash(atsConfig, exclusionsForHash) : null;
         const storePath = queriesStorePath(userId, vacancyId);
 
