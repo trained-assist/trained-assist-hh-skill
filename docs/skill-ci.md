@@ -36,7 +36,9 @@ Workflow другого репозитория вызывает
 Checkout — точный head SHA PR, новые коммиты отменяют старый прогон. Нет path filters,
 continue-on-error, retries браузерного сценария или optional staging.
 Ветка должна требовать оба check через ruleset/branch protection. Сам YAML не может
-запретить ручной bypass администратора; наличие защиты проверяется отдельно при выпуске.
+запретить ручной bypass администратора; наличие защиты проверяется отдельно при выпуске. 2026-09-24 защита main включена
+и проверена через GitHub API: strict=true, ci/staging-gate, enforce_admins=true;
+force push и удаление запрещены.
 Для автоматического deployment требуется needs обоих gate и success на выпускаемом SHA.
 Этот repo не имел deploy workflow: здесь не добавлен фиктивный «деплой» или рестарт core.
 При падении браузера GitHub сохраняет trace, screenshot и report на 7 дней.
