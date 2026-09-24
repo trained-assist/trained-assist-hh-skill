@@ -997,7 +997,10 @@ module.exports = {
             ok: true,
             vacancy_id: resolvedVacancyId,
             vacancy_title: vacancyTitle,
+            // Compatibility name: stage total, not newly arrived since the last poll.
             new_responses: counts.response || 0,
+            responses_pending: counts.response || 0,
+            response_count_semantics: 'Total currently in HH response stage; not new arrivals since the previous check.',
             unread_messages: unreadMessages,
             active_total: activeTotal,
             by_stage: {
