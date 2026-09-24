@@ -16,6 +16,7 @@ const {
   saveStoredQueries,
   getSearchExclusions,
 } = require('../../hh-proactive-search');
+const { resolveHhPublicBase } = require('../../hh-quick');
 
 const USER_ID = process.env.USER_ID || process.env.AGENT_USER_ID || '';
 
@@ -28,7 +29,7 @@ function proactiveHmac(username) {
 // pattern as hhReviewUrl (src/hh-quick.js) — so the tab switcher can deep-link into
 // the right tab. Omitted (falsy) → no param, unchanged for single-vacancy callers.
 function proactiveUrl(username, vacancyId) {
-  const base = (process.env.AGENT_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+  const base = resolveHhPublicBase(username, 'https://recruiter-assistant.ru');
   const token = proactiveHmac(username);
   const vacancyParam = vacancyId ? `&vacancy_id=${encodeURIComponent(vacancyId)}` : '';
   return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;

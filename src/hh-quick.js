@@ -2,6 +2,7 @@
 // HH quick-answer handlers — API calls without Claude.
 // Each function returns a formatted string or null (fall through to Claude).
 
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
@@ -146,6 +147,61 @@ async function hhNewResponses(userId, workDir) {
 // while keeping AGENT_PUBLIC_URL for other GCP-hosted services.
 function hhBase() {
   return (process.env.HH_PLATFORM_URL || process.env.AGENT_PUBLIC_URL || 'https://platform.recruiter-assistant.ru').replace(/\/$/, '');
+}
+
+function _publishDomainTokenBase() {
+  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+}
+
+function publishDomainFile(username) {
+  return path.join(_publishDomainTokenBase(), String(username), 'hh-publish-domain');
+}
+
+// Single resolver for the public base URL used to build Cold Search / vacancy /
+// review / ATS-editor links generated on a recruiter's behalf. Cold Search
+// Stage 4 (multi-tenant stabilization, 2026-09-23): previously every call site
+// read process.env.AGENT_PUBLIC_URL inline with its own hardcoded fallback — one
+// global value for every tenant, no way for a single agency to publish under
+// their own domain. Precedence, highest to lowest:
+//   1. Per-username override file: <tokenBase>/<username>/hh-publish-domain
+//      (same plain-text-file convention as hh-message-style / hh-rejection-template
+//      in 90-hh.js — trim, empty file means "not set").
+//   2. process.env.HH_PLATFORM_URL
+//   3. process.env.AGENT_PUBLIC_URL
+//   4. defaultBase — whatever the call site used to hardcode; callers keep their
+//      own historical default so behavior is unchanged when nothing is configured.
+// All levels are normalized with the same trailing-slash strip already used
+// throughout this file.
+//
+// NOTE: this does not provision DNS/TLS/Cloudflare custom-domain binding for the
+// override value — that's a separate, later, human-in-the-loop step once a tenant
+// actually owns and points a domain. This only makes the code support the override.
+function resolveHhPublicBase(username, defaultBase) {
+  if (username) {
+    try {
+      const file = publishDomainFile(username);
+      if (fs.existsSync(file)) {
+        const override = fs.readFileSync(file, 'utf8').trim();
+        if (override) return override.replace(/\/$/, '');
+      }
+    } catch { /* ignore — fall through to env/default */ }
+  }
+  return (process.env.HH_PLATFORM_URL || process.env.AGENT_PUBLIC_URL || defaultBase).replace(/\/$/, '');
+}
+
+function savePublishDomain(username, domain) {
+  const file = publishDomainFile(username);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, domain.trim(), { mode: 0o600 });
+}
+
+function loadPublishDomain(username) {
+  const file = publishDomainFile(username);
+  if (fs.existsSync(file)) {
+    const domain = fs.readFileSync(file, 'utf8').trim();
+    if (domain) return domain;
+  }
+  return null;
 }
 
 // HMAC-SHA256(AGENT_SECRET, username).slice(0,16) — short, deterministic, not guessable.
@@ -533,4 +589,5 @@ module.exports = {
   hhRejectDryRun, hhRejectConfirm, hhRejectCancel,
   hhBatchEvaluate, hhManualScan,
   _clearCache, readActiveVacancy: _readActiveVacancy,
+  resolveHhPublicBase, savePublishDomain, loadPublishDomain, publishDomainFile,
 };

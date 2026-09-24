@@ -26,8 +26,12 @@ describe('generateReviewHtml source — callback embedding', () => {
     expect(src).toContain("'Authorization': 'Bearer ' + HH_SECRET");
   });
 
-  it('hh_draft_review_page passes callbackBase from AGENT_PUBLIC_URL', () => {
-    expect(src).toContain('AGENT_PUBLIC_URL');
+  it('hh_draft_review_page passes callbackBase from resolveHhPublicBase (Cold Search Stage 4: single resolver, no more inline AGENT_PUBLIC_URL reads)', () => {
+    expect(src).toContain('resolveHhPublicBase');
     expect(src).toContain('callbackBase');
+    // The old inline `process.env.AGENT_PUBLIC_URL || '<default>'` pattern must be
+    // gone from this file — resolveHhPublicBase (src/hh-quick.js) is now the only
+    // place that reads it, so a per-username override file can take precedence.
+    expect(src).not.toContain('process.env.AGENT_PUBLIC_URL');
   });
 });

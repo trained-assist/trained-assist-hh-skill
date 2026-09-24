@@ -104,8 +104,13 @@ describe('shouldRun cadence gate', () => {
 });
 
 describe('proactiveUrlFor', () => {
+  // resolveHhPublicBase (Cold Search Stage 4) lets HH_PLATFORM_URL outrank
+  // AGENT_PUBLIC_URL, same as hhBase() in hh-quick.js already did — clear both
+  // around each case below so these tests observe AGENT_PUBLIC_URL cleanly
+  // regardless of what's set in the ambient/CI environment.
   it('builds a signed url with username + token', () => {
     const a = freshModule();
+    delete process.env.HH_PLATFORM_URL;
     process.env.AGENT_PUBLIC_URL = 'https://example.test';
     process.env.AGENT_SECRET = 'secret';
     const url = a.proactiveUrlFor(UID);
@@ -119,6 +124,7 @@ describe('proactiveUrlFor', () => {
   // alongside the token — same pattern as hhReviewUrl (src/hh-quick.js).
   it('appends vacancy_id when given, after the token', () => {
     const a = freshModule();
+    delete process.env.HH_PLATFORM_URL;
     process.env.AGENT_PUBLIC_URL = 'https://example.test';
     process.env.AGENT_SECRET = 'secret';
     const url = a.proactiveUrlFor(UID, 'vac-001');
@@ -129,6 +135,7 @@ describe('proactiveUrlFor', () => {
 
   it('omits vacancy_id entirely when not given (unchanged for single-vacancy callers)', () => {
     const a = freshModule();
+    delete process.env.HH_PLATFORM_URL;
     process.env.AGENT_PUBLIC_URL = 'https://example.test';
     process.env.AGENT_SECRET = 'secret';
     const url = a.proactiveUrlFor(UID);

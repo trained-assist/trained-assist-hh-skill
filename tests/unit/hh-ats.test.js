@@ -736,9 +736,14 @@ describe('hh_draft_review_page', () => {
 
     const savedEnv = {
       AGENT_PUBLIC_URL: process.env.AGENT_PUBLIC_URL,
+      HH_PLATFORM_URL: process.env.HH_PLATFORM_URL,
       AGENT_SECRET: process.env.AGENT_SECRET,
     };
     process.env.AGENT_PUBLIC_URL = 'http://127.0.0.1:13579';
+    // resolveHhPublicBase (Cold Search Stage 4) lets HH_PLATFORM_URL outrank
+    // AGENT_PUBLIC_URL — clear it so this test observes AGENT_PUBLIC_URL cleanly,
+    // same as it already clears/restores AGENT_PUBLIC_URL itself below.
+    delete process.env.HH_PLATFORM_URL;
     process.env.AGENT_SECRET = 'test-secret-xyz';
 
     try {
@@ -806,6 +811,7 @@ describe('hh_draft_review_page', () => {
       expect(html).toContain("hhAction('/hh/reject'");
     } finally {
       process.env.AGENT_PUBLIC_URL = savedEnv.AGENT_PUBLIC_URL;
+      if (savedEnv.HH_PLATFORM_URL) process.env.HH_PLATFORM_URL = savedEnv.HH_PLATFORM_URL;
       process.env.AGENT_SECRET = savedEnv.AGENT_SECRET;
       try { rm(tmpData, { recursive: true, force: true }); } catch {}
     }
@@ -818,7 +824,12 @@ describe('hh_draft_review_page', () => {
 
     const tmpData = tmpDir(pathJoin(td(), 'hh-review-offline-'));
     const savedUrl = process.env.AGENT_PUBLIC_URL;
+    const savedPlatformUrl = process.env.HH_PLATFORM_URL;
     delete process.env.AGENT_PUBLIC_URL;
+    // Same reasoning as the test above: HH_PLATFORM_URL now also feeds
+    // resolveHhPublicBase, so it must be cleared too for a true "nothing configured"
+    // offline-fallback scenario.
+    delete process.env.HH_PLATFORM_URL;
 
     try {
       const candidates = [{
@@ -846,6 +857,7 @@ describe('hh_draft_review_page', () => {
       expect(html).toContain('http://localhost:3001');
     } finally {
       if (savedUrl) process.env.AGENT_PUBLIC_URL = savedUrl;
+      if (savedPlatformUrl) process.env.HH_PLATFORM_URL = savedPlatformUrl;
       try { rm(tmpData, { recursive: true, force: true }); } catch {}
     }
   });

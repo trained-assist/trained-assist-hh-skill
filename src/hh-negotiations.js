@@ -12,6 +12,7 @@ const {
   runProactiveSearch, scoreUnscoredProactiveCandidates,
   loadSchedule, saveSchedule, buildProactiveDigest,
 } = require('./hh-proactive-search');
+const { resolveHhPublicBase } = require('./hh-quick');
 
 const BASE_USERS_DIR = process.env.USERS_DIR ||
   path.join(process.env.HOME || '/home/vova', 'users');
@@ -282,7 +283,7 @@ function createHhNegotiations({ refreshHhToken, readChatId, getSecretsCache }) {
   // running for; runProactiveSearch itself appends vacancy_id once vacancyKey is known
   // (see the notifyChat block in hh-proactive-search.js).
   function buildProactiveUrlForScheduler(username, vacancyId) {
-    const base = (process.env.AGENT_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+    const base = resolveHhPublicBase(username, 'https://recruiter-assistant.ru');
     const token = createHmac('sha256', process.env.AGENT_SECRET || '').update(username).digest('hex').slice(0, 16);
     const vacancyParam = vacancyId ? `&vacancy_id=${encodeURIComponent(vacancyId)}` : '';
     return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;
