@@ -1211,9 +1211,11 @@
             "enum": [
               "status",
               "enable",
-              "disable"
+              "disable",
+              "notifications_on",
+              "notifications_off"
             ],
-            "description": "status | enable | disable"
+            "description": "status | enable | disable | notifications_on | notifications_off"
           },
           "interval_hours": {
             "type": "number",
