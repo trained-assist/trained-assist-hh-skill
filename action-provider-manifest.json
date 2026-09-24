@@ -1204,7 +1204,7 @@
         "properties": {
           "vacancy_id": {
             "type": "string",
-            "description": "Вакансия для включения/отключения мониторинга; по умолчанию текущая"
+            "description": "Вакансия: enable/status — по умолчанию текущая; disable без ID — все вакансии профиля"
           },
           "action": {
             "type": "string",
