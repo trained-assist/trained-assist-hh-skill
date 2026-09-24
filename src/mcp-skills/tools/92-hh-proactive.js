@@ -217,11 +217,11 @@ module.exports = {
     },
 
     hh_proactive_schedule: {
-      description: 'Настройка автоматического (периодического) проактивного поиска с Telegram-уведомлениями. action=status — текущие настройки; action=enable — включить (можно задать interval_hours, по умолчанию 24, и notify_threshold); action=disable — выключить. Чтобы просто поменять порог уведомлений без изменения интервала — вызови action=enable и передай только notify_threshold.',
+      description: 'Настройка автоматического (периодического) проактивного поиска с Telegram-уведомлениями. action=status — текущие настройки; action=enable — включить (можно задать interval_hours, по умолчанию 24, и notify_threshold); action=disable — выключить для всех вакансий профиля (или только vacancy_id, если указан). Выбор активной вакансии для отключения не нужен. Чтобы просто поменять порог уведомлений без изменения интервала — вызови action=enable и передай только notify_threshold.',
       inputSchema: {
         type: 'object',
         properties: {
-          vacancy_id: { type: 'string', description: 'Вакансия для включения/отключения мониторинга; по умолчанию текущая' },
+          vacancy_id: { type: 'string', description: 'Вакансия: enable/status — по умолчанию текущая; disable без ID — все вакансии профиля' },
           action: { type: 'string', enum: ['status', 'enable', 'disable'], description: 'status | enable | disable' },
           interval_hours: { type: 'number', description: 'Интервал запуска в часах (для action=enable, по умолчанию 24)' },
           notify_threshold: { type: 'number', description: 'Минимальная оценка кандидата (0-100%, нормализовано под критерии вакансии) для попадания в Telegram-уведомление о новых кандидатах. 0 (по умолчанию) — уведомлять обо всех новых, без фильтра. Задаётся вместе с action=enable.' },
@@ -233,7 +233,20 @@ module.exports = {
         if (!userId) return { error: 'USER_ID не задан' };
 
         const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
-        const { getSchedules, updateSchedule } = require('../../hh-cold-search-schedule');
+        const { getSchedules, updateSchedule, disableSearches } = require('../../hh-cold-search-schedule');
+        if (action === 'disable') {
+          disableSearches(userId, workDir, vacancy_id);
+          return { ok: true, enabled: false, scope: vacancy_id ? 'vacancy' : 'profile',
+            message: vacancy_id
+              ? 'Автопоиск и уведомления для этой вакансии выключены. Ручной поиск доступен.'
+              : 'Автопоиск и уведомления холодного поиска выключены для всех вакансий профиля. Ручной поиск доступен.' };
+        }
+        if (action === 'status' && !vacancy_id) {
+          const schedules = getSchedules(userId, workDir);
+          const enabled = Object.entries(schedules).filter(([, s]) => s.enabled && !s.archived).map(([id]) => id);
+          return { enabled: enabled.length > 0, enabled_vacancy_ids: enabled, schedules,
+            message: enabled.length ? `Автопоиск включён для ${enabled.length} вакансий.` : 'Автопоиск и уведомления холодного поиска выключены.' };
+        }
         const id = vacancy_id || require('../../hh-utils').readHhContext(workDir, 'hh', 'active_vacancy')?.value?.id;
         if (!id) return { error: 'Сначала выбери вакансию.' };
         const schedule = getSchedules(userId, workDir)[id] || {};
@@ -276,16 +289,6 @@ module.exports = {
             interval_hours: hours,
             notify_threshold: threshold,
             message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов и присылать уведомления в Telegram.${threshold > 0 ? ` В уведомление попадут только кандидаты с оценкой ≥${threshold}%.` : ''} Первый запуск в течение 30 мин.\n\n⚠️ Это встроенный планировщик агента — он НЕ появится в списке cron_list (там только внешние Cloud Scheduler задачи). Проверить статус: hh_proactive_schedule action=status.`,
-          };
-        }
-
-        if (action === 'disable') {
-          schedule.enabled = false;
-          persist();
-          return {
-            ok: true,
-            enabled: false,
-            message: 'Автопоиск выключен. Используй hh_proactive_search для ручного запуска.',
           };
         }
 
