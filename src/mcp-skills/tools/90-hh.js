@@ -45,6 +45,7 @@ function addActiveVacancy(value) {
 }
 
 function removeActiveVacancy(vacancyId) {
+  require('../../hh-cold-search-schedule').updateSchedule(USER_ID, process.cwd(), vacancyId, { enabled: false });
   const list = readActiveVacancies().filter(v => v.id !== vacancyId);
   writeContext('hh', 'active_vacancies', list);
   // Legacy singleton must keep pointing at a vacancy that's still tracked —
@@ -630,12 +631,14 @@ module.exports = {
 
         // Fetch vacancy name to store human-readable label
         let title = vacancy_id;
+        let area;
         try {
           const v = await hhGet(`/vacancies/${vacancy_id}`, token);
           title = v.name || vacancy_id;
+          area = v.area;
         } catch { /* best-effort */ }
 
-        const value = { id: vacancy_id, title, set_at: new Date().toISOString() };
+        const value = { id: vacancy_id, title, ...(area ? { area } : {}), set_at: new Date().toISOString() };
         writeContext('hh', 'active_vacancy', value);
         const activeVacancies = addActiveVacancy(value);
 

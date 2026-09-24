@@ -34,14 +34,7 @@ function proactiveUrl(username, vacancyId) {
   return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;
 }
 
-function latestProactiveFile(username) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
-  const dir = path.join(dataDir, 'hh', username, 'proactive');
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir).filter(f => f.startsWith('search-results-') && f.endsWith('.json')).sort();
-  if (!files.length) return null;
-  return path.join(dir, files[files.length - 1]);
-}
+const { latestProactiveFile } = require('../../hh-cold-search-snapshots');
 
 function readChatId(username) {
   try { return fs.readFileSync(path.join(os.homedir(), 'agent-tokens', String(username), '.chatid'), 'utf8').trim() || null; }
@@ -78,13 +71,15 @@ module.exports = {
   tools: {
     hh_proactive_search: {
       description: 'ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_resume — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string', description: 'ID вакансии; не меняет текущую выбранную вакансию' }, area: { type: ['string', 'array', 'null'], items: { type: 'string' }, description: 'ID регионов HH; null — явно без ограничения' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const workDir = process.cwd();
+        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
         try {
           const result = await runProactiveSearch(userId, workDir, {
+            vacancyId: args.vacancy_id,
+            ...(Object.prototype.hasOwnProperty.call(args, 'area') ? { area: args.area } : {}),
             proactiveUrl: proactiveUrl(userId),
             notifyChat: buildNotifyChat(userId),
           });
@@ -115,10 +110,10 @@ module.exports = {
 
     hh_proactive_scoring_prompt: {
       description: 'Показывает промпт и логику по которой оцениваются кандидаты при проактивном поиске. Вызывай когда рекрутер спрашивает "как вы подбирали", "покажи критерии", "почему этот кандидат" и т.п.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
-        return { text: buildScoringPromptText(userId) };
+        return { text: buildScoringPromptText(userId, args.vacancy_id) };
       },
     },
 
@@ -136,26 +131,15 @@ module.exports = {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        // Resolve vacancy_id from the current ATS config
-        const workDir = process.cwd();
-        let atsConfig = null;
-        let vacancyId = null;
-        try {
-          const raw = JSON.parse(fs.readFileSync(path.join(workDir, 'contexts', 'hh', 'ats_config.json'), 'utf8'));
-          atsConfig = raw?.value;
-          vacancyId = atsConfig?.vacancy_id ? String(atsConfig.vacancy_id) : null;
-        } catch {}
-        if (!vacancyId) {
-          try {
-            const av = JSON.parse(fs.readFileSync(path.join(workDir, 'contexts', 'hh', 'active_vacancy.json'), 'utf8'))?.value;
-            if (av?.id) vacancyId = String(av.id);
-          } catch {}
-        }
-        if (!vacancyId) return { error: 'Не удалось определить ID вакансии. Вызови hh_set_active_vacancy или hh_extract_ats_config заново.' };
+        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        let resolved;
+        try { resolved = require('../../hh-cold-search-context').resolveSearchContext(workDir); }
+        catch (e) { return { error: e.message }; }
+        const { config: atsConfig, vacancyId } = resolved;
 
         // Must include current exclusions — same as runProactiveSearch — so stale check
         // doesn't false-positive when there are no config changes but comments exist.
-        const exclusionsForHash = getSearchExclusions(userId);
+        const exclusionsForHash = getSearchExclusions(userId, vacancyId);
         const configHash = atsConfig ? atsConfigHash(atsConfig, exclusionsForHash) : null;
         const storePath = queriesStorePath(userId, vacancyId);
 
@@ -201,11 +185,14 @@ module.exports = {
 
     hh_proactive_view: {
       description: 'Открыть страницу с результатами проактивного поиска кандидатов. Возвращает ссылку на веб-страницу с пагинацией, скорингом и AI-оценкой.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const file = latestProactiveFile(userId);
+        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const vacancyId = args.vacancy_id || require('../../hh-cold-search-context').readSearchContext(workDir, 'active_vacancy')?.id;
+        if (!vacancyId) return { error: 'Сначала выбери вакансию.' };
+        const file = latestProactiveFile(userId, vacancyId);
         if (!file) {
           return { error: 'Результатов поиска нет. Запусти поиск командой hh_proactive_search.' };
         }
@@ -220,7 +207,7 @@ module.exports = {
             review_count: (data.candidates || []).filter(c => c.tag === 'REVIEW').length,
           };
         } catch {}
-        const url = proactiveUrl(userId);
+        const url = proactiveUrl(userId, vacancyId);
         return {
           url,
           ...meta,
@@ -234,17 +221,23 @@ module.exports = {
       inputSchema: {
         type: 'object',
         properties: {
+          vacancy_id: { type: 'string', description: 'Вакансия для включения/отключения мониторинга; по умолчанию текущая' },
           action: { type: 'string', enum: ['status', 'enable', 'disable'], description: 'status | enable | disable' },
           interval_hours: { type: 'number', description: 'Интервал запуска в часах (для action=enable, по умолчанию 24)' },
           notify_threshold: { type: 'number', description: 'Минимальная оценка кандидата (0-100%, нормализовано под критерии вакансии) для попадания в Telegram-уведомление о новых кандидатах. 0 (по умолчанию) — уведомлять обо всех новых, без фильтра. Задаётся вместе с action=enable.' },
         },
         required: ['action'],
       },
-      handler: async ({ action, interval_hours, notify_threshold }) => {
+      handler: async ({ action, interval_hours, notify_threshold, vacancy_id }) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        const schedule = loadSchedule(userId) || {};
+        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const { getSchedules, updateSchedule } = require('../../hh-cold-search-schedule');
+        const id = vacancy_id || require('../../hh-utils').readHhContext(workDir, 'hh', 'active_vacancy')?.value?.id;
+        if (!id) return { error: 'Сначала выбери вакансию.' };
+        const schedule = getSchedules(userId, workDir)[id] || {};
+        const persist = () => updateSchedule(userId, workDir, id, schedule);
 
         if (action === 'status') {
           if (!schedule.enabled) {
@@ -276,7 +269,7 @@ module.exports = {
           schedule.enabled = true;
           schedule.interval_hours = hours;
           schedule.notify_threshold = threshold;
-          saveSchedule(userId, schedule);
+          persist();
           return {
             ok: true,
             enabled: true,
@@ -288,7 +281,7 @@ module.exports = {
 
         if (action === 'disable') {
           schedule.enabled = false;
-          saveSchedule(userId, schedule);
+          persist();
           return {
             ok: true,
             enabled: false,
