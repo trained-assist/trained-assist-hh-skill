@@ -857,7 +857,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   }
   let enriched = [...cached, ...pending];
   if (orKey && pending.length > 0) {
-    console.log(`[proactive-search] enriching ${toEnrich.length} candidates with AI (top-30 + ${newButNotTop30.length} new)…`);
+    console.error(`[proactive-search] enriching ${toEnrich.length} candidates with AI (top-30 + ${newButNotTop30.length} new)…`);
     try {
       enriched = [...cached, ...await enrichCandidates(pending, atsConfig, orKey)];
     } catch (e) {

@@ -3,9 +3,16 @@
   "version": "0.1.0",
   "description": "HeadHunter recruiting skill extracted from trained-assist-agent",
   "scripts": {
-    "test": "vitest run && node --test tests/*.run.cjs"
+    "test": "node scripts/test-isolated.cjs all",
+    "test:unit": "node scripts/test-isolated.cjs unit",
+    "test:contract": "node scripts/test-isolated.cjs contract",
+    "test:staging": "node scripts/test-isolated.cjs staging",
+    "test:live": "node scripts/live-hh-smoke.cjs",
+    "build:manifest": "node scripts/build-manifest.cjs"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "ajv": "8.20.0",
     "nock": "^14.0.17",
     "vitest": "^2.1.9"
   }

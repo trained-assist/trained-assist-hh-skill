@@ -106,10 +106,17 @@ function buildManifest(providerId = 'hh') {
   return { version: 1, providerId, actions };
 }
 
-module.exports = { buildManifest, POLICY };
+// Core's strict v1 descriptor omits MCP-only description metadata.
+function buildActionManifest() {
+  const catalog = buildManifest();
+  return { ...catalog, actions: catalog.actions.map(({ description, ...action }) => action) };
+}
+
+module.exports = { buildManifest, buildActionManifest, POLICY };
 
 if (require.main === module) {
   const fs = require('fs');
   const path = require('path');
   fs.writeFileSync(path.join(__dirname, '../provider-manifest.json'), JSON.stringify(buildManifest(), null, 2) + '\n');
+  fs.writeFileSync(path.join(__dirname, '../action-provider-manifest.json'), JSON.stringify(buildActionManifest(), null, 2) + '\n');
 }
