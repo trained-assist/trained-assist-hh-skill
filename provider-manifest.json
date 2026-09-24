@@ -1235,7 +1235,7 @@
     },
     {
       "name": "hh_proactive_schedule",
-      "description": "Настройка автоматического (периодического) проактивного поиска с Telegram-уведомлениями. action=status — текущие настройки; action=enable — включить (можно задать interval_hours, по умолчанию 24, и notify_threshold); action=disable — выключить для всех вакансий профиля (или только vacancy_id, если указан). Выбор активной вакансии для отключения не нужен. Чтобы просто поменять порог уведомлений без изменения интервала — вызови action=enable и передай только notify_threshold.",
+      "description": "Независимое управление автопоиском и Telegram: notifications_off/notifications_on выключают/включают ТОЛЬКО уведомления, поиск продолжается. disable/enable останавливают/запускают поиск, сохраняя настройки уведомлений. Без vacancy_id отключение и уведомления применяются ко всему профилю, выбор вакансии не нужен. status показывает оба состояния.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1248,9 +1248,11 @@
             "enum": [
               "status",
               "enable",
-              "disable"
+              "disable",
+              "notifications_on",
+              "notifications_off"
             ],
-            "description": "status | enable | disable"
+            "description": "status | enable | disable | notifications_on | notifications_off"
           },
           "interval_hours": {
             "type": "number",
