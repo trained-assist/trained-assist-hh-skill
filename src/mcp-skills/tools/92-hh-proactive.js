@@ -199,12 +199,13 @@ module.exports = {
         let meta = {};
         try {
           const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const currentCandidates = Object.values(require('../../hh-proactive-search').loadAllCandidates(userId, vacancyId));
           meta = {
             vacancy_title: data.vacancy_title,
             searched_at: data.searched_at,
-            count: (data.candidates || []).length,
-            pass_count: (data.candidates || []).filter(c => c.tag === 'PASS').length,
-            review_count: (data.candidates || []).filter(c => c.tag === 'REVIEW').length,
+            count: currentCandidates.length,
+            pass_count: currentCandidates.filter(c => c.verdict === 'PASS').length,
+            review_count: currentCandidates.filter(c => c.verdict === 'REVIEW').length,
           };
         } catch {}
         const url = proactiveUrl(userId, vacancyId);
