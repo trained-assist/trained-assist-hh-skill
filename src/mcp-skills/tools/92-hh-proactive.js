@@ -110,10 +110,10 @@ module.exports = {
 
     hh_proactive_scoring_prompt: {
       description: 'Показывает промпт и логику по которой оцениваются кандидаты при проактивном поиске. Вызывай когда рекрутер спрашивает "как вы подбирали", "покажи критерии", "почему этот кандидат" и т.п.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
-        return { text: buildScoringPromptText(userId) };
+        return { text: buildScoringPromptText(userId, args.vacancy_id) };
       },
     },
 
@@ -185,11 +185,14 @@ module.exports = {
 
     hh_proactive_view: {
       description: 'Открыть страницу с результатами проактивного поиска кандидатов. Возвращает ссылку на веб-страницу с пагинацией, скорингом и AI-оценкой.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const file = latestProactiveFile(userId);
+        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const vacancyId = args.vacancy_id || require('../../hh-cold-search-context').readSearchContext(workDir, 'active_vacancy')?.id;
+        if (!vacancyId) return { error: 'Сначала выбери вакансию.' };
+        const file = latestProactiveFile(userId, vacancyId);
         if (!file) {
           return { error: 'Результатов поиска нет. Запусти поиск командой hh_proactive_search.' };
         }
@@ -204,7 +207,7 @@ module.exports = {
             review_count: (data.candidates || []).filter(c => c.tag === 'REVIEW').length,
           };
         } catch {}
-        const url = proactiveUrl(userId);
+        const url = proactiveUrl(userId, vacancyId);
         return {
           url,
           ...meta,
