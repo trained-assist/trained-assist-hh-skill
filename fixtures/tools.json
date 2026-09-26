@@ -26,7 +26,7 @@
     },
     { "name": "hh_invite_resume", "validArgs": { "resume_id": "res-100", "vacancy_id": "vac-001" }, "expect": { "ok": true } },
     { "name": "hh_funnel_stats", "validArgs": {}, "expect": { "ok": true } },
-    { "name": "hh_extract_ats_config", "validArgs": { "vacancy_text": "Ищем Node.js разработчика" }, "expect": { "vacancy_title": "Инженер Node.js" } },
+    { "name": "hh_extract_ats_config", "validArgs": { "vacancy_text": "Ищем Node.js разработчика" }, "expect": { "ok": true } },
     {
       "name": "hh_evaluate_candidate",
       "validArgs": {
@@ -44,7 +44,7 @@
       "expect": { "negotiation_id": "neg-001" }
     },
     { "name": "hh_generate_message", "validArgs": { "negotiation_id": "neg-001" } },
-    { "name": "hh_set_rejection_template", "validArgs": {}, "expect": { "ok": true } },
+    { "name": "hh_set_rejection_template", "validArgs": { "template": "Здравствуйте, {firstName}!" }, "expect": { "saved": true } },
     { "name": "hh_get_messages", "validArgs": { "negotiation_id": "neg-001" } },
     { "name": "hh_send_message", "validArgs": { "negotiation_id": "neg-001", "message": "Здравствуйте!" }, "expect": { "ok": true } },
     { "name": "hh_batch_evaluate", "validArgs": { "vacancy_id": "vac-001" } },

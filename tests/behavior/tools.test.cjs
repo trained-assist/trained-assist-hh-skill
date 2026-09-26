@@ -26,9 +26,10 @@ test('every tool has a fixture and returns a valid MCP envelope', async () => {
     const { tools } = await f.mcp.call('tools/list');
     const covered = new Set(fixtures.map((x) => x.name));
     for (const tool of tools) assert.ok(covered.has(tool.name), `no fixture for tool ${tool.name}`);
+    assert.equal(fixtures.length, tools.length, 'fixture count must match the server tool catalog');
 
-    for (const tool of tools) {
-      const fixture = fixtures.find((x) => x.name === tool.name);
+    // Execute in fixture order (stateful fixtures: connect/token/active venue first).
+    for (const fixture of fixtures) {
       let result;
       try {
         result = await f.mcp.call('tools/call', { name: fixture.name, arguments: fixture.validArgs });
@@ -78,7 +79,7 @@ test('the LLM and the HH platform were exercised through the sanctioned mocks on
       name: 'hh_extract_ats_config',
       arguments: { vacancy_text: 'Ищем Node.js разработчика' },
     });
-    assert.equal(parseEnvelope(evaluated).vacancy_title, 'Инженер Node.js');
+    assert.equal(parseEnvelope(evaluated).config.required[0].name, 'Node.js', 'the scripted LLM answer must reach the result');
     assert.ok(f.llmRequests().length >= 1, 'the scripted LLM fixture must have been called');
     assert.ok(f.srv.state !== undefined);
   } finally {
