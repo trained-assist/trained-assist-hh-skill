@@ -89,3 +89,14 @@ test('the test harness does not mock the MCP registry', () => {
     assert.ok(!/src\/mcp-skills\/registry/.test(text), `${path.relative(ROOT, file)} imports (and could mock) the registry`);
   }
 });
+
+test('MCP tools/call response text goes through toolResultText (agent#1481)', () => {
+  const rel = 'src/mcp-skills/index.js';
+  const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const start = text.indexOf("'tools/call'");
+  assert.ok(start >= 0, `${rel}: tools/call branch not found`);
+  const branch = text.slice(start, text.indexOf('} else', start));
+  assert.match(branch, /toolResultText\(\s*name\s*,\s*result/, `${rel}: tools/call must build its text with toolResultText`);
+  assert.ok(!/JSON\.stringify\(\s*result/.test(text), `${rel}: must not JSON.stringify(result) directly — use toolResultText`);
+  assert.match(text, /require\(\s*['"]\.\/tool-result\.js['"]\s*\)/, `${rel}: must require ./tool-result.js`);
+});

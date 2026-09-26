@@ -5,6 +5,7 @@
 
 const readline = require('readline');
 const registry = require('./registry.js');
+const { toolResultText } = require('./tool-result.js');
 
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
@@ -46,7 +47,8 @@ rl.on('line', async (line) => {
     } else if (method === 'tools/call') {
       const { name, arguments: args } = params || {};
       const result = await registry.callTool(name, args || {});
-      const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      // Never hand the model an empty result (agent#1481): toolResultText substitutes an explicit marker.
+      const text = toolResultText(name, result);
       respond(id, { content: [{ type: 'text', text }] });
 
     } else {
