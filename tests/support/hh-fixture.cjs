@@ -23,7 +23,7 @@ async function createFixture({ connected = true, llm = false } = {}) {
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, 'http://localhost');
-      requests.push({ method: req.method, path: u.pathname, query: Object.fromEntries(u.searchParams), auth: req.headers.authorization });
+      requests.push({ method: req.method, path: u.pathname, query: Object.fromEntries(u.searchParams), search: u.search, auth: req.headers.authorization });
       res.setHeader('Content-Type', 'application/json');
       const send = (status, body) => { res.writeHead(status); res.end(JSON.stringify(body)); };
       if (req.method === 'GET' && u.pathname === '/employers/emp-fixture/vacancies/active') return send(200, { found: 1, items: [VACANCY] });

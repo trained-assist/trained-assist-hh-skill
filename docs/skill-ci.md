@@ -14,7 +14,8 @@
 | Browser | MCP → HH mock + LLM mock → снапшот → настоящий HTML в Chromium | `npm run test:browser` |
 
 Полный локальный прогон: `npm ci --include=dev`, `npx playwright install chromium`,
-`npm test`. Node 20.12+ / 22; CI закреплён на Node 22. Каждый слой идёт через
+`npm test && npm run test:staging` (гейт входит в CI, но не в `npm test`).
+Node 20.12+ / 22; CI закреплён на Node 22. Каждый слой идёт через
 `scripts/test-isolated.cjs`: очищает окружение, создаёт временные
 HOME/USERS_DIR/токены/данные и удаляет их после прогона. Nock 14 запрещает внешний
 HTTP; loopback разрешён для фикстур.
@@ -49,9 +50,12 @@ registry, handlers, transport, генератор HTML и снапшот-сто�
 ## CI vs Staging
 
 CI (каждый PR) — детерминированный replay, LLM = записанные фикстуры, сеть =
-loopback. Staging (post-merge) — живой прогон: настоящий control plane
-(`MCP_SKILL_SOURCES_CONFIG` + per-source `profiles`), живой Hermes, cheap-LLM
-судья. **LLM-судья — это staging, а не CI.**
+loopback. **LLM-судья — это staging, а не CI.** Целевая модель staging
+(post-merge): живой прогон — настоящий control plane (`MCP_SKILL_SOURCES_CONFIG`
++ per-source `profiles`), живой Hermes, cheap-LLM судья. Живой staging-монтаж в
+этом репозитории пока **не реализован** (планируется, см.
+`docs/requirements-log.md`); сейчас staging здесь — браузерный replay, а не
+живой прогон.
 
 ## Перенос на другой скил
 

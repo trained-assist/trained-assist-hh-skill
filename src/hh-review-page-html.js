@@ -1,13 +1,12 @@
 'use strict';
-const { dataRoot } = require('./data-paths.js');
+const { dataRoot, usersRoot } = require('./data-paths.js');
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { buildResumeText, resumeNotice } = require('./hh-resume');
 
-const BASE_USERS_DIR = process.env.USERS_DIR ||
-  path.join(process.env.HOME || '/home/vova', 'users');
+const BASE_USERS_DIR = usersRoot();
 
 // Generates the HH candidates review page HTML (moved from server.js, see issue #942 Phase 0).
 function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBase, dataDir, opts = {}) {

@@ -33,6 +33,8 @@ test('MCP cold search → HH + LLM fixtures → durable snapshot → real HTML �
     assert.equal(searches.length, 1);
     assert.equal(searches[0].query.text, 'Инженер Node.js');
     assert.equal(searches[0].query.area, '2');
+    assert.match(searches[0].search, /[?&]area=2(&|$)/);
+    assert.match(searches[0].search, /[?&]text=/);
     assert.equal(searches[0].auth, 'Bearer fixture-only');
     assert.ok(f.requests.every((r) => r.method === 'GET'));
     assert.equal(new URL(result.url).searchParams.get('vacancy_id'), '100');

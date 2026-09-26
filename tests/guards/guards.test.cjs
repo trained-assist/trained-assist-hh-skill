@@ -67,10 +67,12 @@ test('secrets are never logged', () => {
   }
 });
 
-test('profile paths go through the resolver, not hardcoded os.homedir()', () => {
+test('profile paths go through the resolver, not hardcoded homes', () => {
   for (const { rel, text } of source) {
     if (rel === path.join('src', 'data-paths.js')) continue;
     assert.ok(!/os\.homedir\s*\(/.test(text), `${rel} hardcodes os.homedir() — use src/data-paths.js`);
+    assert.ok(!/process\.env\.HOME\s*\|\|/.test(text), `${rel} builds a home fallback — use src/data-paths.js`);
+    assert.ok(!/['"`]\/home\/[A-Za-z]|['"`]\/Users\/[A-Za-z]/.test(text), `${rel} bakes an absolute home path`);
   }
 });
 

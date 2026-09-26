@@ -51,6 +51,8 @@ test('manifest identity is internally consistent', () => {
   assert.equal(source.repository, artifact.REPOSITORY);
   assert.equal(source.enabled, true);
   assert.ok(source.profiles.length > 0, 'profiles allowlist must not be empty');
+  const providerManifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'provider-manifest.json'), 'utf8'));
+  assert.deepEqual(source.approvedManifest, providerManifest, 'embedded approvedManifest drifted from provider-manifest.json');
 });
 
 // Two tools predate the hh_ namespacing and are pinned in core's approved

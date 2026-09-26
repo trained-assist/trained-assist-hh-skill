@@ -14,8 +14,8 @@ const {
   loadSchedule, saveSchedule,
 } = require('./hh-proactive-search');
 
-const BASE_USERS_DIR = process.env.USERS_DIR ||
-  path.join(process.env.HOME || '/home/vova', 'users');
+const { usersRoot } = require('./data-paths');
+const BASE_USERS_DIR = usersRoot();
 
 // Whether the recruiter's ATS config carries real (non-placeholder) interview time slots.
 // Used by the /hh message flows to decide whether to offer specific-time suggestions.
