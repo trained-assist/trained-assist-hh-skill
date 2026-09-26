@@ -6,7 +6,7 @@
 
 | Слой | Что проверяет | Команда |
 |---|---|---|
-| Contract (L1) | `mcp.manifest.json` против `contracts/mcp-skill-sources.schema.json`: `revision` — 40-hex коммит, `artifactDigest` sha256 и пересчитывается, паритет имён с `tools/list` реального сервера, отсутствие коллизий с core; плюс реальный core `ActionProviderRegistry` по закреплённому контракту | `npm run test:contract` |
+| Contract (L1) | `mcp.manifest.json` против `contracts/mcp-skill-sources.schema.json`: `revision` — 40-hex коммит, `artifactDigest` sha256 и пересчитывается, паритет имён с `tools/list` реального сервера, отсутствие коллизий с core. `manifest`/`approvedManifest` — строгий `action-provider-manifest.json` (core v1 отклоняет MCP-`description` из `provider-manifest.json`; вскрыто live-монтированием), и оба манифеста сверяются; реальный core `ActionProviderRegistry` принимает `approvedManifest` | `npm run test:contract` |
 | Behavior (L2) | каждый тул из манифеста имеет фикстуру (`fixtures/tools.json`) и отвечает валидным MCP-конвертом через настоящий subprocess по stdio; внешний HH — loopback-мок, LLM — записанная фикстура; ошибка не роняет процесс | `npm run test:behavior` |
 | Guards (L3) | статические гейты: quick-action-тулы не спавнят Claude/`runner.js`, у каждого исходящего HTTP есть таймаут, кред-файлы пишутся `mode 0o600`, секреты не логируются, пути профиля — только через `src/data-paths.js` | `npm run test:guards` |
 | Unit | существующие доменные сценарии, транспорт, изоляция вакансий/пользователей | `npm run test:unit` |

@@ -31,4 +31,5 @@
 ## Планируется
 
 - [планируется] Phase 2: извлечь harness в общий пакет `@trained-assist/mcp-skill-testkit` (devDependency).
-- [планируется] Staging-канарейка: смонтировать источник реальным control plane к sandbox-профилю и проверить live.
+- [планируется] Staging-канарейка в core (`trained-assist-agent`): смонтировать источник реальным control plane к sandbox-профилю на закреплённом SHA и проверить live (нужен sandbox-профиль с подключённым HH).
+- [реализовано] Локальный mount-canary (2026-09-26, core `prepare` → `activate` → `McpSkillSourceRegistry` → реальный MCP-процесс из смонтированного read-only артефакта, `tools/list`=37, вызов `hh_connect`): подтвердил, что источник реально монтируется. Вскрыл, что core v1 отклоняет `provider-manifest.json` из-за MCP-`description` → `mcp.manifest.json` переведён на строгий `action-provider-manifest.json`; L1-тест теперь прогоняет `approvedManifest` через реальный core-registry.

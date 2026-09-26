@@ -11,8 +11,12 @@ const path = require('path');
 const crypto = require('crypto');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const INCLUDED = ['provider-manifest.json', 'src'];
-const MANIFEST_PATH = 'provider-manifest.json';
+// The core-facing approved manifest is the strict v1 action descriptor:
+// core's ActionProviderRegistry rejects the MCP-only `description` field that
+// provider-manifest.json carries (found by the live mount canary). The
+// human/MCP-facing catalog stays in provider-manifest.json and is hashed too.
+const INCLUDED = ['provider-manifest.json', 'action-provider-manifest.json', 'src'];
+const MANIFEST_PATH = 'action-provider-manifest.json';
 const ENTRYPOINT = 'src/mcp-skills/index.js';
 const REPOSITORY = 'trained-assist/trained-assist-hh-skill';
 const MCP_SERVER_ID = 'hh-skills';
