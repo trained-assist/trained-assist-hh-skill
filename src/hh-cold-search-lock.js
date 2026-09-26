@@ -1,9 +1,10 @@
 'use strict';
+const { dataRoot } = require('./data-paths.js');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 function acquireSearchLock(username) {
-  const dir = path.join(process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data'), 'hh', String(username), 'proactive');
+  const dir = path.join(dataRoot(), 'hh', String(username), 'proactive');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'search.lock');
   try {

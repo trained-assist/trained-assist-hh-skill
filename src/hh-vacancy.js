@@ -1,4 +1,5 @@
 'use strict';
+const { usersRoot } = require('./data-paths.js');
 // Vacancy creation dialog — multi-turn message collection + Claude-based generation.
 
 const fs = require('fs');
@@ -454,7 +455,7 @@ async function publishVacancyPage(workDir, draft, vacancyId, username) {
     });
     if (!storeRes.ok) throw new Error(`Vacancy store failed: ${storeRes.status}`);
   } else {
-    const draftsDir = path.join(os.homedir(), 'users', username, 'vacancy-drafts');
+    const draftsDir = path.join(usersRoot(), String(username), 'vacancy-drafts');
     fs.mkdirSync(draftsDir, { recursive: true });
     fs.writeFileSync(path.join(draftsDir, `${vacancyId}.html`), html, 'utf8');
   }

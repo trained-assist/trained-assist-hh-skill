@@ -6,8 +6,14 @@
     "test": "node scripts/test-isolated.cjs all",
     "test:unit": "node scripts/test-isolated.cjs unit",
     "test:contract": "node scripts/test-isolated.cjs contract",
-    "test:staging": "node scripts/test-isolated.cjs staging",
+    "test:behavior": "node scripts/test-isolated.cjs behavior",
+    "test:guards": "node scripts/test-isolated.cjs guards",
+    "test:browser": "node scripts/test-isolated.cjs staging",
+    "test:replay": "node scripts/staging/run.mjs",
+    "test:staging": "node scripts/staging/run.mjs",
     "test:live": "node scripts/live-hh-smoke.cjs",
+    "manifest": "node scripts/build-mcp-manifest.cjs",
+    "manifest:check": "node scripts/build-mcp-manifest.cjs --check",
     "build:manifest": "node scripts/build-manifest.cjs"
   },
   "devDependencies": {

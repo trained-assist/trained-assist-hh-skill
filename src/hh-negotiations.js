@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot, tokensRoot } = require('./data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -225,7 +226,7 @@ function createHhNegotiations({ refreshHhToken, readChatId, getSecretsCache }) {
     if (_hhBgRunning.has(username)) return;
     _hhBgRunning.add(username);
     try {
-      const hhTokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+      const hhTokensBase = tokensRoot();
       const tokenFile = path.join(hhTokensBase, String(username), 'hh');
       if (!fs.existsSync(tokenFile)) return;
       let tokenData;
@@ -234,7 +235,7 @@ function createHhNegotiations({ refreshHhToken, readChatId, getSecretsCache }) {
 
       // workDir must match where Claude writes context (/run handler uses BASE_USERS_DIR)
       const workDir = path.join(BASE_USERS_DIR, String(username));
-      const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+      const dataDir = dataRoot();
 
       // active_vacancies[] — every vacancy this profile tracks concurrently (falls
       // back to the legacy singleton for profiles that never tracked a second one).
@@ -278,7 +279,7 @@ function createHhNegotiations({ refreshHhToken, readChatId, getSecretsCache }) {
     const CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
     async function run() {
-      const hhTokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+      const hhTokensBase = tokensRoot();
       if (!fs.existsSync(hhTokensBase)) return;
       const secrets = secretsArg || {};
 
@@ -306,7 +307,7 @@ function createHhNegotiations({ refreshHhToken, readChatId, getSecretsCache }) {
 
   function scheduleHhBackgroundScoring() {
     async function run() {
-      const hhTokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+      const hhTokensBase = tokensRoot();
       if (!fs.existsSync(hhTokensBase)) return;
       for (const username of fs.readdirSync(hhTokensBase)) {
         runHhScoringForUser(username).catch(() => {});

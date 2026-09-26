@@ -1,4 +1,5 @@
 'use strict';
+const { tokensRoot } = require('./data-paths.js');
 
 // Opt-in state + cadence gate for automatic cold-search ("проактивный поиск").
 //
@@ -21,7 +22,7 @@ const { createHmac } = require('crypto');
 const DEFAULT_INTERVAL_MIN = 60; // don't burn HH API / spam chat every 5 min
 
 function tokensBase() {
-  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  return tokensRoot();
 }
 
 function statePath(username) {

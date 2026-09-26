@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot, tokensRoot } = require('./data-paths.js');
 const { buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
 
 // Pure scoring utilities — no global state, no USER_ID dependency.
@@ -138,7 +139,7 @@ async function gcCall(credentials, messages, maxTokens = 2000, temperature = 0.1
 }
 
 function readGigachatKey(username) {
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const file = path.join(tokensBase, String(username), 'gigachat');
   if (fs.existsSync(file)) {
     const key = fs.readFileSync(file, 'utf8').trim();
@@ -295,7 +296,7 @@ function readAtsDraft(workDir, vacancyId) {
 }
 
 function readOrKey(username) {
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const file = path.join(tokensBase, String(username), 'openrouter');
   if (fs.existsSync(file)) {
     const key = fs.readFileSync(file, 'utf8').trim();
@@ -307,7 +308,7 @@ function readOrKey(username) {
 // ─── Candidate history ────────────────────────────────────────────────────────
 
 function candidateHistoryPath(username, negotiationId) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'candidates', `${negotiationId}.json`);
 }
 
@@ -347,7 +348,7 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
 
   const writeLog = (checked, scored) => {
     try {
-      const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+      const dataDir = dataRoot();
       const dir = path.join(dataDir, 'hh', String(username));
       fs.mkdirSync(dir, { recursive: true });
       const entry = {
@@ -414,7 +415,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
   const apiKey = readOrKey(username);
   if (!gigachatKey && !apiKey) return 0;
 
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const styleFile = path.join(tokensBase, String(username), 'hh-message-style');
   const commStyle = fs.existsSync(styleFile) ? fs.readFileSync(styleFile, 'utf8').trim() : null;
   const baseOverride = loadBaseOverride(tokensBase, username);

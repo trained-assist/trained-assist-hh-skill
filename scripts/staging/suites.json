@@ -1,0 +1,10 @@
+{
+  "node": [
+    "tests/contract/mcp-manifest.test.cjs",
+    "tests/contract/provider.test.cjs",
+    "tests/behavior/tools.test.cjs",
+    "tests/behavior/fake-provider.test.cjs",
+    "tests/guards/guards.test.cjs",
+    "scenarios/cold-search-replay/replay.test.cjs"
+  ]
+}
