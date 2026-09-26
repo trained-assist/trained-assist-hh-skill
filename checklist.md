@@ -5,7 +5,7 @@ Goal: применить полностью правила тестов и CI д
 (contract / behavior / guards), вендоренный детерминированный replay-гейт,
 сценарии + планы моков, мок ровно LLM и внешней сети.
 
-- [ ] CI green on https://github.com/trained-assist/trained-assist-hh-skill/pull/22
+- [x] CI green on https://github.com/trained-assist/trained-assist-hh-skill/pull/22
 - [ ] Merged to main
 - [ ] Deployed / mounted to staging — verified live
 
