@@ -1,4 +1,5 @@
 'use strict';
+const { tokensRoot, usersRoot } = require('../../data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -36,7 +37,7 @@ function proactiveUrl(username, vacancyId) {
 const { latestProactiveFile } = require('../../hh-cold-search-snapshots');
 
 module.exports = {
-  isReady: () => USER_ID ? fs.existsSync(path.join(os.homedir(), 'agent-tokens', USER_ID, 'hh')) : false,
+  isReady: () => USER_ID ? fs.existsSync(path.join(tokensRoot(), USER_ID, 'hh')) : false,
   setupTools: [],
   tools: {
     hh_proactive_search: {
@@ -45,7 +46,7 @@ module.exports = {
       handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const workDir = path.join(usersRoot(), userId);
         try {
           const result = await runProactiveSearch(userId, workDir, {
             vacancyId: args.vacancy_id,
@@ -100,7 +101,7 @@ module.exports = {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const workDir = path.join(usersRoot(), userId);
         let resolved;
         try { resolved = require('../../hh-cold-search-context').resolveSearchContext(workDir); }
         catch (e) { return { error: e.message }; }
@@ -158,7 +159,7 @@ module.exports = {
       handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const workDir = path.join(usersRoot(), userId);
         const vacancyId = args.vacancy_id || require('../../hh-cold-search-context').readSearchContext(workDir, 'active_vacancy')?.id;
         if (!vacancyId) return { error: 'Сначала выбери вакансию.' };
         const file = latestProactiveFile(userId, vacancyId);
@@ -200,7 +201,7 @@ module.exports = {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+        const workDir = path.join(usersRoot(), userId);
         const { getSchedules, updateSchedule, disableSearches, deliveryEnabled } = require('../../hh-cold-search-schedule');
         if (action === 'notifications_off' || action === 'notifications_on') {
           return { ok: true, notifications_enabled: false, retired: true, scope: 'global',

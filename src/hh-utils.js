@@ -1,4 +1,5 @@
 'use strict';
+const { tokensRoot } = require('./data-paths.js');
 // Shared HH utilities — used by 90-hh.js (MCP) and hh-quick.js (runner quick answers).
 // Single source of truth for token reading, context I/O, and HH API HTTP.
 
@@ -11,7 +12,7 @@ function hhApiBase() {
 }
 
 function hhTokenBase() {
-  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  return tokensRoot();
 }
 
 function hhTokenPath(userId) {
@@ -117,7 +118,7 @@ async function hhPut(apiPath, token, body) {
 // file in place with the fresh access/refresh pair. Returns the new access_token or null.
 async function refreshHhToken(userId, secrets) {
   if (!secrets?.HH_CLIENT_ID || !secrets?.HH_CLIENT_SECRET) {
-    console.warn('[hh-refresh] no HH_CLIENT_ID/SECRET in env — cannot refresh');
+    console.warn('[hh-refresh] HH OAuth client credentials are not configured — cannot refresh');
     return null;
   }
   const file = hhTokenPath(userId);
@@ -150,7 +151,7 @@ async function refreshHhToken(userId, secrets) {
       saved_at: new Date().toISOString(),
     };
     fs.writeFileSync(file, JSON.stringify(updated, null, 2), { mode: 0o600 });
-    console.log(`[hh-refresh] refreshed HH token for ${userId}`);
+    console.log(`[hh-refresh] refreshed HH credentials for ${userId}`);
     return data.access_token;
   } catch (e) {
     console.error(`[hh-refresh] error for ${userId}: ${e.message}`);

@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot, tokensRoot, usersRoot } = require('./data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -242,7 +243,7 @@ function deriveFallbackQueries(cfg) {
 // crash mid-write never corrupts the file. Schema:
 //   { "<vacancy_id>": { "<hh_resume_id>": "ISO date when first seen", ... }, ... }
 function seenIdsPath(username) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'proactive', 'seen-ids.json');
 }
 
@@ -299,7 +300,7 @@ function mergeSeenIds(username, vacancyId, collectedIds) {
 // vacancy today is the same person if added manually tomorrow).
 // Schema: { "<hh_resume_id>": { ...candidate fields, source, found_at|added_at }, ... }
 function allCandidatesPath(username) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'proactive', 'all-candidates.json');
 }
 
@@ -459,7 +460,7 @@ function parseResumeId(input) {
 // causing stale / wrong queries to survive a vacancy switch.
 // Schema: { vacancy_id, queries: string[], config_hash: string, generated_at: ISO }
 function queriesStorePath(username, vacancyId) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'proactive', `queries-${vacancyId}.json`);
 }
 
@@ -510,7 +511,7 @@ function saveStoredQueries(username, vacancyId, queries, configHash) {
 // --- Candidate comments (for search refinement) ---
 
 function commentsPath(username, vacancyId) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'proactive', vacancyId ? `candidate-comments-${encodeURIComponent(vacancyId)}.json` : 'candidate-comments.json');
 }
 
@@ -658,7 +659,7 @@ ${exclusionsBlock}
 // Scoring explanation shown to the recruiter on request — built from the latest actual
 // run's ats_config + generated queries, not a static domain-specific description.
 function buildScoringPromptText(username, vacancyId) {
-  const workDir = path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), String(username));
+  const workDir = path.join(usersRoot(), String(username));
   const { readSearchContext } = require('./hh-cold-search-context');
   const id = vacancyId || readSearchContext(workDir, 'active_vacancy')?.id;
   if (!id) return 'Сначала выбери вакансию.';
@@ -723,7 +724,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const searchAreas = resolveSearchAreas(atsConfig, activeVacancy, options);
 
   // Read OpenRouter key for AI enrichment + query generation
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const orKeyFile = path.join(tokensBase, String(username), 'openrouter');
   const orKey = fs.existsSync(orKeyFile) ? fs.readFileSync(orKeyFile, 'utf8').trim() : (process.env.OPENROUTER_API_KEY || '');
 
@@ -852,7 +853,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
 
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 10);
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   const outDir = path.join(dataDir, 'hh', username, 'proactive');
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -917,9 +918,9 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
   try { release = require('./hh-cold-search-lock').acquireSearchLock(username); }
   catch (error) { if (error.code === 'SEARCH_BUSY') return 0; throw error; }
   try {
-    const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+    const dataDir = dataRoot();
     const dir = path.join(dataDir, 'hh', String(username), 'proactive');
-    const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+    const tokensBase = tokensRoot();
     const keyFile = path.join(tokensBase, String(username), 'openrouter');
     const key = fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : (process.env.OPENROUTER_API_KEY || '');
     if (!key) return 0;
@@ -959,7 +960,7 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
 // Per-user proactive search schedule config.
 // Schema: { enabled: bool, interval_hours: number, last_run: ISO|null }
 function schedulePath(username) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'proactive', 'schedule.json');
 }
 

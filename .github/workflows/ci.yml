@@ -10,38 +10,77 @@ concurrency:
   group: hh-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  unit:
-    uses: ./.github/workflows/skill-ci-reusable.yml
-    with:
-      suite: unit
+  # L1 — contract: mcp.manifest.json vs the mcp-skill-sources schema, artifact
+  # digest, tool-name parity with the real server's tools/list.
   contract:
     uses: ./.github/workflows/skill-ci-reusable.yml
     with:
       suite: contract
+  # L2 — behavior: the real MCP server over stdio against replay fixtures.
+  behavior:
+    uses: ./.github/workflows/skill-ci-reusable.yml
+    with:
+      suite: behavior
+  # L3 — guards: static mirrors of the core gates (no Claude spawn, timeouts,
+  # data-path resolver, credential modes, secrets never logged).
+  guards:
+    uses: ./.github/workflows/skill-ci-reusable.yml
+    with:
+      suite: guards
+  # Domain unit suite (vitest + legacy node runners), hermetic.
+  unit:
+    uses: ./.github/workflows/skill-ci-reusable.yml
+    with:
+      suite: unit
+  # Browser journey (Chromium) — same replay, real generated HTML.
   browser:
     uses: ./.github/workflows/skill-ci-reusable.yml
     with:
       suite: staging
   ci:
     name: ci
-    needs: [unit, contract]
+    needs: [contract, behavior, guards, unit]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require successful unit and consumer-contract suites
+      - name: Require successful contract, behavior, guards and unit suites
         env:
-          UNIT_RESULT: ${{ needs.unit.result }}
           CONTRACT_RESULT: ${{ needs.contract.result }}
-        run: test "$UNIT_RESULT" = success && test "$CONTRACT_RESULT" = success
+          BEHAVIOR_RESULT: ${{ needs.behavior.result }}
+          GUARDS_RESULT: ${{ needs.guards.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+        run: test "$CONTRACT_RESULT" = success && test "$BEHAVIOR_RESULT" = success && test "$GUARDS_RESULT" = success && test "$UNIT_RESULT" = success
   staging-gate:
     name: staging-gate
-    needs: browser
+    needs: [contract, behavior, guards, unit, browser]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 15
     steps:
-      - name: Require successful executable browser scenario
+      - name: Require successful upstream suites
         env:
+          CONTRACT_RESULT: ${{ needs.contract.result }}
+          BEHAVIOR_RESULT: ${{ needs.behavior.result }}
+          GUARDS_RESULT: ${{ needs.guards.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
-        run: test "$BROWSER_RESULT" = success
+        run: test "$CONTRACT_RESULT" = success && test "$BEHAVIOR_RESULT" = success && test "$GUARDS_RESULT" = success && test "$UNIT_RESULT" = success && test "$BROWSER_RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      # Deterministic replay only: real MCP server + fixtures under the
+      # isolation guard. The LLM judge belongs to staging, never here.
+      - run: npm run test:staging
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: staging-results/
+          retention-days: 7

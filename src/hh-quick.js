@@ -1,4 +1,5 @@
 'use strict';
+const { usersRoot } = require('./data-paths.js');
 // HH quick-answer handlers — API calls without Claude.
 // Each function returns a formatted string or null (fall through to Claude).
 
@@ -9,8 +10,7 @@ const { readHhToken, readHhContext, writeHhContext, hhFetch } = require('./hh-ut
 
 function _hhWorkDir(userId) {
   // Must match BASE_USERS_DIR in server.js — Claude writes contexts here via cwd
-  const usersRoot = process.env.USERS_DIR || path.join(process.env.HOME || os.homedir(), 'users');
-  return path.join(usersRoot, String(userId));
+  return path.join(usersRoot(), String(userId));
 }
 
 const CACHE_TTL_MS = 4 * 60 * 1000; // 4 min

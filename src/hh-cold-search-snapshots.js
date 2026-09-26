@@ -1,9 +1,10 @@
 'use strict';
+const { dataRoot } = require('./data-paths.js');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 function latestProactiveFile(username, vacancyId) {
-  const dir = path.join(process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data'), 'hh', username, 'proactive');
+  const dir = path.join(dataRoot(), 'hh', username, 'proactive');
   let files;
   try { files = fs.readdirSync(dir); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
   return files.filter(f => /^search-results-.*\.json$/.test(f)).map(f => {

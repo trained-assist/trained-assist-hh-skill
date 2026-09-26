@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot, tokensRoot } = require('../../data-paths.js');
 const { hydrateResume, buildResumeText, resumeHash, RESUME_VERSION } = require('../../hh-resume');
 
 const fs = require('fs');
@@ -69,7 +70,7 @@ function removeActiveVacancy(vacancyId) {
 const { readHhToken: _readHhTokenUtil, hhTokenPath, hhFetch: hhGet, hhPost, hhPut, hhPostForm } = require('../../hh-utils');
 
 function tokenBase() {
-  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  return tokensRoot();
 }
 
 function orKeyPath(userId) {
@@ -189,6 +190,7 @@ function llmCall(apiKey, model, messages, maxTokens = 2000, temperature = 0.1) {
         } catch (e) { reject(e); }
       });
     });
+    req.setTimeout(30_000, () => req.destroy(new Error('openrouter timeout')));
     req.on('error', reject);
     req.write(body);
     req.end();
@@ -1677,7 +1679,7 @@ module.exports = {
           agentSecret: process.env.AGENT_SECRET || '',
           rejectionTemplate: loadRejectionTemplate(USER_ID),
         });
-        const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+        const dataDir = dataRoot();
         const filePath = output_path || path.join(dataDir, `hh-review-${Date.now()}.html`);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, html, 'utf8');
@@ -2026,7 +2028,7 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
 // ── Per-candidate history ───────────────────────────────────────────────────
 
 function candidateHistoryPath(userId, negotiationId) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(userId || USER_ID), 'candidates', `${negotiationId}.json`);
 }
 

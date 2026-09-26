@@ -1,0 +1,78 @@
+{
+  "comment": "L2 behavior fixtures: one entry per tool in mcp.manifest.json. validArgs are schema-valid arguments for a connected fixture profile; expect is an optional subset of the parsed tools/call result. External HH is the loopback mock (tests/helpers/mock-hh-server.js); the LLM is the scripted nock fixture (tests/support/llm-provider-fixture.cjs). Neither the registry nor the server is mocked.",
+  "tools": [
+    { "name": "hh_connect", "validArgs": {} },
+    { "name": "hh_status", "validArgs": {}, "expect": { "connected": true } },
+    { "name": "hh_set_token", "validArgs": { "access_token": "fixture-only" }, "expect": { "ok": true } },
+    { "name": "hh_list_vacancies", "validArgs": {}, "expect": { "total": 2 } },
+    { "name": "hh_set_active_vacancy", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "ok": true } },
+    { "name": "hh_list_responses", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "total": 3 } },
+    { "name": "hh_search_resumes", "validArgs": {}, "expect": { "total": 4 } },
+    {
+      "name": "hh_evaluate_resume",
+      "validArgs": {
+        "resume_id": "res-001",
+        "ats_config": {
+          "vacancy_title": "Инженер Node.js",
+          "vacancy_context": "fixture",
+          "knockout": [],
+          "required": [{ "name": "Node.js", "weight": 2 }],
+          "preferred": [],
+          "pass_threshold": 6.5,
+          "review_threshold": 4
+        }
+      },
+      "expect": { "resume_id": "res-001" }
+    },
+    { "name": "hh_invite_resume", "validArgs": { "resume_id": "res-100", "vacancy_id": "vac-001" }, "expect": { "ok": true } },
+    { "name": "hh_funnel_stats", "validArgs": {}, "expect": { "ok": true } },
+    { "name": "hh_extract_ats_config", "validArgs": { "vacancy_text": "Ищем Node.js разработчика" }, "expect": { "ok": true } },
+    {
+      "name": "hh_evaluate_candidate",
+      "validArgs": {
+        "negotiation_id": "neg-001",
+        "ats_config": {
+          "vacancy_title": "Инженер Node.js",
+          "vacancy_context": "fixture",
+          "knockout": [],
+          "required": [{ "name": "Node.js", "weight": 2 }],
+          "preferred": [],
+          "pass_threshold": 6.5,
+          "review_threshold": 4
+        }
+      },
+      "expect": { "negotiation_id": "neg-001" }
+    },
+    { "name": "hh_generate_message", "validArgs": { "negotiation_id": "neg-001" } },
+    { "name": "hh_set_rejection_template", "validArgs": { "template": "Здравствуйте, {firstName}!" }, "expect": { "saved": true } },
+    { "name": "hh_get_messages", "validArgs": { "negotiation_id": "neg-001" } },
+    { "name": "hh_send_message", "validArgs": { "negotiation_id": "neg-001", "message": "Здравствуйте!" }, "expect": { "ok": true } },
+    { "name": "hh_batch_evaluate", "validArgs": { "vacancy_id": "vac-001" } },
+    { "name": "hh_regenerate_messages", "validArgs": { "vacancy_id": "vac-001" } },
+    {
+      "name": "hh_draft_review_page",
+      "validArgs": {
+        "candidates": [{ "name": "Иван Иванов", "verdict": "ПРОПУСТИТЬ", "score": 7.5, "reasoning": "fixture" }],
+        "vacancy_name": "Инженер Node.js"
+      }
+    },
+    { "name": "hh_move_candidate", "validArgs": { "negotiation_id": "neg-001", "action": "consider" }, "expect": { "ok": true } },
+    { "name": "hh_bulk_reject", "validArgs": { "vacancy_ids": ["vac-001"], "dry_run": true } },
+    { "name": "hh_open_ats_editor", "validArgs": {} },
+    { "name": "hh_candidate_profile", "validArgs": { "negotiation_id": "neg-001" } },
+    { "name": "hh_vacancy_get_draft", "validArgs": {} },
+    { "name": "hh_vacancy_update_draft", "validArgs": { "name": "Инженер Node.js" } },
+    { "name": "hh_vacancy_create_draft", "validArgs": { "name": "Инженер Node.js", "description_md": "Ищем backend-разработчика" } },
+    { "name": "hh_vacancy_publish_page", "validArgs": {} },
+    { "name": "hh_discover", "validArgs": { "query": "get me" } },
+    { "name": "hh_api_call", "validArgs": { "method": "GET", "path": "/me" } },
+    { "name": "cold_message_generate", "validArgs": { "vacancy_description": "Ищем Node.js разработчика" } },
+    { "name": "rejection_with_feedback", "validArgs": { "candidate_name": "Иван Иванов", "reason": "experience_mismatch" } },
+    { "name": "hh_proactive_search", "validArgs": {} },
+    { "name": "hh_proactive_scoring_prompt", "validArgs": {} },
+    { "name": "hh_proactive_queries", "validArgs": { "action": "view" } },
+    { "name": "hh_proactive_view", "validArgs": {} },
+    { "name": "hh_proactive_schedule", "validArgs": { "action": "status" } },
+    { "name": "hh_deactivate_vacancy", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "ok": true } }
+  ]
+}

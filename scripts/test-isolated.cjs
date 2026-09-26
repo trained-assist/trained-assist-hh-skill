@@ -8,6 +8,8 @@ const repo = path.resolve(__dirname, '..');
 const suites = {
   unit: [['node_modules/vitest/vitest.mjs', 'run'], ['--test', 'tests/*.run.cjs']],
   contract: [['--test', 'tests/contract/*.test.cjs']],
+  behavior: [['--test', 'tests/behavior/*.test.cjs']],
+  guards: [['--test', 'tests/guards/*.test.cjs']],
   staging: [['node_modules/@playwright/test/cli.js', 'test']],
 };
 const selected = process.argv[2] || 'all';

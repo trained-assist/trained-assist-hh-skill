@@ -1,0 +1,1295 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "hh",
+      "providerId": "hh",
+      "mcpServerId": "hh-skills",
+      "repository": "trained-assist/trained-assist-hh-skill",
+      "revision": "f71573ce57f925666c707d924933731e12cf099e",
+      "manifestVersion": 1,
+      "artifactDir": ".",
+      "entrypoint": "src/mcp-skills/index.js",
+      "manifest": "provider-manifest.json",
+      "artifactDigest": "dc3afd6776bd5a1b44d0b3f287d2ce7d41519359b18f38d89d59b44d1348b9da",
+      "approvedManifest": {
+        "version": 1,
+        "providerId": "hh",
+        "actions": [
+          {
+            "name": "hh_connect",
+            "description": "Generate a one-time OAuth2 link to connect HeadHunter account. Use when user asks to connect / authorize HH.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_status",
+            "description": "Check HeadHunter connection status. Shows employer info if connected.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_set_token",
+            "description": "Save HeadHunter access token. Get it from hh.ru API settings or via OAuth flow.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "access_token": {
+                  "type": "string",
+                  "description": "HH access token"
+                },
+                "refresh_token": {
+                  "type": "string",
+                  "description": "HH refresh token (optional but recommended)"
+                },
+                "employer_id": {
+                  "type": "string",
+                  "description": "Employer ID — find it in hh.ru company URL or /me response"
+                }
+              },
+              "required": [
+                "access_token"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_set_active_vacancy",
+            "description": "Set the active vacancy for this HH session. Saves to persistent context so hh_batch_evaluate and cron jobs use it automatically. If vacancy_id is omitted — lists available vacancies for the user to pick from.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID to set as active. Omit to list all vacancies."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_deactivate_vacancy",
+            "description": "Stop tracking a vacancy (removes it from the active set used by web review tabs, proactive search and the pinned Telegram summary). Does not touch the vacancy on hh.ru itself — only local tracking state.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID to stop tracking."
+                }
+              },
+              "required": [
+                "vacancy_id"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_list_vacancies",
+            "description": "List open vacancies for the connected employer on hh.ru.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "archived",
+                    "hidden"
+                  ],
+                  "description": "Vacancy status filter (default: active)"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_list_responses",
+            "description": "List candidate responses (negotiations) for a vacancy. Returns candidate names, states, and negotiation IDs for further processing.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID from hh_list_vacancies"
+                },
+                "state": {
+                  "type": "string",
+                  "description": "Filter by state: response, consider, phone_interview, assessment, interview, offer, hired, discard. Default: response (new responses)"
+                },
+                "page": {
+                  "type": "number",
+                  "description": "Page number (default 0)"
+                }
+              },
+              "required": [
+                "vacancy_id"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_search_resumes",
+            "description": "РЕАЛЬНЫЙ холодный поиск резюме через API HH (не boolean_search — тот только генерирует строки для ручного поиска в интерфейсе HH). Поиск по базе резюме HH релевантных профилей — БЕЗ открытия контактов: возвращает список анонимных/сокращённых профилей (имя и контакты скрыты, пока их явно не открыли), рекрутёр сам решает, кого открывать/приглашать. Сам список НЕ требует платного доступа к базе резюме — платный пакет нужен только на следующем шаге, когда открываешь контакт кандидата (hh_invite_resume); если пакета нет или он исчерпан, ошибку прав доступа вернёт именно тот шаг, а не сам поиск. РУЧНОЙ поиск по своим фильтрам — не путать с hh_proactive_search (тот делает поиск+скоринг+публикацию за один вызов и предпочтителен для просьб «холодный поиск»/«прогрей базу» без уточнений). Используй этот инструмент (не hh_api_call/hh_discover), когда рекрутёр просит поиск с конкретными фильтрами вне критериев вакансии (свой text/area/skill), либо явно просит именно ручной список резюме. Проще всего передать только vacancy_id — HH сам подберёт похожие резюме по роли/региону/ключевым словам вакансии (как «похожие вакансии», но для резюме). Для точного поиска задавай text/area/professional_role/experience сам. ВАЖНО: professional_role, area, text, skill и т.п. принимают НЕСКОЛЬКО значений как МАССИВ (каждое уйдёт отдельным query-параметром) — никогда не соединяй значения через запятую в одну строку, HH это не поддерживает и вернёт 400.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "ID вакансии — HH подберёт похожие резюме автоматически (рекомендуемый способ для быстрого старта холодного поиска)."
+                },
+                "text": {
+                  "description": "Поисковая фраза(ы). Строка или массив строк — каждая уточняет поиск.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "area": {
+                  "description": "ID региона(ов) из /areas (например \"2\" — СПб). Строка или массив.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "professional_role": {
+                  "description": "ID профессиональной роли(ей) из /professional_roles. Строка или массив — НЕ через запятую.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "experience": {
+                  "description": "Опыт работы: noExperience | between1And3 | between3And6 | moreThan6. Строка или массив.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "skill": {
+                  "description": "ID ключевых навыков (из подсказок HH). Строка или массив.",
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "age_from": {
+                  "type": "number"
+                },
+                "age_to": {
+                  "type": "number"
+                },
+                "salary_from": {
+                  "type": "number"
+                },
+                "salary_to": {
+                  "type": "number"
+                },
+                "order_by": {
+                  "type": "string",
+                  "description": "Сортировка, см. resume_search_order в справочнике HH. По умолчанию — релевантность."
+                },
+                "page": {
+                  "type": "number",
+                  "description": "Номер страницы, с 0 (по умолчанию 0)."
+                },
+                "per_page": {
+                  "type": "number",
+                  "description": "Кол-во на странице, макс 100 (по умолчанию 20)."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_evaluate_resume",
+            "description": "Оценить резюме из холодного поиска (hh_search_resumes) той же ATS-рубрикой, что и отклики — но БЕЗ отклика/переписки, по самому резюме. Используй после hh_search_resumes, до приглашения (hh_invite_resume), чтобы не звать вслепую.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "resume_id": {
+                  "type": "string",
+                  "description": "ID резюме из hh_search_resumes."
+                },
+                "ats_config": {
+                  "type": "object",
+                  "description": "ATS config от hh_extract_ats_config (или свой). Обязательные поля: knockout[], required[], preferred[], pass_threshold, review_threshold."
+                }
+              },
+              "required": [
+                "resume_id",
+                "ats_config"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_invite_resume",
+            "description": "Пригласить кандидата из холодного поиска на вакансию (POST /negotiations/phone_interview на hh.ru) — превращает найденное резюме в полноценный отклик/переписку, дальше работает как с обычным откликом (hh_get_messages, hh_send_message). Списывает контакт кандидата с баланса услуги базы резюме — сначала покажи текст сообщения рекрутёру и дождись подтверждения.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "resume_id": {
+                  "type": "string",
+                  "description": "ID резюме (из hh_search_resumes)."
+                },
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "ID вакансии, на которую приглашаем."
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Текст приглашения кандидату (на email)."
+                },
+                "send_sms": {
+                  "type": "boolean",
+                  "description": "Также отправить SMS-уведомление (стандартный текст, не редактируется). По умолчанию false."
+                }
+              },
+              "required": [
+                "resume_id",
+                "vacancy_id"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "destructive",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "hh_funnel_stats",
+            "description": "Fast snapshot of the recruiting funnel for the active vacancy — counts candidates by stage, unread applicant messages, new responses. No LLM, sub-second (score breakdown reads cached ATS results from disk only, never triggers scoring). Use in digest crons and monitoring.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID. Omit to read from context (active_vacancy)."
+                },
+                "notify_threshold": {
+                  "type": "number",
+                  "description": "Optional 0-100 ATS score cutoff. When set (>0), also returns new_responses_above_threshold / new_responses_pending_score by reading each new candidate's cached ats_result — no LLM call, unscored candidates just count as pending."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_extract_ats_config",
+            "description": "Generate ATS evaluation config from vacancy text using LLM. Returns knockout criteria, required/preferred skills with weights, and score thresholds. Recruiter reviews and adjusts before using.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_text": {
+                  "type": "string",
+                  "description": "Full vacancy description text"
+                }
+              },
+              "required": [
+                "vacancy_text"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_evaluate_candidate",
+            "description": "Evaluate a candidate response (resume + cover letter) using LLM-based ATS scoring. Returns score 0-10, verdict (ПРОПУСТИТЬ / УТОЧНИТЬ / ОТКЛОНИТЬ), matched strengths, and gaps.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "negotiation_id": {
+                  "type": "string",
+                  "description": "Negotiation ID from hh_list_responses"
+                },
+                "ats_config": {
+                  "type": "object",
+                  "description": "ATS config from hh_extract_ats_config (or custom). Must have: knockout[], required[], preferred[], pass_threshold, review_threshold."
+                }
+              },
+              "required": [
+                "negotiation_id",
+                "ats_config"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_generate_message",
+            "description": "Generate a personalized message for a candidate. Types: initial (first outreach with all qualification questions at once), followup (reminder if no reply), invite_call (invite to 15-min call). Reads candidate history automatically.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "negotiation_id": {
+                  "type": "string",
+                  "description": "Negotiation ID"
+                },
+                "message_type": {
+                  "type": "string",
+                  "enum": [
+                    "initial",
+                    "followup",
+                    "invite_call",
+                    "rejection"
+                  ],
+                  "description": "Message type (default: initial). rejection — uses stored template, no LLM"
+                },
+                "ats_result": {
+                  "type": "object",
+                  "description": "ATS evaluation result from hh_evaluate_candidate (optional — improves message quality)"
+                },
+                "vacancy_context": {
+                  "type": "string",
+                  "description": "Brief vacancy description for context (1-2 sentences)"
+                }
+              },
+              "required": [
+                "negotiation_id"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_set_rejection_template",
+            "description": "Get or set the rejection message template. Use {firstName} as placeholder. No args — returns current template. Pass template to save it.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "template": {
+                  "type": "string",
+                  "description": "New template text with {firstName} placeholder. Omit to just view current template."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_get_messages",
+            "description": "Get message history for a candidate negotiation thread from hh.ru.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "negotiation_id": {
+                  "type": "string",
+                  "description": "Negotiation ID"
+                }
+              },
+              "required": [
+                "negotiation_id"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_send_message",
+            "description": "Send a message to a candidate in a negotiation thread on hh.ru. Always show the message to recruiter for confirmation before calling this.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "negotiation_id": {
+                  "type": "string",
+                  "description": "Negotiation ID"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Message text to send"
+                }
+              },
+              "required": [
+                "negotiation_id",
+                "message"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "external_message",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "hh_batch_evaluate",
+            "description": "Batch evaluate all candidates on a vacancy: fetch responses, skip inactive (>max_days_inactive), evaluate each with ATS scoring. SKIPS candidates already scored by background process (idempotent). Returns sorted results ready for hh_draft_review_page. If all candidates are already scored, returns instantly with cached results. If vacancy_id is omitted — reads from context (set with hh_set_active_vacancy).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID. Omit to use the active vacancy from context (hh_set_active_vacancy)."
+                },
+                "ats_config": {
+                  "type": "object",
+                  "description": "ATS config from hh_extract_ats_config. Omit to use saved config from context."
+                },
+                "max_days_inactive": {
+                  "type": "number",
+                  "description": "Skip candidates with no activity for this many days (default: 14)"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_regenerate_messages",
+            "description": "Force-regenerate the draft message for ALL already-evaluated candidates on a vacancy using the CURRENT ats_config/interview_config. Use this right after editing the message prompt/interview_config (e.g. in the ATS editor) so every candidate draft reflects the new rules — this is the \"update all written candidate messages\" trigger. Unlike hh_batch_evaluate, it ignores config_version caching and overwrites existing drafts unconditionally. Does NOT send anything — drafts only, review/send separately via hh_draft_review_page or /hh/review. Skips candidates with verdict ОТКЛОНИТЬ (rejections use a separate flow) and candidates with no ats_result yet (run hh_batch_evaluate first). If vacancy_id is omitted — reads from context (set with hh_set_active_vacancy).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID. Omit to use the active vacancy from context (hh_set_active_vacancy)."
+                },
+                "ats_config": {
+                  "type": "object",
+                  "description": "ATS config override. Omit to use saved config from context — this is what you want right after editing the config."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_draft_review_page",
+            "description": "Generate HTML review page with all evaluated candidates, their scores, and draft messages for recruiter approval. Opens for review. Returns file path.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "candidates": {
+                  "type": "array",
+                  "description": "Candidates array from hh_batch_evaluate results"
+                },
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID — picks the right per-vacancy ATS config for draft caching. Omit to use the active vacancy from context."
+                },
+                "vacancy_name": {
+                  "type": "string",
+                  "description": "Vacancy name for the page title"
+                },
+                "vacancy_context": {
+                  "type": "string",
+                  "description": "Brief vacancy description for message generation context"
+                },
+                "output_path": {
+                  "type": "string",
+                  "description": "Where to save the HTML file (default: ~/agent-data/hh-review-{timestamp}.html)"
+                }
+              },
+              "required": [
+                "candidates",
+                "vacancy_name"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_move_candidate",
+            "description": "Move a candidate negotiation to a different ATS state on hh.ru.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "negotiation_id": {
+                  "type": "string",
+                  "description": "Negotiation ID"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "consider",
+                    "phone_interview",
+                    "assessment",
+                    "interview",
+                    "offer",
+                    "hired",
+                    "discard"
+                  ],
+                  "description": "Target action/state"
+                }
+              },
+              "required": [
+                "negotiation_id",
+                "action"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "destructive",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "hh_bulk_reject",
+            "description": "Reject all active candidates on one or more vacancies using \"discard_vacancy_closed\" (вакансия закрыта). Use for healthy HH account hygiene — run daily or when closing a vacancy. Returns summary of what was rejected.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "List of vacancy IDs to process"
+                },
+                "states": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "States to reject from (default: all active stages)"
+                },
+                "dry_run": {
+                  "type": "boolean",
+                  "description": "If true — show what would be rejected without actually doing it"
+                }
+              },
+              "required": [
+                "vacancy_ids"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "destructive",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "hh_open_ats_editor",
+            "description": "Open the ATS Template Editor — a visual web page for designing the recruiting pipeline stages and ATS scoring config. Saves to context on click. Returns the URL to open in a browser.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_candidate_profile",
+            "description": "Generate a clean markdown candidate profile for showing to a client/hiring manager. Takes negotiation_id and optional vacancy context.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "negotiation_id": {
+                  "type": "string",
+                  "description": "Negotiation ID"
+                },
+                "vacancy_context": {
+                  "type": "string",
+                  "description": "Role context for the profile (what to highlight)"
+                },
+                "ats_result": {
+                  "type": "object",
+                  "description": "ATS result from hh_evaluate_candidate (optional)"
+                }
+              },
+              "required": [
+                "negotiation_id"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_vacancy_get_draft",
+            "description": "Read the current vacancy draft in JSON format. Use when recruiter asks to see or edit the vacancy.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_vacancy_update_draft",
+            "description": "Update fields in the current vacancy draft. Pass only the fields you want to change.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Job title"
+                },
+                "description_md": {
+                  "type": "string",
+                  "description": "Full job description in Markdown"
+                },
+                "area_name": {
+                  "type": "string",
+                  "description": "City/region name in Russian"
+                },
+                "salary_from": {
+                  "type": "number"
+                },
+                "salary_to": {
+                  "type": "number"
+                },
+                "salary_currency": {
+                  "type": "string",
+                  "enum": [
+                    "RUR",
+                    "USD",
+                    "EUR"
+                  ]
+                },
+                "salary_gross": {
+                  "type": "boolean"
+                },
+                "experience": {
+                  "type": "string",
+                  "enum": [
+                    "noExperience",
+                    "between1And3",
+                    "between3And6",
+                    "moreThan6"
+                  ]
+                },
+                "employment": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "part",
+                    "project",
+                    "volunteer",
+                    "probation"
+                  ]
+                },
+                "schedule": {
+                  "type": "string",
+                  "enum": [
+                    "fullDay",
+                    "shift",
+                    "flexible",
+                    "remote",
+                    "flyInFlyOut"
+                  ]
+                },
+                "key_skills": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "company_name": {
+                  "type": "string"
+                },
+                "company_description": {
+                  "type": "string"
+                },
+                "hiring_stages": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Этапы отбора, например [\"Скрининг\", \"Интервью\", \"Оффер\"]"
+                },
+                "response_letter_required": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_vacancy_create_draft",
+            "description": "Create or overwrite the vacancy draft from collected data. Use when you have enough info to build a structured draft (title, description, salary, etc).",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "name",
+                "description_md"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Job title"
+                },
+                "description_md": {
+                  "type": "string",
+                  "description": "Full job description in Markdown with sections: ## Обязанности, ## Требования, ## Условия"
+                },
+                "area_name": {
+                  "type": "string",
+                  "description": "City in Russian, e.g. Москва"
+                },
+                "salary_from": {
+                  "type": "number"
+                },
+                "salary_to": {
+                  "type": "number"
+                },
+                "salary_currency": {
+                  "type": "string",
+                  "enum": [
+                    "RUR",
+                    "USD",
+                    "EUR"
+                  ],
+                  "default": "RUR"
+                },
+                "experience": {
+                  "type": "string",
+                  "enum": [
+                    "noExperience",
+                    "between1And3",
+                    "between3And6",
+                    "moreThan6"
+                  ]
+                },
+                "employment": {
+                  "type": "string",
+                  "enum": [
+                    "full",
+                    "part",
+                    "project",
+                    "volunteer",
+                    "probation"
+                  ],
+                  "default": "full"
+                },
+                "schedule": {
+                  "type": "string",
+                  "enum": [
+                    "fullDay",
+                    "shift",
+                    "flexible",
+                    "remote",
+                    "flyInFlyOut"
+                  ],
+                  "default": "fullDay"
+                },
+                "key_skills": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "company_name": {
+                  "type": "string"
+                },
+                "company_description": {
+                  "type": "string"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_vacancy_publish_page",
+            "description": "Publish the vacancy draft as a public landing page on platform.recruiter-assistant.ru. Returns the URL to share with candidates.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "destructive",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "hh_discover",
+            "description": "Discover HH API capabilities. Use when user asks for HH operations not covered by other hh_* tools — e.g. creating vacancies, fetching dictionaries, changing negotiation status. Returns relevant API endpoints with notes. Pass call_endpoint to also fetch live data from HH.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "What user wants to do, e.g. \"create vacancy\", \"get cities\", \"change status\""
+                },
+                "call_endpoint": {
+                  "type": "string",
+                  "description": "Optional: also call this HH endpoint and return live data, e.g. \"/me\" or \"/dictionaries\""
+                }
+              },
+              "required": [
+                "query"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_api_call",
+            "description": "Make an arbitrary HH API call. Use after hh_discover to execute endpoints not covered by other hh_* tools. For POST /vacancies you need employer_id — get it from hh_discover with call_endpoint=\"/me\".",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "description": "HH API path with variables resolved, e.g. \"/employer/vacancies/active\" or \"/vacancies/123456\""
+                },
+                "body": {
+                  "type": "object",
+                  "description": "Request body for POST/PUT"
+                }
+              },
+              "required": [
+                "method",
+                "path"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "cold_message_generate",
+            "description": "Сгенерировать персонализированное холодное сообщение кандидату на основе его резюме с HH и описания вакансии. Использует OpenRouter для генерации.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "resume_url": {
+                  "type": "string",
+                  "description": "URL резюме на HH (hh.ru/resume/...)"
+                },
+                "resume_id": {
+                  "type": "string",
+                  "description": "ID резюме напрямую"
+                },
+                "resume_text": {
+                  "type": "string",
+                  "description": "Текст резюме вручную, если нет доступа к HH"
+                },
+                "vacancy_description": {
+                  "type": "string",
+                  "description": "Краткое описание вакансии — что ищем, ключевые требования"
+                },
+                "tone": {
+                  "type": "string",
+                  "enum": [
+                    "formal",
+                    "friendly",
+                    "startup"
+                  ],
+                  "description": "Тон сообщения (по умолчанию: friendly)"
+                },
+                "length": {
+                  "type": "string",
+                  "enum": [
+                    "short",
+                    "medium"
+                  ],
+                  "description": "Длина сообщения (по умолчанию: medium)"
+                }
+              },
+              "required": [
+                "vacancy_description"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "rejection_with_feedback",
+            "description": "Сгенерировать вежливый отказ кандидату с конструктивной обратной связью. Не сжигает репутацию компании.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "candidate_name": {
+                  "type": "string",
+                  "description": "Имя кандидата"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Причина отказа: experience_mismatch | overqualified | location | salary | culture_fit | или произвольная строка"
+                },
+                "role": {
+                  "type": "string",
+                  "description": "Название роли (необязательно)"
+                },
+                "positive_note": {
+                  "type": "string",
+                  "description": "Что понравилось в кандидате (необязательно)"
+                },
+                "tone": {
+                  "type": "string",
+                  "enum": [
+                    "formal",
+                    "human"
+                  ],
+                  "description": "Тон письма (по умолчанию: human)"
+                }
+              },
+              "required": [
+                "candidate_name",
+                "reason"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_proactive_search",
+            "description": "ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_resume — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "ID вакансии; не меняет текущую выбранную вакансию"
+                },
+                "area": {
+                  "type": [
+                    "string",
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "ID регионов HH; null — явно без ограничения"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_proactive_scoring_prompt",
+            "description": "Показывает промпт и логику по которой оцениваются кандидаты при проактивном поиске. Вызывай когда рекрутер спрашивает \"как вы подбирали\", \"покажи критерии\", \"почему этот кандидат\" и т.п.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_proactive_queries",
+            "description": "Показывает и редактирует поисковые фразы проактивного поиска для активной вакансии. action=view — показать текущие фразы и когда сгенерированы; action=update — заменить список (передай queries:[...]); action=reset — удалить сохранённые фразы (регенерация при следующем запуске).",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "view",
+                    "update",
+                    "reset"
+                  ],
+                  "description": "Действие: view | update | reset"
+                },
+                "queries": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Новый список фраз (только для action=update)"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_proactive_view",
+            "description": "Открыть страницу с результатами проактивного поиска кандидатов. Возвращает ссылку на веб-страницу с пагинацией, скорингом и AI-оценкой.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "hh_proactive_schedule",
+            "description": "Управление автопоиском: enable/disable/status. Telegram-уведомления холодного поиска удалены; старые notifications_on/off возвращают это объяснение без изменения расписания.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Вакансия: enable/status — по умолчанию текущая; disable без ID — все вакансии профиля"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "status",
+                    "enable",
+                    "disable",
+                    "notifications_on",
+                    "notifications_off"
+                  ],
+                  "description": "status | enable | disable | notifications_on | notifications_off"
+                },
+                "interval_hours": {
+                  "type": "number",
+                  "description": "Интервал запуска в часах (для action=enable, по умолчанию 24)"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          }
+        ]
+      },
+      "enabled": true,
+      "profiles": [
+        "recruiting"
+      ]
+    }
+  ]
+}

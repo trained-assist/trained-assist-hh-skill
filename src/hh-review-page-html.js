@@ -1,12 +1,12 @@
 'use strict';
+const { dataRoot, usersRoot } = require('./data-paths.js');
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { buildResumeText, resumeNotice } = require('./hh-resume');
 
-const BASE_USERS_DIR = process.env.USERS_DIR ||
-  path.join(process.env.HOME || '/home/vova', 'users');
+const BASE_USERS_DIR = usersRoot();
 
 // Generates the HH candidates review page HTML (moved from server.js, see issue #942 Phase 0).
 function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBase, dataDir, opts = {}) {
@@ -14,7 +14,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
   const listView = ['active', 'starred', 'archived'].includes(opts.list) ? opts.list : 'active';
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-  const candDir = path.join(dataDir || path.join(os.homedir(), 'agent-data'), 'hh', String(username), 'candidates');
+  const candDir = path.join(dataDir || dataRoot(), 'hh', String(username), 'candidates');
   function readHistory(negId) {
     const file = path.join(candDir, `${negId}.json`);
     if (!fs.existsSync(file)) return { messages: [], ats_result: null };
@@ -41,7 +41,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
     const daysAgo = neg.updated_at ? Math.floor((Date.now() - new Date(neg.updated_at).getTime()) / 86400000) : null;
     return {
       negotiation_id: neg.id,
-      response_status: vacancyId ? require('./hh-response-state').readResponseState(dataDir || path.join(os.homedir(), 'agent-data'), username, vacancyId, neg.id) : 'active',
+      response_status: vacancyId ? require('./hh-response-state').readResponseState(dataDir || dataRoot(), username, vacancyId, neg.id) : 'active',
       created_at: neg.created_at || '',
       updated_at: neg.updated_at || '',
       has_updates: !!neg.has_updates || (neg.counters?.unread_messages || 0) > 0,

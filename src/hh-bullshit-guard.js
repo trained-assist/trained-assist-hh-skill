@@ -1,4 +1,5 @@
 'use strict';
+const { tokensRoot } = require('./data-paths.js');
 
 // Checks outgoing HH messages for 5 classes of errors before sending.
 // Regex checks run first (free). LLM check is one cheap call covering the rest.
@@ -84,7 +85,7 @@ function llmCall(apiKey, messages) {
 
 function getApiKey(username) {
   if (username) {
-    const base = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+    const base = tokensRoot();
     const f = path.join(base, String(username), 'openrouter');
     if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').trim();
   }
