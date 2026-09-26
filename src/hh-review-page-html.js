@@ -1,19 +1,21 @@
 'use strict';
+const { dataRoot, usersRoot } = require('./data-paths.js');
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { buildResumeText, resumeNotice } = require('./hh-resume');
+const { standardRejectionText, REJECTION_GREETING } = require('./hh-rejection');
 
-const BASE_USERS_DIR = process.env.USERS_DIR ||
-  path.join(process.env.HOME || '/home/vova', 'users');
+const BASE_USERS_DIR = usersRoot();
 
 // Generates the HH candidates review page HTML (moved from server.js, see issue #942 Phase 0).
 function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBase, dataDir, opts = {}) {
-  const { syncedAt, vacancyId, lastScoredAt, vacancies = [] } = opts;
+  const { syncedAt, vacancyId, lastScoredAt, vacancies = [], syncError = null } = opts;
+  const listView = ['active', 'starred', 'archived'].includes(opts.list) ? opts.list : 'active';
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-  const candDir = path.join(dataDir || path.join(os.homedir(), 'agent-data'), 'hh', String(username), 'candidates');
+  const candDir = path.join(dataDir || dataRoot(), 'hh', String(username), 'candidates');
   function readHistory(negId) {
     const file = path.join(candDir, `${negId}.json`);
     if (!fs.existsSync(file)) return { messages: [], ats_result: null };
@@ -33,13 +35,21 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
   } catch {}
 
 
-  const candidates = negotiations.map(neg => {
+  const candidates = negotiations.map(mapNeg);
+  // Rejected candidates are surfaced separately ("ответил после отказа") — never in
+  // the active/starred/archived lists and never scored.
+  const discardedCandidates = (opts.discarded || []).map(neg => ({ ...mapNeg(neg), is_discarded: true }));
+  function mapNeg(neg) {
     const r = neg.resume || {};
     const history = readHistory(neg.id);
     const ats = history.ats_result || null;
     const daysAgo = neg.updated_at ? Math.floor((Date.now() - new Date(neg.updated_at).getTime()) / 86400000) : null;
     return {
       negotiation_id: neg.id,
+      response_status: vacancyId ? require('./hh-response-state').readResponseState(dataDir || dataRoot(), username, vacancyId, neg.id) : 'active',
+      created_at: neg.created_at || '',
+      updated_at: neg.updated_at || '',
+      has_updates: !!neg.has_updates || (neg.counters?.unread_messages || 0) > 0,
       neg_state: neg._state || 'response',
       first_name: r.first_name || '',
       name: [r.last_name, r.first_name].filter(Boolean).join(' ') || 'Кандидат',
@@ -81,29 +91,35 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
         return msgs.length > 0 ? msgs[msgs.length - 1].role : null;
       })(),
     };
-  });
+  }
 
   function sortCandidates(list) {
     return [...list].sort((a, b) => {
-      if (a.score != null && b.score != null) return (b.score || 0) - (a.score || 0);
+      if (a.score != null && b.score != null) return (b.score || 0) - (a.score || 0) || (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
       if (a.score != null) return -1;
       if (b.score != null) return 1;
-      return 0;
+      return (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
     });
   }
 
-  const sorted = sortCandidates(candidates);
-  const waitingCandidates = sortCandidates(candidates.filter(c => c.needs_reply));
+  const counts = { active: 0, starred: 0, archived: 0 };
+  candidates.forEach(c => { counts[c.response_status]++; });
+  const visibleCandidates = candidates.filter(c => c.response_status === listView);
+  const sorted = sortCandidates(visibleCandidates);
+  const waitingCandidates = sortCandidates(visibleCandidates.filter(c => c.needs_reply));
   // We wrote, but the candidate has never replied
-  const silentCandidates = sortCandidates(candidates.filter(c =>
+  const silentCandidates = sortCandidates(visibleCandidates.filter(c =>
     c.msg_from_us > 0 && c.msg_from_candidate === 0 && !c.needs_reply
   ));
   // No employer message at all — never initiated contact
-  const noContactCandidates = sortCandidates(candidates.filter(c => c.msg_from_us === 0));
+  const noContactCandidates = sortCandidates(visibleCandidates.filter(c => c.msg_from_us === 0));
   // Both sides wrote; our reply is last and no action is pending
-  const dialogCandidates = sortCandidates(candidates.filter(c =>
+  const dialogCandidates = sortCandidates(visibleCandidates.filter(c =>
     c.msg_from_us > 0 && c.msg_from_candidate > 0 && c.last_msg_role === 'employer' && !c.needs_reply
   ));
+  // Rejected candidates who wrote back after our rejection — the ones whose
+  // "почему?" would otherwise sit unread forever.
+  const repliedAfterReject = sortCandidates(discardedCandidates.filter(c => c.needs_reply));
 
   const colorMap = { 'ПРОПУСТИТЬ': '#16a34a', 'УТОЧНИТЬ': '#d97706', 'ОТКЛОНИТЬ': '#dc2626' };
   const bgMap = { 'ПРОПУСТИТЬ': '#f0fdf4', 'УТОЧНИТЬ': '#fffbeb', 'ОТКЛОНИТЬ': '#fef2f2' };
@@ -149,9 +165,9 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
       : '';
 
     const isActionable = c.verdict && c.verdict !== 'ОТКЛОНИТЬ';
-    const isReject = c.verdict === 'ОТКЛОНИТЬ';
+    const isReject = c.verdict === 'ОТКЛОНИТЬ' && !c.is_discarded;
 
-    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" ${isActionable ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
+    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" ${isActionable && c.response_status !== 'archived' ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
       + `<label><input type="checkbox" class="reject-cb" id="reject-cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" onchange="onCheck()"> Отказать</label>`;
 
     const scoreHtml = hasScore
@@ -168,8 +184,8 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
     const profileToken = agentSecret
       ? require('crypto').createHmac('sha256', agentSecret).update(username).digest('hex').slice(0, 16)
       : '';
-    const profileBtn = ` <a href="${esc(callbackBase)}/hh/candidate?neg_id=${esc(c.negotiation_id)}&username=${esc(username)}&token=${profileToken}" target="_blank" class="hh-link-btn" title="Открыть профиль кандидата">👤 Профиль</a>`;
-    const nameHtml = `${esc(c.name)}${hhBtn}${profileBtn}`;
+    const profileBtn = ` <a href="candidate?neg_id=${esc(c.negotiation_id)}&username=${esc(username)}&token=${profileToken}&vacancy_id=${esc(vacancyId || '')}" target="_blank" class="hh-link-btn" title="Открыть профиль кандидата">👤 Профиль</a>`;
+    const nameHtml = `${esc(c.name)}${hhBtn}${profileBtn}${c.is_discarded ? ' <span class="verdict-badge" style="background:#7c3aed">↩️ ответил после отказа</span>' : ''}`;
 
     const hasDraft = !!c.draft_message;
     const msgLabel = c.already_sent ? 'Follow-up (уже писали)' : hasDraft ? 'Черновик сообщения' : 'Сообщение';
@@ -184,11 +200,11 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
              <label class="msg-label" style="color:#dc2626">Сообщение об отказе</label>
              <button class="btn btn-gen" id="gen-${i}" onclick="generateRejection(${i},'${esc(c.negotiation_id)}','${esc(c.name)}')" title="Сгенерировать отказное сообщение">✦ Сгенерировать отказ</button>
            </div>
-           <textarea class="msg-area" id="msg-${i}" rows="4">${hasDraft ? esc(c.draft_message) : ''}</textarea>
+           <textarea class="msg-area" id="msg-${i}" rows="4">${esc(standardRejectionText(c.first_name))}</textarea>
            <div class="btns">
              <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">✗ Отправить отказ</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
-             <button class="btn btn-skip" onclick="skipOne(${i})">Пропустить</button>
+             <button class="btn btn-skip" onclick="setResponseState(this,'${esc(c.negotiation_id)}','archived')">В архив</button>
            </div>
          </div>`
       : `<div class="msg-section">
@@ -202,8 +218,8 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            <div class="btns">
              <button class="btn btn-send" onclick="sendOne(${i},'${esc(c.negotiation_id)}')">✓ Отправить</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
-             <button class="btn btn-skip" onclick="skipOne(${i})">✗ Пропустить</button>
-             <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">🚫 Отказать</button>
+             <button class="btn btn-skip" onclick="setResponseState(this,'${esc(c.negotiation_id)}','archived')">В архив</button>
+             <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">✗ Отправить отказ</button>
            </div>
          </div>`;
 
@@ -219,6 +235,11 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
     </div>
     ${scoreHtml}
   </div>
+  <div class="btns">
+    <button class="btn" data-testid="response-star" onclick="setResponseState(this,'${esc(c.negotiation_id)}','${c.response_status === 'starred' ? 'active' : 'starred'}')">${c.response_status === 'starred' ? '★ Убрать звезду' : '☆ В избранное'}</button>
+    ${c.response_status === 'archived' ? `<button class="btn" data-testid="response-restore" onclick="setResponseState(this,'${esc(c.negotiation_id)}','active')">Восстановить</button>` : ''}
+    <span class="meta">Отклик: ${esc(c.created_at.slice(0,10))} · Обновление HH: ${esc(c.updated_at.slice(0,10))}${c.has_updates ? ' · Есть обновления HH' : ''}</span>
+  </div>
   ${c.reasoning ? `<p class="reasoning">${esc(c.reasoning)}</p>` : ''}
   ${matched || gaps ? `<div class="tags">${matched}${gaps}</div>` : ''}
   ${histSection}
@@ -232,6 +253,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
   const silentCardsHtml = buildCardsHtml(silentCandidates);
   const noContactCardsHtml = buildCardsHtml(noContactCandidates);
   const dialogCardsHtml = buildCardsHtml(dialogCandidates);
+  const postRejectCardsHtml = buildCardsHtml(repliedAfterReject);
   const allCardsHtml = buildCardsHtml(sorted);
 
   return `<!DOCTYPE html>
@@ -349,11 +371,14 @@ h1{font-size:18px}
 <body>
 <h1>Кандидаты: ${esc(vacancyTitle)}</h1>
 ${vacancies.length > 1 ? `<div class="vacancy-tabs">${vacancies.map(v => {
-  const href = `${esc(callbackBase)}/hh/review?username=${esc(username)}&token=${pageToken}&vacancy_id=${esc(v.id)}`;
+  const href = `?username=${esc(username)}&token=${pageToken}&vacancy_id=${esc(v.id)}`;
   const isActive = String(v.id) === String(vacancyId);
   return `<a class="vacancy-tab${isActive ? ' active' : ''}" href="${href}">${esc(v.title || v.id)}</a>`;
 }).join('')}</div>` : ''}
+${syncError ? `<p role="alert">${esc(syncError)}</p>` : ''}
+<nav class="vacancy-tabs" aria-label="Статус отклика">${[['active','Активные'],['starred','★ Избранные'],['archived','Архив']].map(([status,label]) => `<a class="vacancy-tab${status === listView ? ' active' : ''}" href="?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}&list=${status}">${label} (${counts[status]})</a>`).join('')}</nav>
 <p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()">↻ Обновить</button></p>
+<p id="responseUpdates" role="status" aria-live="polite"></p>
 <div class="toolbar">
   <span class="toolbar-label">Балл:</span>
   <button class="tb-btn score-btn" data-bucket="10" onclick="toggleBucket(10)">10</button>
@@ -371,13 +396,14 @@ ${vacancies.length > 1 ? `<div class="vacancy-tabs">${vacancies.map(v => {
   <button class="tb-btn" onclick="selectAll(false)">✗ Снять все</button>
 </div>
 <div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('waiting',this)">🔴 Неотвеченные (${waitingCandidates.length})</button>
+  <button class="tab-btn" onclick="switchTab('waiting',this)">🔴 Неотвеченные (${waitingCandidates.length})</button>
   <button class="tab-btn" onclick="switchTab('silent',this)">😴 Молчат (${silentCandidates.length})</button>
   <button class="tab-btn" onclick="switchTab('nocontact',this)">📭 Ещё не писали (${noContactCandidates.length})</button>
   <button class="tab-btn" onclick="switchTab('dialog',this)">💬 Диалог (${dialogCandidates.length})</button>
-  <button class="tab-btn" onclick="switchTab('all',this)">📨 Все (${sorted.length})</button>
+  ${repliedAfterReject.length ? `<button class="tab-btn" onclick="switchTab('postreject',this)">↩️ Ответили после отказа (${repliedAfterReject.length})</button>` : ''}
+  <button class="tab-btn active" onclick="switchTab('all',this)">📨 Все (${sorted.length})</button>
 </div>
-<div id="tab-waiting" class="tab-panel active">
+<div id="tab-waiting" class="tab-panel">
   ${waitingCardsHtml.length === 0 ? '<p style="color:#94a3b8;padding:24px;text-align:center">Все отвечено — нет кандидатов, ожидающих ответа.</p>' : waitingCardsHtml.join('')}
 </div>
 <div id="tab-silent" class="tab-panel">
@@ -389,7 +415,10 @@ ${vacancies.length > 1 ? `<div class="vacancy-tabs">${vacancies.map(v => {
 <div id="tab-dialog" class="tab-panel">
   ${dialogCardsHtml.length === 0 ? '<p style="color:#94a3b8;padding:24px;text-align:center">Нет активных диалогов без ожидающих ответов.</p>' : dialogCardsHtml.join('')}
 </div>
-<div id="tab-all" class="tab-panel">
+${repliedAfterReject.length ? `<div id="tab-postreject" class="tab-panel">
+  ${postRejectCardsHtml.join('')}
+</div>` : ''}
+<div id="tab-all" class="tab-panel active">
   ${allCardsHtml.join('')}
 </div>
 <div class="footer">
@@ -401,9 +430,29 @@ ${vacancies.length > 1 ? `<div class="vacancy-tabs">${vacancies.map(v => {
 <script>
 const CALLBACK_BASE = '${callbackBase}';
 const HH_USER = '${esc(username)}';
-const HH_SECRET = '${esc(agentSecret)}';
 const HH_VACANCY_ID = '${esc(String(vacancyId || ''))}';
+const HH_PAGE_TOKEN = '${pageToken}';
+const REJECTION_GREETING = ${JSON.stringify(REJECTION_GREETING)};
 const done = new Set();
+async function checkResponseUpdates() {
+  if (document.hidden) return;
+  try {
+    const q = new URLSearchParams({ username: HH_USER, token: HH_PAGE_TOKEN, vacancy_id: HH_VACANCY_ID });
+    const r = await fetch(CALLBACK_BASE + '/hh/response-updates?' + q);
+    if (!r.ok) throw new Error('sync status unavailable');
+    const data = await r.json();
+    if (data.synced_at > ${Number(syncedAt) || 0}) document.getElementById('responseUpdates').textContent = 'Данные HH обновились. Нажмите «Обновить», чтобы загрузить их; текущий текст сообщения сохранён на экране.';
+  } catch { document.getElementById('responseUpdates').textContent = 'Не удалось проверить обновления HH. Нажмите «Обновить» для повтора.'; }
+}
+setInterval(checkResponseUpdates, 60000);
+async function setResponseState(btn, negId, status) {
+  btn.disabled = true;
+  try {
+    const r = await fetch(CALLBACK_BASE + '/hh/response-state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, vacancy_id: HH_VACANCY_ID, negotiation_id: negId, status }) });
+    if (!r.ok) throw new Error('Не удалось сохранить статус');
+    location.reload();
+  } catch (e) { btn.disabled = false; showToast(e.message, true); }
+}
 
 function switchTab(id, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -428,7 +477,7 @@ async function syncNow() {
     const r = await fetch(CALLBACK_BASE + '/hh/sync-negotiations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: HH_USER, vacancy_id: HH_VACANCY_ID }),
+      body: JSON.stringify({ username: HH_USER, vacancy_id: HH_VACANCY_ID, token: HH_PAGE_TOKEN }),
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     location.reload();
@@ -452,7 +501,7 @@ async function hhAction(endpoint, payload) {
   try {
     const r = await fetch(CALLBACK_BASE + endpoint, {
       method: 'POST', signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + HH_SECRET },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: HH_USER, ...payload }),
     });
     const data = await r.json();
@@ -681,8 +730,7 @@ async function sendAll() {
 
 function standardRejection(i) {
   const name = document.getElementById('card-' + i)?.dataset.firstName?.trim();
-  return (name ? name + ', здравствуйте! ' : 'Здравствуйте! ') +
-    'Спасибо за отклик и уделённое время. Мы изучили ваше резюме и решили продолжить с другими кандидатами. Желаем успехов в поиске работы!';
+  return (name ? name + ', здравствуйте! ' : 'Здравствуйте! ') + REJECTION_GREETING;
 }
 
 async function rejectWithMessage(i, negId) {
@@ -696,24 +744,40 @@ async function rejectWithMessage(i, negId) {
 
 async function rejectAll() {
   const cbs = [...document.querySelectorAll('.tab-panel.active .reject-cb:checked')];
-  const negIds = cbs.map(cb => document.getElementById('card-'+parseInt(cb.dataset.idx))?.dataset.neg || '').filter(Boolean);
-  if (!negIds.length || !confirm('Отказать на HH без сообщения: ' + negIds.length + ' кандидатов?')) return;
+  const targets = cbs.map(cb => {
+    const i = parseInt(cb.dataset.idx);
+    return { i, negId: document.getElementById('card-' + i)?.dataset.neg || '' };
+  }).filter(t => t.negId);
+  if (!targets.length) return;
+  if (!confirm('Отказать ' + targets.length + ' кандидатам? Каждому уйдёт стандартное сообщение об отказе со статусом «Не подходит».')) return;
   const rb = document.getElementById('rejectAllBtn');
-  rb.disabled = true; rb.textContent = '⏳ Отклоняю...';
-  try {
-    const res = await hhAction('/hh/reject', { negotiation_ids: negIds });
-    const succeeded = new Set((res.results || []).filter(r => r.ok).map(r => r.negotiation_id));
-    cbs.forEach(cb => {
-      const i = parseInt(cb.dataset.idx);
-      if (succeeded.has(document.getElementById('card-'+i)?.dataset.neg)) markDone(i);
-    });
-    onCheck();
-    const failed = negIds.filter(id => !succeeded.has(id)).length;
-    showToast(failed ? '⚠️ ' + failed + ' ошибок из ' + negIds.length : '✅ Отклонено ' + negIds.length + ' кандидатов');
-  } catch(e) {
-    showToast('❌ ' + e.message, true);
-    rb.disabled = false; rb.textContent = 'Отказать (' + negIds.length + ')';
+  rb.disabled = true;
+  let ok = 0, fail = 0;
+  // Sequential on purpose: /hh/send-and-reject is a two-step, persisted operation,
+  // and a burst of parallel two-step calls risks HH rate-limits mid-batch.
+  for (let k = 0; k < targets.length; k++) {
+    const t = targets[k];
+    const msg = standardRejection(t.i);
+    const ta = document.getElementById('msg-' + t.i);
+    if (ta) ta.value = msg;
+    rb.textContent = '⏳ ' + (k + 1) + '/' + targets.length + '…';
+    rejectionStatus(t.negId, '⏳ Отправляем отказ…', true);
+    try {
+      const d = await hhAction('/hh/send-and-reject', { negotiation_id: t.negId, message: msg });
+      if (d.blocked) { fail++; rejectionStatus(t.negId, 'Отказ не отправлен: ' + (d.reason || 'заблокировано'), false); continue; }
+      if (!d.ok) { fail++; rejectionStatus(t.negId, '⚠️ ' + (d.error || 'не подтверждено'), false); continue; }
+      ok++;
+      markDone(t.i);
+      rejectionStatus(t.negId, '✅ Отказ отправлен, кандидат переведён в «Не подходит».', true);
+    } catch(e) {
+      fail++;
+      rejectionStatus(t.negId, '⚠️ ' + e.message, false);
+    }
   }
+  onCheck();
+  rb.disabled = false;
+  rb.textContent = 'Отказать (' + document.querySelectorAll('.tab-panel.active .reject-cb:checked').length + ')';
+  showToast(fail ? '⚠️ ' + ok + ' ок / ' + fail + ' ошибок' : '✅ Отказано с сообщением: ' + ok, fail > 0);
 }
 
 onCheck();

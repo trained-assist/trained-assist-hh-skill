@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot } = require('./data-paths.js');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -12,7 +13,7 @@ async function hydrateResume(neg, token, fetchResume = hhFetch) {
   neg._resume_status = 'unavailable';
   if (!id || !token?.access_token) return neg;
   const key = createHash('sha256').update(`${process.env.HH_API_BASE_URL || 'https://api.hh.ru'}:${token.access_token}:${id}`).digest('hex');
-  const file = path.join(process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data'), 'hh-resumes', `${key}.json`);
+  const file = path.join(dataRoot(), 'hh-resumes', `${key}.json`);
   let resume;
   try {
     const cached = JSON.parse(fs.readFileSync(file, 'utf8'));

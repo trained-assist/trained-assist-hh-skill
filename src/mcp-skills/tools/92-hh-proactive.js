@@ -1,4 +1,5 @@
 'use strict';
+const { tokensRoot, usersRoot } = require('../../data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -7,7 +8,6 @@ const { createHmac } = require('crypto');
 const {
   runProactiveSearch,
   buildScoringPromptText,
-  buildProactiveDigest,
   loadSchedule,
   saveSchedule,
   atsConfigHash,
@@ -28,65 +28,30 @@ function proactiveHmac(username) {
 // pattern as hhReviewUrl (src/hh-quick.js) — so the tab switcher can deep-link into
 // the right tab. Omitted (falsy) → no param, unchanged for single-vacancy callers.
 function proactiveUrl(username, vacancyId) {
-  const base = (process.env.AGENT_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+  const base = (process.env.HH_COLD_SEARCH_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
   const token = proactiveHmac(username);
   const vacancyParam = vacancyId ? `&vacancy_id=${encodeURIComponent(vacancyId)}` : '';
   return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;
 }
 
-function latestProactiveFile(username) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
-  const dir = path.join(dataDir, 'hh', username, 'proactive');
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir).filter(f => f.startsWith('search-results-') && f.endsWith('.json')).sort();
-  if (!files.length) return null;
-  return path.join(dir, files[files.length - 1]);
-}
-
-function readChatId(username) {
-  try { return fs.readFileSync(path.join(os.homedir(), 'agent-tokens', String(username), '.chatid'), 'utf8').trim() || null; }
-  catch { return null; }
-}
-
-function buildNotifyChat(username) {
-  return async (info) => {
-    const chatId = readChatId(username);
-    const botToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-    if (!chatId || !botToken) return;
-    const text = buildProactiveDigest({
-      vacancyTitle: info.vacancyTitle,
-      newCount: info.newCount,
-      totalNewCount: info.totalNewCount,
-      totalSeen: info.totalSeen,
-      newCandidates: info.newCandidates,
-      threshold: info.threshold,
-      url: info.proactiveUrl,
-    });
-    const tgBase = (process.env.TELEGRAM_API_URL || 'https://api.telegram.org').replace(/\/$/, '');
-    await fetch(`${tgBase}/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
-      signal: AbortSignal.timeout(10_000),
-    });
-  };
-}
+const { latestProactiveFile } = require('../../hh-cold-search-snapshots');
 
 module.exports = {
-  isReady: () => USER_ID ? fs.existsSync(path.join(os.homedir(), 'agent-tokens', USER_ID, 'hh')) : false,
+  isReady: () => USER_ID ? fs.existsSync(path.join(tokensRoot(), USER_ID, 'hh')) : false,
   setupTools: [],
   tools: {
     hh_proactive_search: {
       description: 'ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_resume — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string', description: 'ID вакансии; не меняет текущую выбранную вакансию' }, area: { type: ['string', 'array', 'null'], items: { type: 'string' }, description: 'ID регионов HH; null — явно без ограничения' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const workDir = process.cwd();
+        const workDir = path.join(usersRoot(), userId);
         try {
           const result = await runProactiveSearch(userId, workDir, {
+            vacancyId: args.vacancy_id,
+            ...(Object.prototype.hasOwnProperty.call(args, 'area') ? { area: args.area } : {}),
             proactiveUrl: proactiveUrl(userId),
-            notifyChat: buildNotifyChat(userId),
           });
           // vacancy_id is only known after runProactiveSearch resolves it — rebuild
           // the URL with it so the chat-facing link opens directly on the right tab.
@@ -115,10 +80,10 @@ module.exports = {
 
     hh_proactive_scoring_prompt: {
       description: 'Показывает промпт и логику по которой оцениваются кандидаты при проактивном поиске. Вызывай когда рекрутер спрашивает "как вы подбирали", "покажи критерии", "почему этот кандидат" и т.п.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
-        return { text: buildScoringPromptText(userId) };
+        return { text: buildScoringPromptText(userId, args.vacancy_id) };
       },
     },
 
@@ -136,26 +101,15 @@ module.exports = {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        // Resolve vacancy_id from the current ATS config
-        const workDir = process.cwd();
-        let atsConfig = null;
-        let vacancyId = null;
-        try {
-          const raw = JSON.parse(fs.readFileSync(path.join(workDir, 'contexts', 'hh', 'ats_config.json'), 'utf8'));
-          atsConfig = raw?.value;
-          vacancyId = atsConfig?.vacancy_id ? String(atsConfig.vacancy_id) : null;
-        } catch {}
-        if (!vacancyId) {
-          try {
-            const av = JSON.parse(fs.readFileSync(path.join(workDir, 'contexts', 'hh', 'active_vacancy.json'), 'utf8'))?.value;
-            if (av?.id) vacancyId = String(av.id);
-          } catch {}
-        }
-        if (!vacancyId) return { error: 'Не удалось определить ID вакансии. Вызови hh_set_active_vacancy или hh_extract_ats_config заново.' };
+        const workDir = path.join(usersRoot(), userId);
+        let resolved;
+        try { resolved = require('../../hh-cold-search-context').resolveSearchContext(workDir); }
+        catch (e) { return { error: e.message }; }
+        const { config: atsConfig, vacancyId } = resolved;
 
         // Must include current exclusions — same as runProactiveSearch — so stale check
         // doesn't false-positive when there are no config changes but comments exist.
-        const exclusionsForHash = getSearchExclusions(userId);
+        const exclusionsForHash = getSearchExclusions(userId, vacancyId);
         const configHash = atsConfig ? atsConfigHash(atsConfig, exclusionsForHash) : null;
         const storePath = queriesStorePath(userId, vacancyId);
 
@@ -201,11 +155,14 @@ module.exports = {
 
     hh_proactive_view: {
       description: 'Открыть страницу с результатами проактивного поиска кандидатов. Возвращает ссылку на веб-страницу с пагинацией, скорингом и AI-оценкой.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
+      inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string' } } },
+      handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
-        const file = latestProactiveFile(userId);
+        const workDir = path.join(usersRoot(), userId);
+        const vacancyId = args.vacancy_id || require('../../hh-cold-search-context').readSearchContext(workDir, 'active_vacancy')?.id;
+        if (!vacancyId) return { error: 'Сначала выбери вакансию.' };
+        const file = latestProactiveFile(userId, vacancyId);
         if (!file) {
           return { error: 'Результатов поиска нет. Запусти поиск командой hh_proactive_search.' };
         }
@@ -220,7 +177,7 @@ module.exports = {
             review_count: (data.candidates || []).filter(c => c.tag === 'REVIEW').length,
           };
         } catch {}
-        const url = proactiveUrl(userId);
+        const url = proactiveUrl(userId, vacancyId);
         return {
           url,
           ...meta,
@@ -230,69 +187,77 @@ module.exports = {
     },
 
     hh_proactive_schedule: {
-      description: 'Настройка автоматического (периодического) проактивного поиска с Telegram-уведомлениями. action=status — текущие настройки; action=enable — включить (можно задать interval_hours, по умолчанию 24, и notify_threshold); action=disable — выключить. Чтобы просто поменять порог уведомлений без изменения интервала — вызови action=enable и передай только notify_threshold.',
+      description: 'Управление автопоиском: enable/disable/status. Telegram-уведомления холодного поиска удалены; старые notifications_on/off возвращают это объяснение без изменения расписания.',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['status', 'enable', 'disable'], description: 'status | enable | disable' },
+          vacancy_id: { type: 'string', description: 'Вакансия: enable/status — по умолчанию текущая; disable без ID — все вакансии профиля' },
+          action: { type: 'string', enum: ['status', 'enable', 'disable', 'notifications_on', 'notifications_off'], description: 'status | enable | disable | notifications_on | notifications_off' },
           interval_hours: { type: 'number', description: 'Интервал запуска в часах (для action=enable, по умолчанию 24)' },
-          notify_threshold: { type: 'number', description: 'Минимальная оценка кандидата (0-100%, нормализовано под критерии вакансии) для попадания в Telegram-уведомление о новых кандидатах. 0 (по умолчанию) — уведомлять обо всех новых, без фильтра. Задаётся вместе с action=enable.' },
         },
         required: ['action'],
       },
-      handler: async ({ action, interval_hours, notify_threshold }) => {
+      handler: async ({ action, interval_hours, vacancy_id }) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
-        const schedule = loadSchedule(userId) || {};
+        const workDir = path.join(usersRoot(), userId);
+        const { getSchedules, updateSchedule, disableSearches, deliveryEnabled } = require('../../hh-cold-search-schedule');
+        if (action === 'notifications_off' || action === 'notifications_on') {
+          return { ok: true, notifications_enabled: false, retired: true, scope: 'global',
+            message: 'Уведомления холодного поиска выключены: функция удалена для всех пользователей. Настройки автопоиска не изменены.' };
+        }
+        if (action === 'disable') {
+          disableSearches(userId, workDir, vacancy_id);
+          return { ok: true, enabled: false, scope: vacancy_id ? 'vacancy' : 'profile',
+            message: vacancy_id
+              ? 'Автопоиск и уведомления для этой вакансии выключены. Ручной поиск доступен.'
+              : 'Автопоиск и уведомления холодного поиска выключены для всех вакансий профиля. Ручной поиск доступен.' };
+        }
+        if (action === 'status' && !vacancy_id) {
+          const schedules = getSchedules(userId, workDir);
+          const enabled = Object.entries(schedules).filter(([, s]) => s.enabled && !s.archived).map(([id]) => id);
+          return { enabled: enabled.length > 0, notifications_enabled: deliveryEnabled(userId, workDir), enabled_vacancy_ids: enabled, schedules,
+            message: `${enabled.length ? `Автопоиск включён для ${enabled.length} вакансий.` : 'Автопоиск выключен.'} Уведомления холодного поиска удалены.` };
+        }
+        const id = vacancy_id || require('../../hh-utils').readHhContext(workDir, 'hh', 'active_vacancy')?.value?.id;
+        if (!id) return { error: 'Сначала выбери вакансию.' };
+        const schedule = getSchedules(userId, workDir)[id] || {};
+        const persist = () => updateSchedule(userId, workDir, id, schedule);
 
         if (action === 'status') {
           if (!schedule.enabled) {
             return {
               enabled: false,
-              message: 'Автоматический проактивный поиск выключен. Запусти action=enable чтобы включить — агент будет сам искать новых кандидатов и присылать уведомления.',
+              notifications_enabled: deliveryEnabled(userId, workDir, id),
+              message: 'Автоматический проактивный поиск выключен. Запусти action=enable чтобы включить — агент будет сам искать новых кандидатов. Уведомления холодного поиска удалены.',
             };
           }
           const hours = schedule.interval_hours || 24;
-          const threshold = schedule.notify_threshold || 0;
           const nextRunTs = schedule.last_run
             ? new Date(new Date(schedule.last_run).getTime() + hours * 3600000).toISOString()
             : '~10 мин после старта сервера';
           return {
             enabled: true,
+            notifications_enabled: deliveryEnabled(userId, workDir, id),
             interval_hours: hours,
-            notify_threshold: threshold,
             last_run: schedule.last_run || null,
             next_run: nextRunTs,
-            message: `Автопоиск включён. Интервал: каждые ${hours} ч.\n${threshold > 0 ? `Порог уведомлений: ≥${threshold}% — слабее не присылаем.` : 'Порог уведомлений не задан — уведомляем обо всех новых кандидатах.'}\nПоследний запуск: ${schedule.last_run || 'ещё не было'}.\nСледующий: ${nextRunTs}.`,
+            message: `Автопоиск включён. Уведомления холодного поиска удалены. Интервал: каждые ${hours} ч.\nПоследний запуск: ${schedule.last_run || 'ещё не было'}.\nСледующий: ${nextRunTs}.`,
           };
         }
 
         if (action === 'enable') {
           const hours = interval_hours && interval_hours > 0 ? interval_hours : (schedule.interval_hours || 24);
-          const threshold = (notify_threshold !== undefined && notify_threshold !== null)
-            ? Math.max(0, Math.min(100, Number(notify_threshold) || 0))
-            : (schedule.notify_threshold || 0);
           schedule.enabled = true;
           schedule.interval_hours = hours;
-          schedule.notify_threshold = threshold;
-          saveSchedule(userId, schedule);
+          persist();
           return {
             ok: true,
             enabled: true,
+            notifications_enabled: deliveryEnabled(userId, workDir, id),
             interval_hours: hours,
-            notify_threshold: threshold,
-            message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов и присылать уведомления в Telegram.${threshold > 0 ? ` В уведомление попадут только кандидаты с оценкой ≥${threshold}%.` : ''} Первый запуск в течение 30 мин.\n\n⚠️ Это встроенный планировщик агента — он НЕ появится в списке cron_list (там только внешние Cloud Scheduler задачи). Проверить статус: hh_proactive_schedule action=status.`,
-          };
-        }
-
-        if (action === 'disable') {
-          schedule.enabled = false;
-          saveSchedule(userId, schedule);
-          return {
-            ok: true,
-            enabled: false,
-            message: 'Автопоиск выключен. Используй hh_proactive_search для ручного запуска.',
+            message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов. Результаты доступны на странице холодного поиска. Первый запуск в течение 30 мин.\n\n⚠️ Это встроенный планировщик агента — он НЕ появится в списке cron_list (там только внешние Cloud Scheduler задачи). Проверить статус: hh_proactive_schedule action=status.`,
           };
         }
 

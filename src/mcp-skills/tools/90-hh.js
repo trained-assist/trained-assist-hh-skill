@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot, tokensRoot } = require('../../data-paths.js');
 const { hydrateResume, buildResumeText, resumeHash, RESUME_VERSION } = require('../../hh-resume');
 
 const fs = require('fs');
@@ -45,6 +46,7 @@ function addActiveVacancy(value) {
 }
 
 function removeActiveVacancy(vacancyId) {
+  require('../../hh-cold-search-schedule').updateSchedule(USER_ID, process.cwd(), vacancyId, { enabled: false });
   const list = readActiveVacancies().filter(v => v.id !== vacancyId);
   writeContext('hh', 'active_vacancies', list);
   // Legacy singleton must keep pointing at a vacancy that's still tracked —
@@ -68,7 +70,7 @@ function removeActiveVacancy(vacancyId) {
 const { readHhToken: _readHhTokenUtil, hhTokenPath, hhFetch: hhGet, hhPost, hhPut, hhPostForm } = require('../../hh-utils');
 
 function tokenBase() {
-  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  return tokensRoot();
 }
 
 function orKeyPath(userId) {
@@ -188,6 +190,7 @@ function llmCall(apiKey, model, messages, maxTokens = 2000, temperature = 0.1) {
         } catch (e) { reject(e); }
       });
     });
+    req.setTimeout(30_000, () => req.destroy(new Error('openrouter timeout')));
     req.on('error', reject);
     req.write(body);
     req.end();
@@ -630,12 +633,14 @@ module.exports = {
 
         // Fetch vacancy name to store human-readable label
         let title = vacancy_id;
+        let area;
         try {
           const v = await hhGet(`/vacancies/${vacancy_id}`, token);
           title = v.name || vacancy_id;
+          area = v.area;
         } catch { /* best-effort */ }
 
-        const value = { id: vacancy_id, title, set_at: new Date().toISOString() };
+        const value = { id: vacancy_id, title, ...(area ? { area } : {}), set_at: new Date().toISOString() };
         writeContext('hh', 'active_vacancy', value);
         const activeVacancies = addActiveVacancy(value);
 
@@ -644,7 +649,7 @@ module.exports = {
         fetch(`${agentBase}/hh/sync-negotiations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: USER_ID, vacancy_id }),
+          body: JSON.stringify({ username: USER_ID, vacancy_id, token: require('crypto').createHmac('sha256', process.env.AGENT_SECRET || '').update(USER_ID).digest('hex').slice(0, 16) }),
         }).catch(() => {}); // fire-and-forget
 
         return {
@@ -994,7 +999,10 @@ module.exports = {
             ok: true,
             vacancy_id: resolvedVacancyId,
             vacancy_title: vacancyTitle,
+            // Compatibility name: stage total, not newly arrived since the last poll.
             new_responses: counts.response || 0,
+            responses_pending: counts.response || 0,
+            response_count_semantics: 'Total currently in HH response stage; not new arrivals since the previous check.',
             unread_messages: unreadMessages,
             active_total: activeTotal,
             by_stage: {
@@ -1453,12 +1461,7 @@ module.exports = {
           const vacCtx = readContext('hh', 'active_vacancy');
           const vacancyTitle = vacCtx?.value?.title || vacancy_id;
 
-          const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
-          const agentSecret = process.env.AGENT_SECRET || '';
-          const reviewToken = agentSecret
-            ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
-            : '';
-          const reviewUrl = `${agentBase}/hh/review?username=${encodeURIComponent(USER_ID)}&token=${reviewToken}&vacancy_id=${encodeURIComponent(vacancy_id)}`;
+          const reviewUrl = require('../../hh-quick').hhReviewUrl(USER_ID, vacancy_id);
 
           const telegram_summary = await formatBatchResultForTelegram(results, vacancyTitle, reviewUrl, apiKey);
 
@@ -1676,17 +1679,18 @@ module.exports = {
           agentSecret: process.env.AGENT_SECRET || '',
           rejectionTemplate: loadRejectionTemplate(USER_ID),
         });
-        const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+        const dataDir = dataRoot();
         const filePath = output_path || path.join(dataDir, `hh-review-${Date.now()}.html`);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, html, 'utf8');
 
         return {
           ok: true,
+          url: require('../../hh-quick').hhReviewUrl(USER_ID, resolvedVacancyId),
           file_path: filePath,
           candidates_count: enriched.length,
           actionable: enriched.filter(c => c.verdict !== 'ОТКЛОНИТЬ').length,
-          note: `Страница ревью сохранена. Открой ${filePath} в браузере.`,
+          note: `Актуальные отклики, звезда и архив: ${require('../../hh-quick').hhReviewUrl(USER_ID, resolvedVacancyId)}. Локальный HTML — снимок на момент создания.`,
         };
       },
     },
@@ -2024,7 +2028,7 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
 // ── Per-candidate history ───────────────────────────────────────────────────
 
 function candidateHistoryPath(userId, negotiationId) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(userId || USER_ID), 'candidates', `${negotiationId}.json`);
 }
 

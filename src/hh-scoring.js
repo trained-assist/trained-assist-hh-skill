@@ -1,4 +1,5 @@
 'use strict';
+const { dataRoot, tokensRoot } = require('./data-paths.js');
 const { buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
 
 // Pure scoring utilities — no global state, no USER_ID dependency.
@@ -9,7 +10,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride } = require('./hh-message-prompts');
+const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('./hh-message-prompts');
 
 const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 
@@ -105,10 +106,10 @@ function gcGetToken(credentials) {
   });
 }
 
-async function gcCall(credentials, messages, maxTokens = 2000, temperature = 0.1) {
+async function gcCall(credentials, messages, maxTokens = 2000, temperature = 0.1, model = 'GigaChat') {
   const token = await gcGetToken(credentials);
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model: 'GigaChat', messages, temperature, max_tokens: maxTokens });
+    const body = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens });
     const req = https.request({
       hostname: 'gigachat.devices.sberbank.ru',
       path: '/api/v1/chat/completions',
@@ -138,7 +139,7 @@ async function gcCall(credentials, messages, maxTokens = 2000, temperature = 0.1
 }
 
 function readGigachatKey(username) {
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const file = path.join(tokensBase, String(username), 'gigachat');
   if (fs.existsSync(file)) {
     const key = fs.readFileSync(file, 'utf8').trim();
@@ -295,7 +296,7 @@ function readAtsDraft(workDir, vacancyId) {
 }
 
 function readOrKey(username) {
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const file = path.join(tokensBase, String(username), 'openrouter');
   if (fs.existsSync(file)) {
     const key = fs.readFileSync(file, 'utf8').trim();
@@ -307,7 +308,7 @@ function readOrKey(username) {
 // ─── Candidate history ────────────────────────────────────────────────────────
 
 function candidateHistoryPath(username, negotiationId) {
-  const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+  const dataDir = dataRoot();
   return path.join(dataDir, 'hh', String(username), 'candidates', `${negotiationId}.json`);
 }
 
@@ -347,7 +348,7 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
 
   const writeLog = (checked, scored) => {
     try {
-      const dataDir = process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
+      const dataDir = dataRoot();
       const dir = path.join(dataDir, 'hh', String(username));
       fs.mkdirSync(dir, { recursive: true });
       const entry = {
@@ -414,7 +415,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
   const apiKey = readOrKey(username);
   if (!gigachatKey && !apiKey) return 0;
 
-  const tokensBase = process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  const tokensBase = tokensRoot();
   const styleFile = path.join(tokensBase, String(username), 'hh-message-style');
   const commStyle = fs.existsSync(styleFile) ? fs.readFileSync(styleFile, 'utf8').trim() : null;
   const baseOverride = loadBaseOverride(tokensBase, username);
@@ -440,13 +441,16 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
   const needDraft = negotiations.filter(neg => {
     if (neg._resume_status !== 'full') return false;
     const h = readCandidateHistory(username, neg.id);
+    // Rejections use the fixed standard text rendered on the review page — never an
+    // LLM draft. Generated "rejections" produced invitations, "[Имя]" placeholders
+    // and wrong-name greetings that a single click could send to a candidate.
+    if (h.ats_result?.verdict === 'ОТКЛОНИТЬ') return false;
     return h.ats_result?.score != null && !h.ats_result?.draft_message;
   });
 
   if (!needDraft.length) return 0;
 
   const baseSystem = buildMessageSystemPrompt({ vacancyContext: vacancyCtx, recruiterCtx, commStyle, baseOverride });
-  const rejectionSystem = buildRejectionSystemPrompt({ recruiterCtx, commStyle });
 
   let generated = 0;
 
@@ -455,19 +459,14 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     await Promise.all(batch.map(async (neg) => {
       try {
         const history = readCandidateHistory(username, neg.id);
-        const verdict = history.ats_result?.verdict || 'ОТКЛОНИТЬ';
-        // First contact (no messages yet) → always send qualifying questions, never a cold rejection
-        const isReject = verdict === 'ОТКЛОНИТЬ' && (history.messages || []).length > 0;
 
         const r = neg.resume || {};
         const firstName = r.first_name || r.last_name || 'Кандидат';
 
-        const systemPrompt = isReject ? rejectionSystem : baseSystem;
+        const systemPrompt = baseSystem;
 
         const resumeText = buildResumeText(neg);
-        const userMsg = isReject
-          ? `Напиши вежливый отказ кандидату ${firstName}.`
-          : `Напиши первое сообщение кандидату ${firstName}.\n\nРезюме:\n${resumeText}${availabilityBlock}`;
+        const userMsg = `Напиши первое сообщение кандидату ${firstName}.\n\nРезюме:\n${resumeText}${availabilityBlock}`;
 
         const messages = [
           { role: 'system', content: systemPrompt },
@@ -510,6 +509,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
 }
 
 module.exports = {
+  FALLBACK_MODEL,
   llmCall,
   gcCall,
   parseLlmJson,

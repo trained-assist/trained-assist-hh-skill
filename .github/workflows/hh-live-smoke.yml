@@ -1,0 +1,20 @@
+name: HH read-only live smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment: hh-live-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read employer identity and active-vacancy shape
+        env:
+          HH_SMOKE_TOKEN: ${{ secrets.HH_SMOKE_TOKEN }}
+        run: node scripts/live-hh-smoke.cjs

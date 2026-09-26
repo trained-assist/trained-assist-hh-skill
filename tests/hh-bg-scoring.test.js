@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { homedir, tmpdir } from 'os';
 import { createRequire } from 'module';
@@ -37,10 +37,12 @@ const { resumeHash } = require('../src/hh-resume');
 
 const TEST_USER = 'hh-bg-test-77777';
 // BASE_USERS_DIR defaults to ~/users when USERS_DIR is not set
-const BASE_USERS_DIR = process.env.USERS_DIR || join(homedir(), 'users');
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'hh-bg-scoring-'));
+const ORIGINAL_ENV = Object.fromEntries(['AGENT_DATA_DIR', 'AGENT_TOKENS_DIR'].map(key => [key, process.env[key]]));
+const BASE_USERS_DIR = join(TEST_ROOT, 'users');
 const WORK_DIR = join(BASE_USERS_DIR, TEST_USER);
-const DATA_DIR = process.env.AGENT_DATA_DIR;   // matches AGENT_DATA_DIR default
-const TOKEN_DIR = join(homedir(), 'agent-tokens', TEST_USER);
+const DATA_DIR = join(TEST_ROOT, 'data');
+const TOKEN_DIR = join(TEST_ROOT, 'tokens', TEST_USER);
 const CAND_DIR = join(DATA_DIR, 'hh', TEST_USER, 'candidates');
 
 const ATS_CONFIG = {
@@ -103,7 +105,7 @@ function readCandidateHistory(negId) {
 
 beforeAll(() => {
   process.env.AGENT_DATA_DIR = DATA_DIR;
-  process.env.AGENT_TOKENS_DIR = join(homedir(), 'agent-tokens');
+  process.env.AGENT_TOKENS_DIR = join(TEST_ROOT, 'tokens');
 
   mkdirSync(WORK_DIR, { recursive: true });
   mkdirSync(CAND_DIR, { recursive: true });
@@ -111,11 +113,11 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  delete process.env.AGENT_DATA_DIR;
-  delete process.env.AGENT_TOKENS_DIR;
-  try { rmSync(WORK_DIR, { recursive: true, force: true }); } catch {}
-  try { rmSync(TOKEN_DIR, { recursive: true, force: true }); } catch {}
-  try { rmSync(CAND_DIR, { recursive: true, force: true }); } catch {}
+  for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  rmSync(TEST_ROOT, { recursive: true, force: true });
 });
 
 beforeEach(() => {

@@ -1,4 +1,5 @@
 'use strict';
+const { tokensRoot } = require('../../data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -11,7 +12,7 @@ const USER_ID = process.env.USER_ID || '';
 // ── Token helpers ────────────────────────────────────────────────────────────
 
 function tokenBase() {
-  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
+  return tokensRoot();
 }
 
 const { readHhToken: _readHhTokenUtil } = require('../../hh-utils');
