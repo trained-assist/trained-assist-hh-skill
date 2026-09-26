@@ -5,7 +5,7 @@
 
 const readline = require('readline');
 const registry = require('./registry.js');
-const { toolResultText } = require('./tool-result.js');
+const { toolResultText, isEmptyToolResult } = require('./tool-result.js');
 
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
@@ -48,7 +48,10 @@ rl.on('line', async (line) => {
       const { name, arguments: args } = params || {};
       const result = await registry.callTool(name, args || {});
       // Never hand the model an empty result (agent#1481): toolResultText substitutes an explicit marker.
-      const text = toolResultText(name, result);
+      // Host-action mode (MCP_HOST_ACTION=1) is called by the agent runner, not a model: there an
+      // empty result is protocol («no quick answer → fall through», hh_quick_answer), kept as ''.
+      const hostEmpty = process.env.MCP_HOST_ACTION === '1' && isEmptyToolResult(result);
+      const text = hostEmpty ? '' : toolResultText(name, result);
       respond(id, { content: [{ type: 'text', text }] });
 
     } else {
