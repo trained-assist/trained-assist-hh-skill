@@ -1124,7 +1124,25 @@
       ],
       "effect": "write",
       "requiresApproval": false,
-      "retrySafety": "idempotent"
+      "retrySafety": "idempotent",
+      "schedule": {
+        "label": "Холодный поиск по вакансии",
+        "minIntervalMinutes": 30,
+        "delivery": "silent",
+        "costClass": "cheap_llm",
+        "settingsSchema": {
+          "type": "object",
+          "required": [
+            "vacancy_id"
+          ],
+          "properties": {
+            "vacancy_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
     },
     {
       "name": "hh_proactive_scoring_prompt",

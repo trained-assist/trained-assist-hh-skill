@@ -47,6 +47,9 @@ function addActiveVacancy(value) {
 
 function removeActiveVacancy(vacancyId) {
   require('../../hh-cold-search-schedule').updateSchedule(USER_ID, process.cwd(), vacancyId, { enabled: false });
+  // Its scheduled cold search stops with it (core cron job, agent#1489 S7.1). Best effort:
+  // a failed call leaves a job whose search reports the untracked vacancy, never a silent run.
+  require('../../hh-cold-search-cron').disableColdSearch(USER_ID, vacancyId).catch(e => console.error('[hh] cold-search job not removed:', e.message));
   const list = readActiveVacancies().filter(v => v.id !== vacancyId);
   writeContext('hh', 'active_vacancies', list);
   // Legacy singleton must keep pointing at a vacancy that's still tracked —

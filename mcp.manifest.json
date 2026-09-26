@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "3752eeb4c33c9edd86b61732c0975a22ec4678ef",
+      "revision": "d0201c1b40118487947e52a5b198ff764d0a2197",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "7a7d65248bf67ed7abb14640a3e41af8b8ed65c72c4b96b49def9f28ba751587",
+      "artifactDigest": "0ad523fd260549f4c81ee3ff804afc67259f286338748b0a458b965ebfd50758",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -1138,7 +1138,25 @@
             ],
             "effect": "write",
             "requiresApproval": false,
-            "retrySafety": "idempotent"
+            "retrySafety": "idempotent",
+            "schedule": {
+              "label": "Холодный поиск по вакансии",
+              "minIntervalMinutes": 30,
+              "delivery": "silent",
+              "costClass": "cheap_llm",
+              "settingsSchema": {
+                "type": "object",
+                "required": [
+                  "vacancy_id"
+                ],
+                "properties": {
+                  "vacancy_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
           },
           {
             "name": "hh_proactive_scoring_prompt",

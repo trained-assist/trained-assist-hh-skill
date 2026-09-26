@@ -70,7 +70,12 @@ const POLICY = {
   hh_vacancy_create_draft:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   cold_message_generate:    { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   rejection_with_feedback:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
-  hh_proactive_search:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+  // Schedulable (agent#1489 S7.1): hh_proactive_schedule is a wrapper creating one core
+  // cron job per vacancy. Silent: cold-search Telegram notifications were retired —
+  // results are read with hh_proactive_view, cron must never bring the pings back.
+  hh_proactive_search:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY,
+    schedule: { label: 'Холодный поиск по вакансии', minIntervalMinutes: 30, delivery: 'silent', costClass: 'cheap_llm',
+      settingsSchema: { type: 'object', required: ['vacancy_id'], properties: { vacancy_id: { type: 'string', minLength: 1 } } } } },
 
   // ── Outbound message to a candidate — external_message, always approval-gated ──
   hh_send_message: { effect: 'external_message', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
@@ -101,6 +106,7 @@ function buildManifest(providerId = 'hh') {
       effect: policy.effect,
       requiresApproval: policy.requiresApproval,
       retrySafety: policy.retrySafety,
+      ...(policy.schedule ? { schedule: policy.schedule } : {}),
     };
   });
   return { version: 1, providerId, actions };
