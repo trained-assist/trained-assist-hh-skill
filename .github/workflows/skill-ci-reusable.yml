@@ -5,7 +5,7 @@ on:
       suite:
         required: true
         type: string
-        description: 'unit, contract, or staging; scripts/test-isolated.cjs is the common runner contract'
+        description: 'unit, contract, behavior, guards or staging (browser); scripts/test-isolated.cjs is the common runner contract'
       node-version:
         default: '22'
         type: string
@@ -19,6 +19,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Full history: the L1 contract resolves the pinned source revision
+          # (mcp.manifest.json) with `git cat-file -e`, an ancestor of HEAD.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}

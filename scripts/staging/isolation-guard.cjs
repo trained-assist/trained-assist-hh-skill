@@ -81,12 +81,24 @@ function blocked(target) {
 function installNetworkGuard() {
   const origConnect = net.Socket.prototype.connect;
   net.Socket.prototype.connect = function guardedConnect(...args) {
-    const opts = args[0];
+    let opts = args[0];
     let host, port;
-    if (Array.isArray(opts)) return origConnect.apply(this, args); // internal normalized form
-    if (typeof opts === 'object' && opts) { if (opts.path) return origConnect.apply(this, args); host = opts.host; port = opts.port; }
-    else if (typeof opts === 'string' && isNaN(Number(opts))) return origConnect.apply(this, args); // unix socket path
-    else { port = opts; host = typeof args[1] === 'string' ? args[1] : 'localhost'; }
+    // Node normalizes an http.Agent connect to connect([options, cb]); a naive
+    // Array.isArray() passthrough would let plain http.get(url) escape. Unwrap
+    // the first element and judge it like any other options object.
+    if (Array.isArray(opts)) {
+      const first = opts[0];
+      if (first && typeof first === 'object') opts = first;
+      else { port = first; host = typeof opts[1] === 'string' ? opts[1] : 'localhost'; opts = null; }
+    }
+    if (opts && typeof opts === 'object') {
+      if (opts.path) return origConnect.apply(this, args); // unix socket
+      if (host === undefined) { host = opts.hostname || opts.host; port = opts.port; }
+    } else if (typeof opts === 'string' && isNaN(Number(opts))) {
+      return origConnect.apply(this, args); // unix socket path
+    } else if (opts !== null && port === undefined) {
+      port = opts; host = typeof args[1] === 'string' ? args[1] : 'localhost';
+    }
     if (!isLoopback(host)) {
       const err = blocked(`${host}:${port}`);
       process.nextTick(() => this.destroy(err));
