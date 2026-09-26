@@ -16,6 +16,7 @@ const { execFileSync } = require('child_process');
 const { validate } = require('../helpers/json-schema');
 const { startMcp } = require('../helpers/mcp');
 const artifact = require('../../scripts/mcp-artifact');
+const { ActionProviderRegistry } = require('../../contracts/core/action-provider-registry.cjs');
 
 const ROOT = path.resolve(__dirname, '../..');
 const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'contracts/mcp-skill-sources.schema.json'), 'utf8'));
@@ -51,8 +52,15 @@ test('manifest identity is internally consistent', () => {
   assert.equal(source.repository, artifact.REPOSITORY);
   assert.equal(source.enabled, true);
   assert.ok(source.profiles.length > 0, 'profiles allowlist must not be empty');
+  // The embedded approved manifest must be the core-valid v1 descriptor.
+  const actionManifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'action-provider-manifest.json'), 'utf8'));
+  assert.deepEqual(source.approvedManifest, actionManifest, 'embedded approvedManifest drifted from action-provider-manifest.json');
+  // ...and it must stay consistent with the MCP-facing catalog (descriptions dropped).
   const providerManifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'provider-manifest.json'), 'utf8'));
-  assert.deepEqual(source.approvedManifest, providerManifest, 'embedded approvedManifest drifted from provider-manifest.json');
+  const withoutDescriptions = { ...providerManifest, actions: providerManifest.actions.map(({ description, ...a }) => a) };
+  assert.deepEqual(actionManifest, withoutDescriptions, 'action manifest must mirror provider manifest minus descriptions');
+  // The real core consumer must accept what we ship as the approved source.
+  new ActionProviderRegistry().register(source.approvedManifest);
 });
 
 // Two tools predate the hh_ namespacing and are pinned in core's approved
