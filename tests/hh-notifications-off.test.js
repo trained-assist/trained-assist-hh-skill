@@ -31,12 +31,6 @@ it('explicit vacancy stop leaves other schedules enabled',()=>{
  api.saveSchedule(user,{enabled:true,vacancies:{A:{enabled:true},B:{enabled:true}}});schedule.disableSearches(user,work,'A');
  expect(schedule.notificationsEnabled(user,work,'A')).toBe(false);expect(schedule.notificationsEnabled(user,work,'B')).toBe(false);
 });
-it('in-flight completion does not re-enable scheduling or start the next vacancy',async()=>{
- context('active_vacancies',[{id:'A'},{id:'B'}]);api.saveSchedule(user,{enabled:true,vacancies:{A:{enabled:true},B:{enabled:true}}});
- const run=vi.fn(async()=>{schedule.disableSearches(user,work);return {new_count:1};});
- await schedule.runDueSearches(user,work,run);expect(run).toHaveBeenCalledTimes(1);expect(api.loadSchedule(user).enabled).toBe(false);
- await schedule.runDueSearches(user,work,run);expect(run).toHaveBeenCalledTimes(1);
-});
 it('legacy notification hooks never run while search still persists results',async()=>{
  context('active_vacancy',{id:'A',area:{id:'2'}});context('active_vacancies',[{id:'A',area:{id:'2'}}]);
  const config={vacancy_id:'A',vacancy_title:'Engineer',required:[{name:'Engineer',weight:5}]};context('ats_config:A',config);
@@ -48,23 +42,11 @@ it('legacy notification hooks never run while search still persists results',asy
  const result=await api.runProactiveSearch(user,work,{vacancyId:'A'});expect(result.count).toBe(0);
 });
 
-it('MCP disable and status work without active vacancy; explicit enable still requires one',async()=>{
- const tool=require('../src/mcp-skills/tools/92-hh-proactive').tools.hh_proactive_schedule.handler;
- api.saveSchedule(user,{enabled:true,vacancies:{A:{enabled:true},B:{enabled:true}}});
- expect(await tool({action:'disable'})).toMatchObject({ok:true,enabled:false,scope:'profile'});
- expect(await tool({action:'status'})).toMatchObject({enabled:false,enabled_vacancy_ids:[]});
- expect(await tool({action:'enable'})).toHaveProperty('error');
- expect(await tool({action:'enable',vacancy_id:'A'})).toMatchObject({ok:true,enabled:true});
- expect(await tool({action:'disable',vacancy_id:'A'})).toMatchObject({scope:'vacancy',enabled:false});
-});
-
-it('mute preserves cadence, enabled searches and other profiles; next vacancies still run',async()=>{
+it('mute preserves cadence, enabled searches and other profiles',async()=>{
  context('active_vacancies',[{id:'A'},{id:'B'}]);
  api.saveSchedule(user,{enabled:true,vacancies:{A:{enabled:true,interval_hours:8},B:{enabled:true}}});
  api.saveSchedule('other',{enabled:true});
- const run=vi.fn(async()=>{schedule.setNotifications(user,work,false);return {new_count:1};});
- await schedule.runDueSearches(user,work,run);
- expect(run).toHaveBeenCalledTimes(2);
+ schedule.setNotifications(user,work,false);
  expect(api.loadSchedule(user)).toMatchObject({enabled:true,vacancies:{A:{enabled:true,interval_hours:8},B:{enabled:true}}});
  expect(schedule.notificationsEnabled(user,work,'A')).toBe(false);
  expect(schedule.deliveryEnabled('other',work,'A')).toBe(false);
@@ -83,15 +65,14 @@ it('mute without selected vacancy persists for future searches; unmute never ena
  expect(schedule.notificationsEnabled(user,work,'NEW')).toBe(false);
 });
 
-it('MCP notification controls need no vacancy and preserve search schedule',async()=>{
+it('MCP notification controls need no vacancy and never touch the search schedule',async()=>{
+ // Scheduling itself is core cron now (tests/hh-cold-search-cron.test.js); here only the retired controls.
  const tool=require('../src/mcp-skills/tools/92-hh-proactive').tools.hh_proactive_schedule.handler;
  api.saveSchedule(user,{enabled:true,vacancies:{A:{enabled:true}}});
- expect(await tool({action:'notifications_off'})).toMatchObject({ok:true,notifications_enabled:false});
- expect(await tool({action:'status'})).toMatchObject({enabled:true,notifications_enabled:false});
- await tool({action:'enable',vacancy_id:'A'});
+ expect(await tool({action:'notifications_off'})).toMatchObject({ok:true,notifications_enabled:false,retired:true});
+ expect(await tool({action:'notifications_on'})).toMatchObject({notifications_enabled:false,retired:true});
+ expect(api.loadSchedule(user)).toMatchObject({enabled:true,vacancies:{A:{enabled:true}}});
  expect(schedule.notificationsEnabled(user,work,'A')).toBe(false);
- await tool({action:'disable'});await tool({action:'notifications_on'});
- expect(api.loadSchedule(user).enabled).toBe(false);
 });
 
 it('muting legacy schedule without a selected vacancy preserves future scheduling',()=>{

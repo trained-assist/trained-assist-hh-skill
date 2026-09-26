@@ -197,68 +197,62 @@ module.exports = {
         },
         required: ['action'],
       },
+      // Thin wrapper over core's generic cron (agent#1489 S7.1): one job per vacancy
+      // running hh_proactive_search. Core owns timing, catch-up and history.
       handler: async ({ action, interval_hours, vacancy_id }) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';
         if (!userId) return { error: 'USER_ID не задан' };
 
         const workDir = path.join(usersRoot(), userId);
-        const { getSchedules, updateSchedule, disableSearches, deliveryEnabled } = require('../../hh-cold-search-schedule');
+        const cron = require('../../hh-cold-search-cron');
         if (action === 'notifications_off' || action === 'notifications_on') {
           return { ok: true, notifications_enabled: false, retired: true, scope: 'global',
             message: 'Уведомления холодного поиска выключены: функция удалена для всех пользователей. Настройки автопоиска не изменены.' };
         }
-        if (action === 'disable') {
-          disableSearches(userId, workDir, vacancy_id);
-          return { ok: true, enabled: false, scope: vacancy_id ? 'vacancy' : 'profile',
-            message: vacancy_id
-              ? 'Автопоиск и уведомления для этой вакансии выключены. Ручной поиск доступен.'
-              : 'Автопоиск и уведомления холодного поиска выключены для всех вакансий профиля. Ручной поиск доступен.' };
-        }
-        if (action === 'status' && !vacancy_id) {
-          const schedules = getSchedules(userId, workDir);
-          const enabled = Object.entries(schedules).filter(([, s]) => s.enabled && !s.archived).map(([id]) => id);
-          return { enabled: enabled.length > 0, notifications_enabled: deliveryEnabled(userId, workDir), enabled_vacancy_ids: enabled, schedules,
-            message: `${enabled.length ? `Автопоиск включён для ${enabled.length} вакансий.` : 'Автопоиск выключен.'} Уведомления холодного поиска удалены.` };
-        }
-        const id = vacancy_id || require('../../hh-utils').readHhContext(workDir, 'hh', 'active_vacancy')?.value?.id;
-        if (!id) return { error: 'Сначала выбери вакансию.' };
-        const schedule = getSchedules(userId, workDir)[id] || {};
-        const persist = () => updateSchedule(userId, workDir, id, schedule);
-
-        if (action === 'status') {
-          if (!schedule.enabled) {
-            return {
-              enabled: false,
-              notifications_enabled: deliveryEnabled(userId, workDir, id),
-              message: 'Автоматический проактивный поиск выключен. Запусти action=enable чтобы включить — агент будет сам искать новых кандидатов. Уведомления холодного поиска удалены.',
-            };
+        const when = iso => iso ? new Date(iso).toLocaleString('ru-RU', { timeZone: cron.TIMEZONE }) + ' МСК' : 'ещё не было';
+        const roleNote = role => role === 'primary' ? '' : '\n⚠️ На этом сервере планировщик не активен — задание сохранено, но запускаться не будет.';
+        try {
+          if (action === 'disable') {
+            // Legacy file state is also stopped so no pre-migration runner can pick it up.
+            require('../../hh-cold-search-schedule').disableSearches(userId, workDir, vacancy_id);
+            await cron.disableColdSearch(userId, vacancy_id);
+            return { ok: true, enabled: false, scope: vacancy_id ? 'vacancy' : 'profile',
+              message: vacancy_id
+                ? 'Автопоиск для этой вакансии выключен. Ручной поиск доступен.'
+                : 'Автопоиск выключен для всех вакансий профиля. Ручной поиск доступен.' };
           }
-          const hours = schedule.interval_hours || 24;
-          const nextRunTs = schedule.last_run
-            ? new Date(new Date(schedule.last_run).getTime() + hours * 3600000).toISOString()
-            : '~10 мин после старта сервера';
-          return {
-            enabled: true,
-            notifications_enabled: deliveryEnabled(userId, workDir, id),
-            interval_hours: hours,
-            last_run: schedule.last_run || null,
-            next_run: nextRunTs,
-            message: `Автопоиск включён. Уведомления холодного поиска удалены. Интервал: каждые ${hours} ч.\nПоследний запуск: ${schedule.last_run || 'ещё не было'}.\nСледующий: ${nextRunTs}.`,
-          };
-        }
+          if (action === 'status' && !vacancy_id) {
+            const { jobs, role } = await cron.listColdSearch(userId);
+            const enabled = jobs.filter(j => j.enabled);
+            return { enabled: enabled.length > 0, notifications_enabled: false, scheduler_role: role,
+              enabled_vacancy_ids: enabled.map(j => j.arguments.vacancy_id),
+              schedules: Object.fromEntries(jobs.map(j => [j.arguments.vacancy_id, { enabled: j.enabled, schedule: j.schedule,
+                next_run: j.next_run_at, last_run: j.last_run_at, last_status: j.last_status }])),
+              message: `${enabled.length ? `Автопоиск включён для ${enabled.length} вакансий.` : 'Автопоиск выключен.'} Уведомления холодного поиска удалены.${enabled.length ? roleNote(role) : ''}` };
+          }
+          const id = vacancy_id || require('../../hh-utils').readHhContext(workDir, 'hh', 'active_vacancy')?.value?.id;
+          if (!id) return { error: 'Сначала выбери вакансию.' };
 
-        if (action === 'enable') {
-          const hours = interval_hours && interval_hours > 0 ? interval_hours : (schedule.interval_hours || 24);
-          schedule.enabled = true;
-          schedule.interval_hours = hours;
-          persist();
-          return {
-            ok: true,
-            enabled: true,
-            notifications_enabled: deliveryEnabled(userId, workDir, id),
-            interval_hours: hours,
-            message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов. Результаты доступны на странице холодного поиска. Первый запуск в течение 30 мин.\n\n⚠️ Это встроенный планировщик агента — он НЕ появится в списке cron_list (там только внешние Cloud Scheduler задачи). Проверить статус: hh_proactive_schedule action=status.`,
-          };
+          if (action === 'status') {
+            const { jobs, role } = await cron.listColdSearch(userId);
+            const job = jobs.find(j => j.name === cron.jobName(id) && j.enabled);
+            if (!job) {
+              return { enabled: false, notifications_enabled: false,
+                message: 'Автоматический проактивный поиск выключен. Запусти action=enable чтобы включить — агент будет сам искать новых кандидатов. Уведомления холодного поиска удалены.' };
+            }
+            return { enabled: true, notifications_enabled: false, scheduler_role: role, schedule: job.schedule,
+              last_run: job.last_run_at, last_status: job.last_status, next_run: job.next_run_at,
+              message: `Автопоиск включён (расписание: ${job.schedule}, ${cron.TIMEZONE}).\nПоследний запуск: ${when(job.last_run_at)}${job.last_status ? ` (${job.last_status})` : ''}.\nСледующий: ${when(job.next_run_at)}.${roleNote(role)}` };
+          }
+
+          if (action === 'enable') {
+            const { job, hours, role } = await cron.enableColdSearch(userId, id, interval_hours);
+            return { ok: true, enabled: true, notifications_enabled: false, interval_hours: hours, scheduler_role: role,
+              schedule: job.schedule, next_run: job.next_run_at,
+              message: `✅ Автопоиск включён — каждые ${hours} ч агент будет искать новых кандидатов. Результаты — на странице холодного поиска.\nСледующий запуск: ${when(job.next_run_at)}.${roleNote(role)}` };
+          }
+        } catch (e) {
+          return { error: `Не удалось обратиться к планировщику агента: ${e.message}` };
         }
 
         return { error: `Неизвестный action: ${action}` };

@@ -1,10 +1,11 @@
 # Core consumer snapshot
 
 Source: trained-assist/trained-assist-agent, commit
-`74896cc4aced8e29446134ccb8b0010e58cca49b` (main inspected 2026-09-24).
+`0ae24a5f6d8e6bee6da86d1188d7dc433deb49d7` (main inspected 2026-09-26, adds the `schedule` descriptor block, agent#1489 S3.1).
 
 - `contract.schema.json`: byte-for-byte copy of `contracts/action-v1/contract.schema.json`.
 - `action-provider-registry.cjs`: `src/action-provider-registry.js`, only schema require path adjusted.
+  Its lazy `require('./cron-service')` runs only for a `schedule.defaultCron`; HH declares none.
 
 No hand-written lookalike validator: tests execute the actual consumer, including
 atomic registration, schema compilation, argument validation and trigger policy.
