@@ -60,9 +60,13 @@ for (const connected of [false, true]) test(`MCP executable discovery, schemas a
   } finally { await f.close(); }
 });
 
+// The refusal wording depends on which guard is preloaded: Nock's
+// disableNetConnect in per-layer CI jobs, or scripts/staging/isolation-guard.cjs
+// in the replay gate. Either way the outbound attempt must be denied.
+const DENIED = /Disallowed net connect|STAGING_OUTBOUND_BLOCKED/;
 test('network canary: both fetch and Node HTTP are denied without a fixture', async () => {
-  await assert.rejects(fetch('https://api.hh.ru/me'), /Disallowed net connect/);
-  await assert.rejects(new Promise((resolve, reject) => http.get('http://api.hh.ru/me', resolve).on('error', reject)), /Disallowed net connect/);
+  await assert.rejects(fetch('https://api.hh.ru/me'), DENIED);
+  await assert.rejects(new Promise((resolve, reject) => http.get('http://api.hh.ru/me', resolve).on('error', reject)), DENIED);
 });
 
 test('live smoke fails without secret, uses only GET, exposes no private content', async () => {

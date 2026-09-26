@@ -11,8 +11,8 @@ const path = require('path');
 
 const MCP_ENTRY = path.resolve(__dirname, '../../src/mcp-skills/index.js');
 
-async function startMcp({ entrypoint = MCP_ENTRY, args = [], userId = 'test-mcp-user', workDir = process.cwd(), env = {}, callTimeoutMs = 20000 } = {}) {
-  const proc = spawn(process.execPath, [entrypoint, ...args], {
+async function startMcp({ entrypoint = MCP_ENTRY, args = [], nodeArgs = [], userId = 'test-mcp-user', workDir = process.cwd(), env = {}, callTimeoutMs = 20000 } = {}) {
+  const proc = spawn(process.execPath, [...nodeArgs, entrypoint, ...args], {
     cwd: workDir,
     env: { ...process.env, USER_ID: userId, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
