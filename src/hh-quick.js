@@ -6,7 +6,7 @@ const { usersRoot } = require('./data-paths.js');
 const path = require('path');
 const os = require('os');
 
-const { readHhToken, readHhContext, writeHhContext, hhFetch } = require('./hh-utils');
+const { readHhToken, readHhContext, writeHhContext, hhFetch, hhPost } = require('./hh-utils');
 
 function _hhWorkDir(userId) {
   // Must match BASE_USERS_DIR in server.js — Claude writes contexts here via cwd
