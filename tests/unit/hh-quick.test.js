@@ -337,3 +337,31 @@ describe('hhStatus — HH token expiry awareness', () => {
 // That file is intentionally NOT part of this skill repo — it's main-repo
 // dispatch/routing logic, not HH skill logic. Coverage for that regex lives in
 // trained-assist-agent's own test suite.
+
+// ── hhSendConfirm / hhRejectConfirm — ported from core #1395 ─────────────────
+// Regression: hh-quick called hhPost without importing it, so both confirm
+// paths threw a ReferenceError (swallowed into an error reply) and nothing
+// reached HH.
+
+describe('confirm paths reach the HH API', () => {
+  it('hhSendConfirm posts the pending message to the negotiation', async () => {
+    const { hhSendConfirm } = freshModule();
+    const { writeHhContext } = require('../../src/hh-utils.js');
+    await writeHhContext(workDir, 'hh', 'pending_send', {
+      negotiation_id: 'neg-001', message: 'Добрый день!', vacancy_title: 'Backend Developer',
+    });
+    const result = await hhSendConfirm(TEST_UID, workDir);
+    expect(result).toContain('✅');
+    expect(mockHh.state.messages['neg-001']).toEqual(['Добрый день!']);
+  });
+
+  it('hhRejectConfirm reaches HH for each pending candidate (no ReferenceError)', async () => {
+    const { hhRejectConfirm } = freshModule();
+    const { writeHhContext } = require('../../src/hh-utils.js');
+    await writeHhContext(workDir, 'hh', 'pending_reject', {
+      candidates: [{ id: 'neg-001' }],
+    });
+    const result = await hhRejectConfirm(TEST_UID, workDir);
+    expect(result).not.toContain('hhPost is not defined');
+  });
+});
