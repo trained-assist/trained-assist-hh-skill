@@ -73,6 +73,14 @@
     { "name": "hh_proactive_queries", "validArgs": { "action": "view" } },
     { "name": "hh_proactive_view", "validArgs": {} },
     { "name": "hh_proactive_schedule", "validArgs": { "action": "status" } },
-    { "name": "hh_deactivate_vacancy", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "ok": true } }
+    { "name": "hh_deactivate_vacancy", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "ok": true } },
+    { "name": "calltips_get_login", "validArgs": {} },
+    { "name": "calltips_list_candidates", "validArgs": {} },
+    { "name": "calltips_prepare", "validArgs": { "candidate_name": "Fixture Candidate" } },
+    { "name": "boolean_search", "validArgs": { "role": "Backend developer" } },
+    { "name": "jd_generate", "validArgs": { "role": "Backend developer", "brief": "Node.js, middle" } },
+    { "name": "interview_questions_bank", "validArgs": { "role": "Backend developer" } },
+    { "name": "salary_benchmark", "validArgs": { "role": "Backend developer" } },
+    { "name": "sourcing_checklist", "validArgs": { "role": "Backend developer" } }
   ]
 }
