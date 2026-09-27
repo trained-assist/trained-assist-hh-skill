@@ -75,4 +75,18 @@ describe('hh-routes', () => {
     await handleHhPublic(req('POST', u.pathname, { username: 'alice', vacancy_id: 'A', action: 'disable', token }), u, res, ctx());
     expect(calls.map(c => [c.tool, c.params.action])).toContainEqual(['hh_proactive_schedule', 'disable']);
   });
+
+  it('serves the Call Tips session only with the per-profile scoped token', async () => {
+    const { createHmac } = require('crypto');
+    const tok = createHmac('sha256', 's3cret').update('calltips:alice').digest('hex').slice(0, 24);
+    fs.mkdirSync(path.join(root, 'users', 'alice'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'users', 'alice', 'calltips-latest.json'), JSON.stringify({ candidate: 'Bob' }));
+    let u = new URL('http://x/calltips-session?profile=alice&token=bad'); let res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(403);
+    u = new URL(`http://x/calltips-session?profile=alice&token=${tok}`); res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ candidate: 'Bob' });
+  });
 });
