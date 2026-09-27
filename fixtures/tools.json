@@ -84,6 +84,13 @@
     { "name": "sourcing_checklist", "validArgs": { "role": "Backend developer" } },
     { "name": "applylink_create_vacancy", "validArgs": { "title": "Fixture vacancy" } },
     { "name": "applylink_list_vacancies", "validArgs": {} },
-    { "name": "applylink_get_candidates", "validArgs": { "vacancy_id": "vac-fixture" } }
+    { "name": "applylink_get_candidates", "validArgs": { "vacancy_id": "vac-fixture" } },
+    { "name": "demo_activate", "validArgs": {} },
+    { "name": "demo_status", "validArgs": {} },
+    { "name": "demo_candidates", "validArgs": {} },
+    { "name": "demo_next_wave", "validArgs": {} },
+    { "name": "demo_candidate_profile", "validArgs": { "candidate_id": "demo-1" } },
+    { "name": "demo_reply", "validArgs": { "candidate_id": "demo-1", "message": "Здравствуйте!" } },
+    { "name": "demo_deactivate", "validArgs": {} }
   ]
 }

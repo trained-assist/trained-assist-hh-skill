@@ -1649,6 +1649,146 @@
       "effect": "read",
       "requiresApproval": false,
       "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_activate",
+      "description": "Активирует демо-режим для вакансии ОРГРЭС. Загружает ATS конфиг, инициализирует пул из 8 кандидатов, доставляет первую волну. После активации доступны: demo_next_wave, demo_reply, hh_proactive_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy": {
+            "type": "string",
+            "description": "Код демо-вакансии. Сейчас доступна только \"ogrex\".",
+            "enum": [
+              "ogrex"
+            ],
+            "default": "ogrex"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "demo_status",
+      "description": "Возвращает статус демо-режима: активен ли, какая вакансия, сколько кандидатов доставлено.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_candidates",
+      "description": "Возвращает список доставленных кандидатов с оценками и историей переписки. Вызывай когда рекрутер хочет посмотреть отклики или выбрать кому написать.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "REVIEW",
+              "PASS_LATER",
+              "all"
+            ],
+            "description": "Фильтр по тегу. По умолчанию — все.",
+            "default": "all"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_next_wave",
+      "description": "Доставляет следующую волну откликов от кандидатов (2-3 новых). Имитирует поступление новых резюме. Вызывай когда рекрутер ждёт новых кандидатов.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "unsafe"
+    },
+    {
+      "name": "demo_candidate_profile",
+      "description": "Возвращает полный профиль конкретного кандидата: опыт, навыки, переписку.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "candidate_id"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "description": "ID кандидата (morozov, smirnov, petrov, и т.д.)"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_reply",
+      "description": "Отправляет сообщение кандидату (симуляция) и возвращает ответ кандидата, сгенерированный через AI. Используй для демонстрации переписки рекрутера с кандидатом.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "candidate_id",
+          "message"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "description": "ID кандидата"
+          },
+          "message": {
+            "type": "string",
+            "description": "Сообщение от рекрутера кандидату"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "unsafe"
+    },
+    {
+      "name": "demo_deactivate",
+      "description": "Выключает демо-режим и очищает демо-данные. ATS конфиг не трогает.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
     }
   ]
 }

@@ -1601,6 +1601,139 @@
       "effect": "read",
       "requiresApproval": false,
       "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_activate",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy": {
+            "type": "string",
+            "description": "Код демо-вакансии. Сейчас доступна только \"ogrex\".",
+            "enum": [
+              "ogrex"
+            ],
+            "default": "ogrex"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "demo_status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_candidates",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "REVIEW",
+              "PASS_LATER",
+              "all"
+            ],
+            "description": "Фильтр по тегу. По умолчанию — все.",
+            "default": "all"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_next_wave",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "unsafe"
+    },
+    {
+      "name": "demo_candidate_profile",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "candidate_id"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "description": "ID кандидата (morozov, smirnov, petrov, и т.д.)"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "demo_reply",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "candidate_id",
+          "message"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "description": "ID кандидата"
+          },
+          "message": {
+            "type": "string",
+            "description": "Сообщение от рекрутера кандидату"
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "unsafe"
+    },
+    {
+      "name": "demo_deactivate",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
     }
   ]
 }
