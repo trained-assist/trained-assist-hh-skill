@@ -94,6 +94,9 @@
     { "name": "demo_deactivate", "validArgs": {} },
     { "name": "candidate_report_add_note", "validArgs": { "candidate": "Fixture Candidate", "text": "Писать от первого лица" } },
     { "name": "candidate_report_context", "validArgs": { "candidate": "Fixture Candidate" } },
-    { "name": "candidate_report_render", "validArgs": { "candidate": "Fixture Candidate", "data": { "candidate": { "name": "Fixture Candidate" } }, "publish": false } }
+    { "name": "candidate_report_render", "validArgs": { "candidate": "Fixture Candidate", "data": { "candidate": { "name": "Fixture Candidate" } }, "publish": false } },
+    { "name": "interview_set_criteria", "validArgs": { "criteria": "Опыт Node.js от 3 лет" } },
+    { "name": "interview_get_criteria", "validArgs": {} },
+    { "name": "interview_analyze", "validArgs": { "transcript": "Интервьюер: расскажите об опыте. Кандидат: 5 лет Node.js." } }
   ]
 }

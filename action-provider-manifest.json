@@ -1840,6 +1840,81 @@
       "effect": "write",
       "requiresApproval": false,
       "retrySafety": "idempotent"
+    },
+    {
+      "name": "interview_set_criteria",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "criteria": {
+            "type": "string",
+            "description": "Критерии заказчика в свободном markdown (профиль ДА, веса, красные флаги)."
+          }
+        },
+        "required": [
+          "criteria"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "interview_get_criteria",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "interview_analyze",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "transcript": {
+            "type": "string",
+            "description": "Текст транскрипта интервью (речь целиком)."
+          },
+          "candidate_name": {
+            "type": "string",
+            "description": "Имя кандидата (для заголовка и идемпотентности). По умолчанию «candidate»."
+          },
+          "criteria": {
+            "type": "string",
+            "description": "Опц.: критерии заказчика на этот вызов. Если не задано — берутся сохранённые."
+          },
+          "model": {
+            "type": "string",
+            "description": "Опц.: модель OpenRouter. Дефолт google/gemini-2.5-flash."
+          },
+          "out_dir": {
+            "type": "string",
+            "description": "Опц.: куда сохранить разбор. По умолчанию видимая папка юзера ~/users/<id>/interviews/analysis. Относительный путь считается от рабочей директории юзера."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Опц.: переоценить, даже если разбор уже есть."
+          }
+        },
+        "required": [
+          "transcript"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
     }
   ]
 }
