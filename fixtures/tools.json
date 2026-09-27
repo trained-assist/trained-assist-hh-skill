@@ -1,5 +1,5 @@
 {
-  "comment": "L2 behavior fixtures: one entry per tool in mcp.manifest.json. validArgs are schema-valid arguments for a connected fixture profile; expect is an optional subset of the parsed tools/call result. External HH is the loopback mock (tests/helpers/mock-hh-server.js); the LLM is the scripted nock fixture (tests/support/llm-provider-fixture.cjs). Neither the registry nor the server is mocked.",
+  "comment": "L2 behavior fixtures (optional per tool — tools without one are smoke-called with {} and must return a valid envelope or a reported error, agent#1470). validArgs are schema-valid arguments for a connected fixture profile; expect is an optional subset of the parsed tools/call result. External HH is the loopback mock (tests/helpers/mock-hh-server.js); the LLM is the scripted nock fixture (tests/support/llm-provider-fixture.cjs). Neither the registry nor the server is mocked.",
   "tools": [
     { "name": "hh_connect", "validArgs": {} },
     { "name": "hh_status", "validArgs": {}, "expect": { "connected": true } },

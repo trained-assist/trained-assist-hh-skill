@@ -20,16 +20,23 @@ function parseEnvelope(result) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
-test('every tool has a fixture and returns a valid MCP envelope', async () => {
+test('every tool returns a valid MCP envelope (fixtures optional)', async () => {
   const f = await createBehaviorFixture();
   try {
     const { tools } = await f.mcp.call('tools/list');
+    const names = new Set(tools.map((t) => t.name));
+    // A fixture for a tool that no longer exists is drift — fail on it.
+    const stale = fixtures.filter((x) => !names.has(x.name)).map((x) => x.name);
+    assert.deepEqual(stale, [], 'fixtures for tools that are not in tools/list');
+    // Tools without a hand-written fixture still get exercised with empty arguments:
+    // the contract is "valid envelope or a reported error, never a crash". A fixture is
+    // only needed to assert specific behaviour (agent#1470: moving a tool must not
+    // require a new fixture).
     const covered = new Set(fixtures.map((x) => x.name));
-    for (const tool of tools) assert.ok(covered.has(tool.name), `no fixture for tool ${tool.name}`);
-    assert.equal(fixtures.length, tools.length, 'fixture count must match the server tool catalog');
+    const defaults = tools.filter((t) => !covered.has(t.name)).map((t) => ({ name: t.name, validArgs: {}, generated: true }));
 
     // Execute in fixture order (stateful fixtures: connect/token/active venue first).
-    for (const fixture of fixtures) {
+    for (const fixture of [...fixtures, ...defaults]) {
       let result;
       try {
         result = await f.mcp.call('tools/call', { name: fixture.name, arguments: fixture.validArgs });
@@ -42,6 +49,7 @@ test('every tool has a fixture and returns a valid MCP envelope', async () => {
       assert.ok(result && Array.isArray(result.content), `${fixture.name}: envelope must have content[]`);
       assert.equal(result.content[0].type, 'text');
       const value = parseEnvelope(result);
+      if (fixture.generated) continue; // empty-args smoke: the envelope shape is the contract
       assert.ok(value && typeof value === 'object', `${fixture.name}: content must be JSON`);
       for (const [key, expected] of Object.entries(fixture.expect || {})) {
         assert.equal(value[key], expected, `${fixture.name}: expected ${key}=${expected}`);
