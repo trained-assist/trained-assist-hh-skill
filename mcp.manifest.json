@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "907b737e26a0db16211602a995d3f4d8401b0f69",
+      "revision": "552b2fa1a9f7767085f7c8bad014d13d2150e8b2",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "35353575d67141fcd37daf59a76f02926fc5c67e20c4529ad9b06e14e1db23b0",
+      "artifactDigest": "4fa23b85cb5f6499c5b7789f6ad06376ca161673a7dffa2e847922625b4e3315",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -1615,6 +1615,112 @@
             "effect": "read",
             "requiresApproval": false,
             "retrySafety": "read_only"
+          },
+          {
+            "name": "candidate_report_context",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "candidate": {
+                  "type": "string",
+                  "description": "Имя кандидата (можно фамилию). Пусто = последний, с кем работали."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "candidate_report_add_note",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "text"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "Формулировка требования, как сказал рекрутер."
+                },
+                "candidate": {
+                  "type": "string",
+                  "description": "Имя кандидата. Пусто = последний, с кем работали."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "candidate_report_render",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "candidate",
+                "data"
+              ],
+              "properties": {
+                "candidate": {
+                  "type": "string",
+                  "description": "Имя кандидата (то же, что в candidate_report_context)."
+                },
+                "data": {
+                  "type": "object",
+                  "description": "Содержимое профиля, см. template_schema из candidate_report_context.",
+                  "properties": {
+                    "candidate": {
+                      "type": "object"
+                    },
+                    "client": {
+                      "type": "object"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "matrix": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "experience": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "conclusion": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "publish": {
+                  "type": "boolean",
+                  "description": "Опубликовать и вернуть ссылку. По умолчанию true."
+                },
+                "password": {
+                  "type": "string",
+                  "description": "Пароль на страницу (рекомендуется — персональные данные)."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
           },
           {
             "name": "demo_activate",
