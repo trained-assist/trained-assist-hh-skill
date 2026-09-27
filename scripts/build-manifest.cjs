@@ -47,6 +47,17 @@ const POLICY = {
   hh_discover: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   hh_api_call: { effect: 'write', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
 
+  // ── Recruiting satellites moved from core (agent#1470) ──────────────────────
+  // Call Tips: login link / list are reads; prepare writes calltips-latest.json locally.
+  calltips_get_login:       { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  calltips_list_candidates: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  calltips_prepare:         { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  // Recruiter text tools: LLM drafting only, no HH or outbound effect.
+  boolean_search:           { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  jd_generate:              { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  interview_questions_bank: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  salary_benchmark:         { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  sourcing_checklist:       { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   // ── Read-only actions ──────────────────────────────────────────────────────
   hh_list_vacancies:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_list_responses:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },

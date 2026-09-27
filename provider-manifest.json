@@ -1287,6 +1287,240 @@
       "effect": "write",
       "requiresApproval": false,
       "retrySafety": "idempotent"
+    },
+    {
+      "name": "calltips_get_login",
+      "description": "Get the Call Tips desktop app login for this user: profile name + a scoped token (NOT the master agent secret). Use when user asks \"как залогинить call tips\", \"дай токен для call tips\", \"подключи приложение для звонков\", or after they report the app logged in as someone else / wrong profile.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "calltips_prepare",
+      "description": "Prepare a Call Tips interview plan for a candidate. Fetches their HH resume, generates structured question plan, and saves it so the Call Tips app can load it with \"📥 Из агента\". Use when user says \"подготовь план для звонка с [имя]\" or \"подготовь интервью с [имя]\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "candidate_name": {
+            "type": "string",
+            "description": "Full name or partial name of the candidate (will be searched in HH responses)"
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Optional: specific HH vacancy ID. If omitted, uses the most recent active vacancy."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Interview duration in minutes. Default: 30."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Interview language: ru or en. Default: ru."
+          }
+        },
+        "required": [
+          "candidate_name"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "calltips_list_candidates",
+      "description": "List candidates with HH responses ready to prepare interview plans for. Use when user asks \"кто откликнулся\", \"покажи кандидатов\", \"список откликов\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Optional: specific vacancy ID."
+          },
+          "state": {
+            "type": "string",
+            "description": "Filter: response | invitation | all. Default: all."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "boolean_search",
+      "description": "Сгенерировать boolean search строки для поиска кандидатов на Google/LinkedIn/HH. Возвращает 3 варианта: Google, LinkedIn, HH.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Название роли / должности."
+          },
+          "requirements": {
+            "type": "string",
+            "description": "Ключевые навыки или стек (опционально)."
+          },
+          "location": {
+            "type": "string",
+            "description": "Локация (опционально)."
+          },
+          "exclude": {
+            "type": "string",
+            "description": "Кого исключить из поиска (опционально)."
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "jd_generate",
+      "description": "Сгенерировать полное описание вакансии (JD) из краткого брифа. Подходит для HH, Хабр Карьера, лендинга.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Название роли."
+          },
+          "brief": {
+            "type": "string",
+            "description": "Краткий бриф: что нужно, уровень, стек, условия."
+          },
+          "format": {
+            "type": "string",
+            "description": "Формат вывода: hh | linkedin | markdown. По умолчанию markdown."
+          }
+        },
+        "required": [
+          "role",
+          "brief"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "interview_questions_bank",
+      "description": "Сгенерировать банк вопросов для интервью по роли и уровню.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Роль / должность."
+          },
+          "level": {
+            "type": "string",
+            "description": "Уровень: junior | middle | senior (опционально)."
+          },
+          "focus": {
+            "type": "string",
+            "description": "На что сделать акцент (опционально)."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Общее количество вопросов. По умолчанию 15."
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "salary_benchmark",
+      "description": "Получить зарплатный бенчмарк для роли по рынку РФ. Данные на основе знаний модели + здравого смысла.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Роль / должность."
+          },
+          "location": {
+            "type": "string",
+            "description": "Локация. По умолчанию Москва."
+          },
+          "stack": {
+            "type": "string",
+            "description": "Технологии/стек (опционально)."
+          },
+          "level": {
+            "type": "string",
+            "description": "Уровень: junior | middle | senior (опционально)."
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "sourcing_checklist",
+      "description": "Получить чек-лист источников для поиска кандидатов на конкретную роль.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Роль / должность."
+          },
+          "stack": {
+            "type": "string",
+            "description": "Технологии/стек (опционально)."
+          },
+          "level": {
+            "type": "string",
+            "description": "Уровень: junior | middle | senior (опционально)."
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
     }
   ]
 }

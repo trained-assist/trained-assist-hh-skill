@@ -66,7 +66,11 @@ test('manifest identity is internally consistent', () => {
 // Two tools predate the hh_ namespacing and are pinned in core's approved
 // action snapshot (contracts/action-v1/hh-tools.snapshot.json). Renaming them
 // would break core consumers, so they are an explicit, frozen allowlist.
-const LEGACY_NAMES = new Set(['cold_message_generate', 'rejection_with_feedback']);
+// Recruiting tools moved from core keep their established names (agent#1470) —
+// core quick answers and user habits refer to them.
+const LEGACY_NAMES = new Set(['cold_message_generate', 'rejection_with_feedback',
+  'calltips_get_login', 'calltips_prepare', 'calltips_list_candidates',
+  'boolean_search', 'jd_generate', 'interview_questions_bank', 'salary_benchmark', 'sourcing_checklist']);
 
 test('manifest actions are namespaced and policy-valid', () => {
   const [source] = manifest.sources;
