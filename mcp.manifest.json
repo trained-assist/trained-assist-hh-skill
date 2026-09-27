@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "b77cffae1253ccc076b2fcfcb68b442f90fd9a79",
+      "revision": "01a57a09388bde5115ae4127e2dea701e0d9b966",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "a7e64f79b2255aabc6e1be2554920107776307bbd9e53691af46ba11f73f2f2b",
+      "artifactDigest": "5a76d2aeb38518d9ef941a0c2122ba7834e6f24031a85af5629bdb4d75db2210",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -1483,6 +1483,131 @@
               "required": [
                 "role"
               ]
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "applylink_create_vacancy",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Existing vacancy id — pass to UPDATE (fields merge over current). Omit to CREATE a new one."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "Job title, e.g. \"Финансовый советник\"."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Internal role description (not shown large on the form)."
+                },
+                "location": {
+                  "type": "string",
+                  "description": "Where the role is, e.g. \"Россия (удалённо)\"."
+                },
+                "seniority": {
+                  "type": "string",
+                  "description": "Seniority hint, free text, e.g. \"Middle+\"."
+                },
+                "language": {
+                  "type": "string",
+                  "description": "Form + questions language: \"ru\" or \"en\". Default \"en\"."
+                },
+                "default_country": {
+                  "type": "string",
+                  "description": "ISO country code preselected in the phone input, e.g. \"RU\"."
+                },
+                "intro": {
+                  "type": "string",
+                  "description": "Short paragraph shown at the top of the apply form."
+                },
+                "must_have": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Must-have skills/requirements."
+                },
+                "nice_to_have": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Nice-to-have skills."
+                },
+                "scoring": {
+                  "type": "object",
+                  "description": "Prompt params that drive LLM scoring of each applicant.",
+                  "properties": {
+                    "prompt": {
+                      "type": "string",
+                      "description": "The exact criteria the model scores the candidate against (what raises/lowers the score). This is the core \"prompt\"."
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Optional OpenRouter model id (default openai/gpt-4o-mini)."
+                    }
+                  }
+                },
+                "questions": {
+                  "type": "object",
+                  "description": "Follow-up questions shown to the candidate (overrides auto-generated ones).",
+                  "properties": {
+                    "video": {
+                      "type": "string",
+                      "description": "One short question for the video answer path."
+                    },
+                    "full": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "2–4 questions for the text / answer-later path."
+                    }
+                  }
+                },
+                "alias": {
+                  "type": "string",
+                  "description": "Optional custom reply-alias name (routes candidate emails). Auto-assigned from a pool if omitted."
+                },
+                "active": {
+                  "type": "boolean",
+                  "description": "Set false to close the vacancy (stops accepting applications). Default true."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "applylink_list_vacancies",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "applylink_get_candidates",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
             },
             "allowedTriggers": [
               "user"

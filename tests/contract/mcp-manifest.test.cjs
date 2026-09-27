@@ -70,7 +70,8 @@ test('manifest identity is internally consistent', () => {
 // core quick answers and user habits refer to them.
 const LEGACY_NAMES = new Set(['cold_message_generate', 'rejection_with_feedback',
   'calltips_get_login', 'calltips_prepare', 'calltips_list_candidates',
-  'boolean_search', 'jd_generate', 'interview_questions_bank', 'salary_benchmark', 'sourcing_checklist']);
+  'boolean_search', 'jd_generate', 'interview_questions_bank', 'salary_benchmark', 'sourcing_checklist',
+  'applylink_create_vacancy', 'applylink_list_vacancies', 'applylink_get_candidates']);
 
 test('manifest actions are namespaced and policy-valid', () => {
   const [source] = manifest.sources;

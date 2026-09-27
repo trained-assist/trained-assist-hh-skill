@@ -58,6 +58,11 @@ const POLICY = {
   interview_questions_bank: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   salary_benchmark:         { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   sourcing_checklist:       { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  // ApplyLink (moved from core 41-applylink, agent#1470): create/update writes a
+  // vacancy on the ApplyLink worker; list/candidates are reads.
+  applylink_create_vacancy: { effect: 'write', requiresApproval: false, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
+  applylink_list_vacancies: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  applylink_get_candidates: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   // ── Read-only actions ──────────────────────────────────────────────────────
   hh_list_vacancies:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_list_responses:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
