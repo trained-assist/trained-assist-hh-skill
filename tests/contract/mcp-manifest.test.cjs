@@ -72,7 +72,8 @@ const LEGACY_NAMES = new Set(['cold_message_generate', 'rejection_with_feedback'
   'calltips_get_login', 'calltips_prepare', 'calltips_list_candidates',
   'boolean_search', 'jd_generate', 'interview_questions_bank', 'salary_benchmark', 'sourcing_checklist',
   'applylink_create_vacancy', 'applylink_list_vacancies', 'applylink_get_candidates',
-  'demo_activate', 'demo_status', 'demo_candidates', 'demo_next_wave', 'demo_candidate_profile', 'demo_reply', 'demo_deactivate']);
+  'demo_activate', 'demo_status', 'demo_candidates', 'demo_next_wave', 'demo_candidate_profile', 'demo_reply', 'demo_deactivate',
+  'candidate_report_context', 'candidate_report_add_note', 'candidate_report_render']);
 
 test('manifest actions are namespaced and policy-valid', () => {
   const [source] = manifest.sources;

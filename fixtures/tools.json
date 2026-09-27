@@ -91,6 +91,9 @@
     { "name": "demo_next_wave", "validArgs": {} },
     { "name": "demo_candidate_profile", "validArgs": { "candidate_id": "demo-1" } },
     { "name": "demo_reply", "validArgs": { "candidate_id": "demo-1", "message": "Здравствуйте!" } },
-    { "name": "demo_deactivate", "validArgs": {} }
+    { "name": "demo_deactivate", "validArgs": {} },
+    { "name": "candidate_report_add_note", "validArgs": { "candidate": "Fixture Candidate", "text": "Писать от первого лица" } },
+    { "name": "candidate_report_context", "validArgs": { "candidate": "Fixture Candidate" } },
+    { "name": "candidate_report_render", "validArgs": { "candidate": "Fixture Candidate", "data": { "candidate": { "name": "Fixture Candidate" } }, "publish": false } }
   ]
 }
