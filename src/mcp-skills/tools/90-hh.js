@@ -653,6 +653,8 @@ module.exports = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: USER_ID, vacancy_id, token: require('crypto').createHmac('sha256', process.env.AGENT_SECRET || '').update(USER_ID).digest('hex').slice(0, 16) }),
+          // Fire-and-forget, but bounded: a hung agent socket must not pin this MCP process.
+          signal: AbortSignal.timeout(10000),
         }).catch(() => {}); // fire-and-forget
 
         return {

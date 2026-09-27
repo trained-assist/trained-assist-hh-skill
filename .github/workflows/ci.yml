@@ -37,23 +37,52 @@ jobs:
     uses: ./.github/workflows/skill-ci-reusable.yml
     with:
       suite: staging
+  # Domain-skill conformance gate (core #1440): required artifacts, manifest vs
+  # schema, mandatory suites, L3 static guards. The testkit comes from public
+  # core at a PINNED revision — bumping TESTKIT_REF = accepting new gate rules.
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TESTKIT_REF: 247a398e749718f7adae4d457eae534f815a5132
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: trained-assist/trained-assist-agent
+          ref: ${{ env.TESTKIT_REF }}
+          path: .testkit-core
+          sparse-checkout: packages/mcp-skill-testkit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      # The kit's peer deps (ajv) resolve from this repo's node_modules.
+      - name: mcp-skill-conformance
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+        run: node .testkit-core/packages/mcp-skill-testkit/bin/mcp-skill-conformance.js .
   ci:
     name: ci
-    needs: [contract, behavior, guards, unit]
+    needs: [contract, behavior, guards, unit, conformance]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require successful contract, behavior, guards and unit suites
+      - name: Require successful contract, behavior, guards, unit and conformance
         env:
+          CONFORMANCE_RESULT: ${{ needs.conformance.result }}
           CONTRACT_RESULT: ${{ needs.contract.result }}
           BEHAVIOR_RESULT: ${{ needs.behavior.result }}
           GUARDS_RESULT: ${{ needs.guards.result }}
           UNIT_RESULT: ${{ needs.unit.result }}
-        run: test "$CONTRACT_RESULT" = success && test "$BEHAVIOR_RESULT" = success && test "$GUARDS_RESULT" = success && test "$UNIT_RESULT" = success
+        run: test "$CONTRACT_RESULT" = success && test "$BEHAVIOR_RESULT" = success && test "$GUARDS_RESULT" = success && test "$UNIT_RESULT" = success && test "$CONFORMANCE_RESULT" = success
   staging-gate:
     name: staging-gate
-    needs: [contract, behavior, guards, unit, browser]
+    needs: [contract, behavior, guards, unit, browser, conformance]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -65,7 +94,8 @@ jobs:
           GUARDS_RESULT: ${{ needs.guards.result }}
           UNIT_RESULT: ${{ needs.unit.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
-        run: test "$CONTRACT_RESULT" = success && test "$BEHAVIOR_RESULT" = success && test "$GUARDS_RESULT" = success && test "$UNIT_RESULT" = success && test "$BROWSER_RESULT" = success
+          CONFORMANCE_RESULT: ${{ needs.conformance.result }}
+        run: test "$CONTRACT_RESULT" = success && test "$BEHAVIOR_RESULT" = success && test "$GUARDS_RESULT" = success && test "$UNIT_RESULT" = success && test "$BROWSER_RESULT" = success && test "$CONFORMANCE_RESULT" = success
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}

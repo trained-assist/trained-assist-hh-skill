@@ -1,4 +1,5 @@
 'use strict';
+// mcp-skill-conformance: browser-fetch — every fetch() here is emitted client-side JS inside <script>.
 
 function fmtSalary(salary) {
   if (!salary) return null;
