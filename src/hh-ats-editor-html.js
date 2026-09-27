@@ -1,4 +1,5 @@
 'use strict';
+// mcp-skill-conformance: browser-fetch — every fetch() here is emitted client-side JS inside <script>.
 
 // Generates the ATS Template Editor HTML page.
 // opts: { callbackBase, username, agentSecret }
