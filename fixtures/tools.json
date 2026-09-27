@@ -81,6 +81,9 @@
     { "name": "jd_generate", "validArgs": { "role": "Backend developer", "brief": "Node.js, middle" } },
     { "name": "interview_questions_bank", "validArgs": { "role": "Backend developer" } },
     { "name": "salary_benchmark", "validArgs": { "role": "Backend developer" } },
-    { "name": "sourcing_checklist", "validArgs": { "role": "Backend developer" } }
+    { "name": "sourcing_checklist", "validArgs": { "role": "Backend developer" } },
+    { "name": "applylink_create_vacancy", "validArgs": { "title": "Fixture vacancy" } },
+    { "name": "applylink_list_vacancies", "validArgs": {} },
+    { "name": "applylink_get_candidates", "validArgs": { "vacancy_id": "vac-fixture" } }
   ]
 }
