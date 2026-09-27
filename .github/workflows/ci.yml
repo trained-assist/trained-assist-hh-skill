@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      TESTKIT_REF: 247a398e749718f7adae4d457eae534f815a5132
+      TESTKIT_REF: 091218057ee94de60bd057b8027b339aa49c4ae9
     steps:
       - uses: actions/checkout@v4
         with:
