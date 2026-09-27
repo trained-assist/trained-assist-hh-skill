@@ -63,6 +63,15 @@ const POLICY = {
   applylink_create_vacancy: { effect: 'write', requiresApproval: false, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
   applylink_list_vacancies: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   applylink_get_candidates: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  // HH demo mode (moved from core 98-demo, agent#1470): simulated candidates stored
+  // locally for the profile; no HH or outbound effect.
+  demo_activate:          { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  demo_deactivate:        { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  demo_next_wave:         { effect: 'write', requiresApproval: false, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
+  demo_reply:             { effect: 'write', requiresApproval: false, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
+  demo_status:            { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  demo_candidates:        { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
+  demo_candidate_profile: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   // ── Read-only actions ──────────────────────────────────────────────────────
   hh_list_vacancies:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_list_responses:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },

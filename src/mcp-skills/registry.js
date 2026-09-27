@@ -13,6 +13,22 @@ const allDefs = [];
 // host action (MCP_HOST_ACTION=1). Epic trained-assist-agent#1470 P1.3.
 const hostHandlers = {};
 const hostDefs = [];
+// Profile skills (trained-assist-agent #1537/#1470): core's catalog can address this
+// repo's modules as 'hh-skills/<file>' in its sections; modules of switched-off
+// sections arrive in SKILLS_RESOLVED → hidden.modules and are not registered.
+// Unset/unreadable → nothing hidden.
+const SERVER_ID = 'hh-skills';
+function hiddenModules(file) {
+  if (!file) return new Set();
+  try {
+    const h = JSON.parse(fs.readFileSync(file, 'utf8')).hidden || {};
+    return new Set((Array.isArray(h.modules) ? h.modules : []).filter(m => typeof m === 'string'));
+  } catch (e) {
+    console.error(`[skills] SKILLS_RESOLVED unreadable: ${e.message} — no filter`);
+    return new Set();
+  }
+}
+const hiddenSet = hiddenModules(process.env.SKILLS_RESOLVED);
 
 // Auto-discover all tool files in tools/
 // Each module may export:
@@ -33,9 +49,11 @@ for (const file of fs.readdirSync(toolsDir).filter(f => f.endsWith('.js')).sort(
     continue;
   }
 
+  const off = hiddenSet.has(`${SERVER_ID}/${file}`);
   for (const [name, tool] of Object.entries(mod.tools || {})) {
     allDefs.push({ name, description: tool.description,
       inputSchema: tool.inputSchema || { type: 'object', properties: {} } });
+    if (off) continue;
     if (!ready && !setupSet.has(name)) continue;
     if (handlers[name]) {
       console.error(`[registry] duplicate tool name: ${name} in ${file}`);

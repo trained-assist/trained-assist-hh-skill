@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "01a57a09388bde5115ae4127e2dea701e0d9b966",
+      "revision": "907b737e26a0db16211602a995d3f4d8401b0f69",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "5a76d2aeb38518d9ef941a0c2122ba7834e6f24031a85af5629bdb4d75db2210",
+      "artifactDigest": "35353575d67141fcd37daf59a76f02926fc5c67e20c4529ad9b06e14e1db23b0",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -1615,6 +1615,139 @@
             "effect": "read",
             "requiresApproval": false,
             "retrySafety": "read_only"
+          },
+          {
+            "name": "demo_activate",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy": {
+                  "type": "string",
+                  "description": "Код демо-вакансии. Сейчас доступна только \"ogrex\".",
+                  "enum": [
+                    "ogrex"
+                  ],
+                  "default": "ogrex"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "demo_status",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "demo_candidates",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "tag": {
+                  "type": "string",
+                  "enum": [
+                    "PASS",
+                    "REVIEW",
+                    "PASS_LATER",
+                    "all"
+                  ],
+                  "description": "Фильтр по тегу. По умолчанию — все.",
+                  "default": "all"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "demo_next_wave",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "demo_candidate_profile",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "candidate_id"
+              ],
+              "properties": {
+                "candidate_id": {
+                  "type": "string",
+                  "description": "ID кандидата (morozov, smirnov, petrov, и т.д.)"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
+          },
+          {
+            "name": "demo_reply",
+            "inputSchema": {
+              "type": "object",
+              "required": [
+                "candidate_id",
+                "message"
+              ],
+              "properties": {
+                "candidate_id": {
+                  "type": "string",
+                  "description": "ID кандидата"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Сообщение от рекрутера кандидату"
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "unsafe"
+          },
+          {
+            "name": "demo_deactivate",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
           }
         ]
       },
