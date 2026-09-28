@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "1f0be6aaed7eaf6680c23cdd5ebd7af49add57e6",
+      "revision": "a157131a58340ecc7182a4ce5f333b21b9e3af87",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "b86ff10945d91b932395597e4dc3a939f4a68a39c547a3af51deaf69892081fa",
+      "artifactDigest": "161dcb7b3d73152d511d3525bd8120a0c97d227823697455a730bca440b9501f",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -1098,6 +1098,37 @@
               "required": [
                 "candidate_name",
                 "reason"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_sync_messages",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Vacancy ID to sync messages for. Required — sync is always scoped to one vacancy."
+                },
+                "incremental": {
+                  "type": "boolean",
+                  "description": "true = only candidates HH shows as updated since our last sync (default false = sync all, capped by `cap`)."
+                },
+                "cap": {
+                  "type": "number",
+                  "description": "Max candidates to sync when incremental=false (default 15)."
+                }
+              },
+              "required": [
+                "vacancy_id"
               ]
             },
             "allowedTriggers": [

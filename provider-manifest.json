@@ -1128,6 +1128,38 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "hh_sync_messages",
+      "description": "Sync HH negotiation message threads into local candidate history for one vacancy. Fetches messages from HH API for candidates HH shows as having more messages than stored locally, merges them (dedup by HH message id). This is the same sync the background scoring loop performs every 5 minutes — call it directly for an on-demand refresh (e.g. before opening the review page, or from a cron job) instead of waiting for the next background tick.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Vacancy ID to sync messages for. Required — sync is always scoped to one vacancy."
+          },
+          "incremental": {
+            "type": "boolean",
+            "description": "true = only candidates HH shows as updated since our last sync (default false = sync all, capped by `cap`)."
+          },
+          "cap": {
+            "type": "number",
+            "description": "Max candidates to sync when incremental=false (default 15)."
+          }
+        },
+        "required": [
+          "vacancy_id"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
       "name": "hh_proactive_search",
       "description": "ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_resume — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).",
       "inputSchema": {

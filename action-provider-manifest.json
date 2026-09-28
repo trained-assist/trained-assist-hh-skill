@@ -1096,6 +1096,37 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "hh_sync_messages",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Vacancy ID to sync messages for. Required — sync is always scoped to one vacancy."
+          },
+          "incremental": {
+            "type": "boolean",
+            "description": "true = only candidates HH shows as updated since our last sync (default false = sync all, capped by `cap`)."
+          },
+          "cap": {
+            "type": "number",
+            "description": "Max candidates to sync when incremental=false (default 15)."
+          }
+        },
+        "required": [
+          "vacancy_id"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
       "name": "hh_proactive_search",
       "inputSchema": {
         "type": "object",
