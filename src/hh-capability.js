@@ -21,15 +21,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-
-function tokensRoot() {
-  return process.env.AGENT_TOKENS_DIR || path.join(os.homedir(), 'agent-tokens');
-}
-
-function dataRoot() {
-  return process.env.AGENT_DATA_DIR || path.join(os.homedir(), 'agent-data');
-}
+const { tokensRoot, dataRoot, usersRoot } = require('./data-paths');
 
 /**
  * Build a capability object scoped to one profile. No method on the returned object
@@ -40,7 +32,7 @@ function createHhCapability({ userId, workDir }) {
   if (!userId || typeof userId !== 'string') {
     throw Object.assign(new Error('createHhCapability requires userId'), { code: 'INVALID_ARGUMENTS' });
   }
-  const resolvedWorkDir = workDir || path.join(process.env.USERS_DIR || path.join(os.homedir(), 'users'), userId);
+  const resolvedWorkDir = workDir || path.join(usersRoot(), userId);
 
   const tokenFile = path.join(tokensRoot(), userId, 'hh');
   const candidateDir = path.join(dataRoot(), 'hh', userId, 'candidates');
