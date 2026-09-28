@@ -10,6 +10,7 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const { handleHhPublic } = require('../../src/hh-routes.js');
 const { NAV_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav } = require('../../src/hh-nav.js');
+const hhHub = require('../../src/hh-hub.js');
 const { createHmac } = require('crypto');
 
 function fakeRes() {
@@ -27,10 +28,10 @@ function req(method, url, body) {
 const tokenFor = u => createHmac('sha256', 's3cret').update(u).digest('hex').slice(0, 16);
 const TOKEN = tokenFor('alice');
 
-let root, saved, calls, mcpReply, chatId;
+let root, saved, calls, mcpReply;
 const ctx = (extra = {}) => ({
   BASE_USERS_DIR: path.join(root, 'users'), PORT: 0, secrets: {},
-  getSecretsCache: () => ({}), readChatId: () => chatId,
+  getSecretsCache: () => ({}),
   runMcpTool: async (o) => { calls.push(o); return JSON.stringify(mcpReply(o)); },
   ...extra,
 });
@@ -67,7 +68,7 @@ beforeEach(() => {
   process.env.USERS_DIR = path.join(root, 'users');
   process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
   process.env.HH_COLD_SEARCH_PUBLIC_URL = 'https://hub.example';
-  calls = []; chatId = null;
+  calls = [];
   mcpReply = () => ({ ok: true, enabled: false });
 });
 afterEach(() => {
@@ -178,11 +179,11 @@ describe('POST /hh/playbook-run', () => {
       : {};
   });
 
-  it('launches the playbook as an active plan, returns task_id + status_url and pings Telegram', async () => {
-    connectHh(); draftReady(); chatId = '4242';
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200 });
+  it('launches the playbook as an active plan, returns task_id + status_url and pushes the launch notice', async () => {
+    connectHh(); draftReady();
+    const notifyProfile = vi.fn().mockResolvedValue({ sent: true });
     const res = await post('/hh/playbook-run', { username: 'alice', token: TOKEN, vacancy_id: 'vac-1' },
-      ctx({ secrets: { TELEGRAM_BOT_TOKEN: 'bot-tok' } }));
+      ctx({ notifyProfile }));
     expect(res.status).toBe(200);
     const out = JSON.parse(res.body);
     expect(out).toEqual({ task_id: 'task-1', status: 'active', status_url: `/hh/plan?username=alice&token=${TOKEN}&task_id=task-1` });
@@ -195,23 +196,22 @@ describe('POST /hh/playbook-run', () => {
       vars: { vacancy_id: 'vac-1', vacancy_title: 'Frontend-разработчик', landing_url: '' },
     });
     await new Promise(r => setImmediate(r));
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [tgUrl, tgInit] = fetchSpy.mock.calls[0];
-    expect(tgUrl).toBe('https://api.telegram.org/botbot-tok/sendMessage');
-    const msg = JSON.parse(tgInit.body);
-    expect(msg.chat_id).toBe('4242');
-    expect(msg.text).toContain(`https://hub.example/hh/plan?username=alice&token=${TOKEN}&task_id=task-1`);
+    expect(notifyProfile).toHaveBeenCalledTimes(1);
+    expect(notifyProfile.mock.calls[0][0]).toBe('alice');
+    expect(notifyProfile.mock.calls[0][1]).toContain('Запустить подбор по вакансии «Frontend-разработчик»');
+    expect(notifyProfile.mock.calls[0][1]).toContain(`https://hub.example/hh/plan?username=alice&token=${TOKEN}&task_id=task-1`);
   });
 
-  it('still succeeds (no Telegram call) when the bot token or chat id is missing', async () => {
+  it('still succeeds (no push) and only warns when the host has no notifyProfile', async () => {
     connectHh(); draftReady();
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const res = await post('/hh/playbook-run', { username: 'alice', token: TOKEN, vacancy_id: 'vac-1' });
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body).task_id).toBe('task-1');
     await new Promise(r => setImmediate(r));
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no notifyProfile'));
   });
 
   it('rejects a bad HMAC, a draft that is not ready and a disconnected HH — without running anything', async () => {
@@ -275,5 +275,45 @@ describe('GET /hh/plan', () => {
     expect(calls).toHaveLength(0);
     const { res } = await get(`/hh/plan?username=alice&token=${TOKEN}&task_id=task-x`);
     expect(res.body).toContain('Процесс не найден');
+  });
+});
+
+describe('notifyLaunch', () => {
+  const args = {
+    username: 'alice',
+    goal: 'Запустить подбор по вакансии «Frontend-разработчик»',
+    statusUrl: 'https://hub.example/hh/plan?username=alice&token=t&task_id=task-1',
+  };
+
+  it('delegates to the host notifyProfile once, with username and the goal + status link', async () => {
+    const notifyProfile = vi.fn().mockResolvedValue({ sent: true });
+    expect(await hhHub.notifyLaunch({ notifyProfile, ...args })).toEqual({ sent: true });
+    expect(notifyProfile).toHaveBeenCalledTimes(1);
+    expect(notifyProfile.mock.calls[0][0]).toBe('alice');
+    expect(notifyProfile.mock.calls[0][1]).toContain(args.goal);
+    expect(notifyProfile.mock.calls[0][1]).toContain(args.statusUrl);
+  });
+
+  it('returns {sent:false, reason:"no_notify_profile"} when the host hook is missing or not a function', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const notifyProfile of [undefined, null, 'not-a-function']) {
+      expect(await hhHub.notifyLaunch({ notifyProfile, ...args }))
+        .toEqual({ sent: false, reason: 'no_notify_profile' });
+    }
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no notifyProfile'));
+  });
+
+  it('propagates a {sent:false} answer together with its reason', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const notifyProfile = vi.fn().mockResolvedValue({ sent: false, reason: 'no_chat_id' });
+    expect(await hhHub.notifyLaunch({ notifyProfile, ...args }))
+      .toEqual({ sent: false, reason: 'no_chat_id' });
+  });
+
+  it('never throws — a host failure degrades to {sent:false, reason:"error"}', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(hhHub.notifyLaunch({
+      notifyProfile: async () => { throw new Error('boom'); }, ...args,
+    })).resolves.toEqual({ sent: false, reason: 'error' });
   });
 });

@@ -4,7 +4,7 @@
 // AGENT_SECRET gate and mounts these via hhLib('hh-routes'):
 //   handleHhPublic — pre-gate routes (authenticated by the HH token file / HMAC param);
 //   handleHhAuthed — post-gate routes (ats-config, reset-ats-results).
-// Host services arrive in ctx: readChatId, getSecretsCache, secrets, BASE_USERS_DIR, PORT,
+// Host services arrive in ctx: notifyProfile, getSecretsCache, secrets, BASE_USERS_DIR, PORT,
 // runMcpTool and the negotiation cache functions from createHhNegotiations().
 const path = require('path');
 const os = require('os');
@@ -312,7 +312,7 @@ async function handleHhPublic(req, url, res, ctx) {
   // Recruiting-hub nav bar (#1742): injected into every authorized GET /hh/* HTML page
   // by wrapping res — the page handlers below are unchanged.
   withHhNav(req, url, res, { isAuthorized: (u, t) => !process.env.AGENT_SECRET || t === proactiveHmac(u) });
-  const { readChatId, secrets, getSecretsCache, BASE_USERS_DIR, PORT,
+  const { secrets, getSecretsCache, BASE_USERS_DIR, PORT,
           getHhNegotiationsWithCache, syncHhMessagesToHistory, fetchAllHhNegotiations, getHhDiscardedWithCache, hhCacheFile } = ctx;
   const _secretsCache = getSecretsCache();
 
@@ -1143,7 +1143,7 @@ if (req.method === 'POST' && url.pathname === '/hh/playbook-run') {
   const taskId = result.task.id;
   const statusPath = hhHub.planStatusPath(username, token, taskId);
   // Telegram push runs alongside the answer; it never fails the launch.
-  hhHub.notifyLaunch({ secrets: ctx.secrets, readChatId, username, goal: goalText, statusUrl: hhHub.publicBase() + statusPath })
+  hhHub.notifyLaunch({ notifyProfile: ctx.notifyProfile, username, goal: goalText, statusUrl: hhHub.publicBase() + statusPath })
     .catch(e => console.warn('[hh/playbook-run] notify error:', e.message));
   console.log(`[hh/playbook-run] user=${username} vacancy=${vacancy_id} task=${taskId}`);
   return json(res, 200, { task_id: taskId, status: result.task.status, status_url: statusPath });
