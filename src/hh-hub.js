@@ -148,39 +148,29 @@ async function runLaunchPlaybook({ runMcpTool, username, workDir, draft, goal })
   return result;
 }
 
-// Telegram push with the status link. Best effort: a missing bot token / chat id or a
-// Telegram failure is logged and never fails the launch request.
-async function notifyLaunch({ secrets, readChatId, username, goal, statusUrl, fetchImpl = globalThis.fetch }) {
-  const botToken = secrets?.TELEGRAM_BOT_TOKEN;
-  let chatId = null;
-  try { chatId = typeof readChatId === 'function' ? readChatId(username) : null; } catch { chatId = null; }
-  if (!chatId) {
-    try { chatId = fs.readFileSync(path.join(tokensRoot(), String(username), '.chatid'), 'utf8').trim() || null; } catch { chatId = null; }
+// Telegram push with the status link. Best effort: it delegates to the host's
+// audience-aware notifyProfile (core agent#1754 → server.js hhCtx, which owns the chat
+// id, the audience and the per-audience bot token) — this file keeps no Telegram
+// plumbing of its own. A missing hook or a send failure is logged and never fails the
+// launch request.
+async function notifyLaunch({ notifyProfile, username, goal, statusUrl }) {
+  if (typeof notifyProfile !== 'function') {
+    console.warn(`[hh/playbook-run] telegram notify skipped for ${username}: no notifyProfile`);
+    return { sent: false, reason: 'no_notify_profile' };
   }
-  if (!botToken || !chatId) {
-    console.warn(`[hh/playbook-run] telegram notify skipped for ${username}: ${!botToken ? 'no TELEGRAM_BOT_TOKEN' : 'no .chatid'}`);
-    return { sent: false, reason: !botToken ? 'no_bot_token' : 'no_chat_id' };
-  }
+  let r;
   try {
-    const r = await fetchImpl(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: `▶ Процесс «${goal}» запущен.\nСтатус: ${statusUrl}`,
-        disable_web_page_preview: true,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!r.ok) {
-      console.warn(`[hh/playbook-run] telegram notify failed for ${username}: HTTP ${r.status}`);
-      return { sent: false, reason: `http_${r.status}` };
-    }
-    return { sent: true };
+    r = await notifyProfile(username, `▶ Процесс «${goal}» запущен.\nСтатус: ${statusUrl}`);
   } catch (e) {
     console.warn(`[hh/playbook-run] telegram notify failed for ${username}: ${e.message}`);
     return { sent: false, reason: 'error' };
   }
+  const sent = r?.sent ?? r?.ok ?? true;
+  if (!sent) {
+    console.warn(`[hh/playbook-run] telegram notify failed for ${username}: ${r?.reason || 'not sent'}`);
+    return { sent: false, reason: r?.reason || 'not_sent' };
+  }
+  return { sent: true };
 }
 
 module.exports = {
