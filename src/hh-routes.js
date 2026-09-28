@@ -44,6 +44,9 @@ const { generateProactivePageHtml } = require('./hh-proactive-page');
 const { runProactiveSearch, scoreUnscoredProactiveCandidates } = require('./hh-proactive-search');
 const { hhStylePageHtml } = require('./hh-style-html');
 const { generateReviewPageHtml } = require('./hh-review-page-html');
+const { withHhNav } = require('./hh-nav');
+const hhHub = require('./hh-hub');
+const { vacanciesPageHtml, planPageHtml } = require('./hh-hub-html');
 
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -306,6 +309,9 @@ async function doSend(force) {
  */
 async function handleHhPublic(req, url, res, ctx) {
   if (ctx.runMcpTool) hostRunMcpTool = ctx.runMcpTool;
+  // Recruiting-hub nav bar (#1742): injected into every authorized GET /hh/* HTML page
+  // by wrapping res — the page handlers below are unchanged.
+  withHhNav(req, url, res, { isAuthorized: (u, t) => !process.env.AGENT_SECRET || t === proactiveHmac(u) });
   const { readChatId, secrets, getSecretsCache, BASE_USERS_DIR, PORT,
           getHhNegotiationsWithCache, syncHhMessagesToHistory, fetchAllHhNegotiations, getHhDiscardedWithCache, hhCacheFile } = ctx;
   const _secretsCache = getSecretsCache();
@@ -1093,6 +1099,81 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
   const monitoring = await coldSearchMonitoring(username, workDir, vacancyId);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring }));
+}
+
+// ── Recruiting hub v1 (#1742, UX spec docs/specs/recruiting-web-hub-and-playbook-launch-ux.md) ──
+
+if (req.method === 'GET' && url.pathname === '/hh/vacancies') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const errPage = (msg) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Вакансии</title>
+<style>body{font-family:system-ui;padding:48px;text-align:center;background:#f1f5f9;color:#1e293b}</style>
+</head><body><h2>${msg}</h2></body></html>`);
+  };
+  if (!hhHub.SAFE_ID.test(username)) return errPage('Не указан пользователь.');
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return errPage('Ссылка недействительна. Запроси новую у бота.');
+  const { cards, lastScoredAt, hhConnected } = hhHub.collectVacancyCards({ workDir: path.join(BASE_USERS_DIR, username), username });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(vacanciesPageHtml({ username, token: given, cards, lastScoredAt, hhConnected }));
+}
+
+// «▶ Собрать»: compile + activate the launch playbook as a durable plan (no engine
+// session) and push the status link to the profile's Telegram chat.
+if (req.method === 'POST' && url.pathname === '/hh/playbook-run') {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, token, vacancy_id, goal, playbook_id } = body || {};
+  if (![username, vacancy_id].every(x => hhHub.SAFE_ID.test(String(x || '')))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  if (playbook_id && playbook_id !== hhHub.LAUNCH_PLAYBOOK_ID) return json(res, 400, { error: 'Unknown playbook' });
+  if (!hhHub.hhConnected(username)) return json(res, 409, { error: 'HH не подключён. Скажи боту «подключи HH».' });
+  const workDir = path.join(BASE_USERS_DIR, username);
+  const draft = hhHub.findLaunchableDraft(workDir, vacancy_id);
+  if (!draft) return json(res, 409, { error: 'Черновик не готов — доскажи драфт боту, /new_job_post' });
+  const goalText = (typeof goal === 'string' && goal.trim() ? goal.trim() : hhHub.launchGoal(draft.vacancy_title)).slice(0, 300);
+  let result;
+  try {
+    result = await hhHub.runLaunchPlaybook({ runMcpTool: hostRunMcpTool, username, workDir, draft, goal: goalText });
+  } catch (e) {
+    console.error(`[hh/playbook-run] user=${username} vacancy=${vacancy_id}:`, e.message);
+    return json(res, e.status || 500, { error: e.message });
+  }
+  const taskId = result.task.id;
+  const statusPath = hhHub.planStatusPath(username, token, taskId);
+  // Telegram push runs alongside the answer; it never fails the launch.
+  hhHub.notifyLaunch({ secrets: ctx.secrets, readChatId, username, goal: goalText, statusUrl: hhHub.publicBase() + statusPath })
+    .catch(e => console.warn('[hh/playbook-run] notify error:', e.message));
+  console.log(`[hh/playbook-run] user=${username} vacancy=${vacancy_id} task=${taskId}`);
+  return json(res, 200, { task_id: taskId, status: result.task.status, status_url: statusPath });
+}
+
+if (req.method === 'GET' && url.pathname === '/hh/plan') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const taskId = url.searchParams.get('task_id') || '';
+  const wantJson = url.searchParams.get('format') === 'json';
+  const fail = (status, msg) => {
+    if (wantJson) return json(res, status, { error: msg });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(planPageHtml({ username, token: given, taskId, error: msg }));
+  };
+  if (![username, taskId].every(x => hhHub.SAFE_ID.test(x))) return fail(400, 'Не указан процесс.');
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return fail(403, 'Ссылка недействительна. Запроси новую у бота.');
+  let data;
+  try {
+    if (!hostRunMcpTool) throw new Error('host runMcpTool not provided');
+    data = JSON.parse(await hostRunMcpTool({ tool: 'task_get', params: { task_id: taskId }, username, workDir: path.join(BASE_USERS_DIR, username), timeoutMs: 20000 }) || '{}');
+  } catch (e) {
+    console.error(`[hh/plan] user=${username} task=${taskId}:`, e.message);
+    return fail(502, 'Не удалось получить статус процесса.');
+  }
+  if (data.error || !data.task) return fail(404, 'Процесс не найден.');
+  res.setHeader('Cache-Control', 'no-store');
+  if (wantJson) return json(res, 200, { task: data.task, items: data.items || [] });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(planPageHtml({ username, token: given, taskId, data }));
 }
 
 if (req.method === 'GET' && url.pathname === '/api/hh/proactive/candidates') {
