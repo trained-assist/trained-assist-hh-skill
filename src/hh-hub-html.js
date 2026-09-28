@@ -127,6 +127,7 @@ ${list}
     fetch('playbook-run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: AUTH.username, token: AUTH.token, vacancy_id: current.id, goal: document.getElementById('launch-goal').value }),
+      signal: AbortSignal.timeout(45000),
     }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (x) {
         if (!x.ok || !x.d.status_url) throw new Error(x.d.error || 'Не удалось запустить');
@@ -187,7 +188,7 @@ ${final ? '' : `<script>
   var started = Date.now(), SIG = ${jsonForScript(signature)};
   function delay() { return Date.now() - started < 60000 ? 4000 : 20000; }
   function tick() {
-    fetch('plan?' + ${jsonForScript(pollQuery)}, { cache: 'no-store' })
+    fetch('plan?' + ${jsonForScript(pollQuery)}, { cache: 'no-store', signal: AbortSignal.timeout(15000) })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var items = (d.items || []).slice().sort(function (a, b) { return (a.position || 0) - (b.position || 0); });
