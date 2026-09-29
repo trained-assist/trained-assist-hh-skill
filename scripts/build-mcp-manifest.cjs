@@ -15,9 +15,13 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { REPO_ROOT, buildConfig } = require('./mcp-artifact');
 
+// Pin the branch point on origin/main, not HEAD: PRs are squash-merged, so a
+// branch commit disappears after merge and `git cat-file -e` fails on main for
+// every later PR. The merge base survives the squash and stays an ancestor.
 function currentRevision() {
-  try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
-  catch { return null; }
+  const git = argv => execFileSync('git', argv, { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  try { return git(['merge-base', 'HEAD', 'origin/main']); } catch { /* no origin/main in this checkout */ }
+  try { return git(['rev-parse', 'HEAD']); } catch { return null; }
 }
 
 const args = process.argv.slice(2);
