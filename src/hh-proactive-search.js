@@ -8,14 +8,26 @@ const { readHhToken } = require('./hh-utils');
 
 const { resolveSearchAreas, searchResumes } = require('./hh-cold-search-transport');
 
-// Significant words (4+ chars) from a criterion name, used for cheap substring matching
-// against a candidate's title/positions/companies before the AI does the real evaluation.
+// Words that appear in almost every criterion and almost every resume. Counting them
+// as a match put a «Программист 1С» on top of an «Инженер-конструктор» list: his
+// resume contains «опыт» and «работы», so «опыт работы инженером-конструктором» hit.
+const GENERIC_WORDS = new Set([
+  'опыт', 'опыта', 'опытом', 'работы', 'работа', 'работе', 'знание', 'знания', 'умение',
+  'умения', 'навык', 'навыки', 'навыков', 'владение', 'уверенное', 'уверенный', 'понимание',
+  'отсутствие', 'наличие', 'также', 'более', 'менее', 'года', 'годы', 'лет', 'желательно',
+  'обязательно', 'хорошее', 'хорошие', 'высокий', 'высшее', 'образование', 'внимание',
+  'деталям', 'умеет', 'готовность', 'работать', 'других', 'сферы', 'сфере', 'области',
+  'with', 'experience', 'knowledge', 'skills', 'years',
+]);
+
+// Significant words (4+ chars, not generic) from a criterion name, used for cheap
+// substring matching before the AI does the real evaluation.
 function extractKeywords(name) {
   return String(name || '')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
-    .filter(w => w.length >= 4);
+    .filter(w => w.length >= 4 && !GENERIC_WORDS.has(w));
 }
 
 // Normalize ATS config to the canonical shape that this module reads.
@@ -61,9 +73,9 @@ function normalizeAtsConfig(raw) {
 }
 
 // Generic pre-filter: driven entirely by this vacancy's ATS config (min experience +
-// required/preferred criteria with weights), no hardcoded domain keywords. This is only
-// a cheap sort to pick the top-30 for AI enrichment below — the AI step does the real,
-// accurate scoring against the same criteria.
+// required/preferred criteria with weights), no hardcoded domain keywords. It only
+// decides who gets AI-scored first — the order the recruiter sees is the AI score
+// against the ATS funnel (see atsScoreFields), never this number.
 function scoreCandidate(r, atsConfig) {
   const minExpMonths = Math.round((atsConfig.filters?.min_experience_years ?? 2) * 12);
   const totalMonths = r.total_experience?.months ?? 0;
@@ -99,15 +111,69 @@ function scoreCandidate(r, atsConfig) {
   return { score, signals, tag, totalPossible };
 }
 
-// Recruiter's own per-vacancy instruction (edited on the cold-search page). It is the
-// one piece of the search the recruiter controls directly, so it outranks the
-// auto-extracted criteria in every LLM step that sees it.
-function recruiterPromptBlock(cfg) {
-  const text = String(cfg.recruiter_prompt || '').trim();
-  return text ? `\n\nУКАЗАНИЯ РЕКРУТЕРА (приоритетнее критериев ниже, если противоречат):\n${text}` : '';
+// Bump when the scoring prompt/rules change: cached assessments made under an older
+// version are re-scored instead of being served from cache.
+const ATS_SCORING_VERSION = 2;
+// How many best pre-scored candidates get the AI assessment during the search itself;
+// the rest are scored by the background pass (scoreUnscoredProactiveCandidates).
+const TOP_ENRICH = 60;
+
+// Fingerprint of everything in the ATS funnel that changes a score. A candidate whose
+// stored ats_hash differs was scored under other criteria and is re-scored in the
+// background — that is how an edit in the ATS editor reaches the cold-search list.
+function atsScoringHash(atsConfig) {
+  const cfg = normalizeAtsConfig(atsConfig) || {};
+  const key = JSON.stringify({
+    v: ATS_SCORING_VERSION,
+    title: cfg.vacancy_title || '',
+    context: cfg.vacancy_context || '',
+    required: (cfg.required || []).map(c => [c.name, c.weight]),
+    preferred: (cfg.preferred || []).map(c => [c.name, c.weight]),
+    knockout: cfg.knockout || [],
+    min_exp: cfg.filters?.min_experience_years ?? null,
+    pass: cfg.pass_threshold ?? cfg.thresholds?.strong ?? null,
+    review: cfg.review_threshold ?? cfg.thresholds?.consider ?? null,
+  });
+  return require('crypto').createHash('md5').update(key).digest('hex').slice(0, 12);
 }
 
-// AI enrichment: plus/yellow/red tags + 2-para summary for one candidate
+function needsAtsScore(candidate, hash) {
+  return !candidate?.ats_scored || candidate.ats_hash !== hash;
+}
+
+// The candidate's place in the list comes from the ATS funnel the recruiter edits in
+// /hh/ats-editor (стоп-факторы, обязательные, желательные, пороги) — the same source
+// the scoring of responses uses. Score 0-10; any violated stop-factor caps it at 2.
+function atsScoreFields(ai, atsConfig) {
+  const raw = Number(ai?.score);
+  if (!Number.isFinite(raw)) return {};
+  const knockoutFailed = (Array.isArray(ai.knockout_failed) ? ai.knockout_failed : [])
+    .map(k => String(k || '').trim()).filter(Boolean);
+  let score = Math.max(0, Math.min(10, raw));
+  if (knockoutFailed.length) score = Math.min(score, 2);
+  score = Math.round(score * 2) / 2;
+  const pass = Number(atsConfig?.pass_threshold ?? atsConfig?.thresholds?.strong) || 7;
+  const review = Number(atsConfig?.review_threshold ?? atsConfig?.thresholds?.consider) || 5;
+  return {
+    score,
+    score_pct: Math.round(score * 10),
+    tag: score >= pass ? 'PASS' : score >= review ? 'REVIEW' : 'WEAK',
+    knockout_failed: knockoutFailed,
+    ats_scored: true,
+    ats_hash: atsScoringHash(atsConfig),
+  };
+}
+
+// Sort key for lists: AI-scored candidates by their ATS score; not-yet-scored ones
+// after all of them (their heuristic number is not comparable), by pre-score.
+function compareByAtsScore(a, b) {
+  const sa = a?.ats_scored ? Number(a.score) || 0 : -1;
+  const sb = b?.ats_scored ? Number(b.score) || 0 : -1;
+  if (sa !== sb) return sb - sa;
+  return (Number(b?.pre_score) || 0) - (Number(a?.pre_score) || 0);
+}
+
+// AI assessment against the ATS funnel: score + plus/yellow/red tags + summary.
 async function enrichCandidate(candidate, atsConfig, orKey) {
   const cfg = normalizeAtsConfig(atsConfig);
   const knockoutStr = (cfg.knockout || []).map(k => `- ${k}`).join('\n') || '—';
@@ -117,8 +183,9 @@ async function enrichCandidate(candidate, atsConfig, orKey) {
     .map(e => `${e.position} — ${e.company} (${e.start || '?'} – ${e.end || 'н.в.'})`)
     .join('\n') || '—';
 
-  const prompt = `Оцени кандидата для вакансии "${cfg.vacancy_title || 'Вакансия'}".
-${cfg.vacancy_context ? `\nКонтекст вакансии: ${cfg.vacancy_context}` : ''}${recruiterPromptBlock(cfg)}
+  const minExp = cfg.filters?.min_experience_years;
+  const prompt = `Ты — опытный рекрутер. Оцени кандидата из базы резюме HH для вакансии "${cfg.vacancy_title || 'Вакансия'}".
+${cfg.vacancy_context ? `\nКонтекст вакансии: ${cfg.vacancy_context}` : ''}${minExp ? `\nМинимальный опыт: ${minExp} лет.` : ''}
 
 СТОП-ФАКТОРЫ (knockout, критичны):
 ${knockoutStr}
@@ -135,10 +202,11 @@ ${preferredStr}
 Компании: ${(candidate.recent_companies || []).join(', ')}
 Карьера:
 ${expStr}
-Эвристический score: ${candidate.score} (${candidate.tag})
 
 Верни ТОЛЬКО JSON без markdown:
 {
+  "score": 6.5,
+  "knockout_failed": ["стоп-фактор дословно из списка выше", ...],
   "plus_tags": ["3-6 слов", ...],
   "yellow_tags": ["3-6 слов", ...],
   "red_tags": ["3-6 слов", ...],
@@ -147,6 +215,14 @@ ${expStr}
 }
 
 Правила:
+- score — соответствие вакансии по шкале 0–10, абсолютная (не подгоняй под пул):
+  9–10: все обязательные критерии подтверждены карьерой + большинство желательных
+  7–8: большинство обязательных подтверждены
+  5–6: часть обязательных есть, остальное неясно из резюме
+  3–4: мало обязательных или опыт в смежной, но другой профессии
+  0–2: другая профессия или нарушен стоп-фактор
+- knockout_failed — только стоп-факторы, которые ЯВНО нарушены по карьере (другая профессия, нет нужного опыта). Нарушен хотя бы один → score не выше 2. Если по резюме просто неясно — не включай, а снизь score и добавь yellow_tag
+- Обязательные критерии весят больше желательных; учитывай веса
 - plus_tags (2-5 штук): сильные стороны, явно подходящие под требования
 - yellow_tags (0-3): моменты стоит уточнить на интервью, небольшие риски
 - red_tags (0-2): только явные несоответствия knockout-критериям; если много плюсов — не стоп
@@ -171,12 +247,13 @@ ${expStr}
   const text = data.choices?.[0]?.message?.content || '{}';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('no JSON in AI response');
-  return JSON.parse(match[0]);
+  const parsed = JSON.parse(match[0]);
+  return { ...parsed, ...atsScoreFields(parsed, cfg) };
 }
 
 // Enrich top-N candidates in parallel batches of 5
 async function enrichCandidates(candidates, atsConfig, orKey) {
-  const BATCH = 5;
+  const BATCH = 10;
   const enriched = [...candidates];
   for (let i = 0; i < enriched.length; i += BATCH) {
     const batch = enriched.slice(i, i + BATCH);
@@ -205,7 +282,7 @@ async function enrichCandidates(candidates, atsConfig, orKey) {
 function queriesLookSane(queries, cfg) {
   if (!Array.isArray(queries) || queries.length === 0) return false;
   const titleWords = extractKeywords(cfg.vacancy_title || '');
-  const ctxWords = [...extractKeywords(cfg.vacancy_context || ''), ...extractKeywords(cfg.recruiter_prompt || '')];
+  const ctxWords = extractKeywords(cfg.vacancy_context || '');
   const reqWords = (cfg.required || []).flatMap(c => extractKeywords(c.name));
   const prefWords = (cfg.preferred || []).flatMap(c => extractKeywords(c.name));
   const domainWords = new Set([...titleWords, ...ctxWords, ...reqWords, ...prefWords]);
@@ -482,7 +559,9 @@ function atsConfigHash(cfg, exclusions = []) {
   const key = JSON.stringify({
     title: normalized.vacancy_title,
     context: normalized.vacancy_context,
-    recruiter_prompt: String(normalized.recruiter_prompt || '').trim(),
+    // Kept (always empty) so hashes of existing query caches stay valid; the free-text
+    // search prompt was folded back into the ATS funnel.
+    recruiter_prompt: '',
     required: (normalized.required || []).map(c => c.name).sort(),
     preferred: (normalized.preferred || []).map(c => c.name).sort(),
     knockout: (normalized.knockout || []).slice().sort(),
@@ -531,41 +610,11 @@ function saveStoredQueries(username, vacancyId, queries, configHash, options = {
   fs.renameSync(tmp, file);
 }
 
-// --- Recruiter search prompt (per vacancy, edited on the cold-search web page) ---
-// Lives next to the query cache, not inside ats_config: the ATS editor rewrites the
-// whole config on save and would silently drop a field it doesn't know about.
-const SEARCH_PROMPT_MAX = 4000;
-
-function searchPromptPath(username, vacancyId) {
-  return path.join(dataRoot(), 'hh', String(username), 'proactive', `search-prompt-${encodeURIComponent(vacancyId)}.json`);
-}
-
-function loadSearchPrompt(username, vacancyId) {
-  try {
-    const data = JSON.parse(fs.readFileSync(searchPromptPath(username, vacancyId), 'utf8'));
-    return { prompt: String(data.prompt || ''), updated_at: data.updated_at || null };
-  } catch (e) {
-    if (e.code !== 'ENOENT') console.error('[proactive-search] search prompt read failed:', e.message);
-    return { prompt: '', updated_at: null };
-  }
-}
-
-function saveSearchPrompt(username, vacancyId, prompt) {
-  const text = String(prompt || '').trim();
-  if (text.length > SEARCH_PROMPT_MAX) throw new Error(`Промпт длиннее ${SEARCH_PROMPT_MAX} символов`);
-  const file = searchPromptPath(username, vacancyId);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = file + '.tmp-' + process.pid;
-  fs.writeFileSync(tmp, JSON.stringify({ vacancy_id: String(vacancyId), prompt: text, updated_at: new Date().toISOString() }, null, 2), 'utf8');
-  fs.renameSync(tmp, file);
-  return text;
-}
-
-// Save what the recruiter edited on the page. Queries equal to the stored list are
-// left alone (so a prompt-only edit regenerates auto queries via the config hash);
-// a changed list is pinned as manual; an empty list drops the cache → regenerate.
-function saveSearchSettings(username, vacancyId, { prompt, queries } = {}) {
-  const savedPrompt = saveSearchPrompt(username, vacancyId, prompt);
+// Save the search queries the recruiter edited on the page. Queries equal to the
+// stored list are left alone; a changed list is pinned as manual; an empty list drops
+// the cache → regenerate from the ATS funnel. Who is a good candidate is edited only
+// in the ATS editor — one place, not two.
+function saveSearchSettings(username, vacancyId, { queries } = {}) {
   let queriesState = 'unchanged';
   if (Array.isArray(queries)) {
     const next = queries.map(q => String(q).trim()).filter(Boolean).slice(0, 15);
@@ -578,7 +627,7 @@ function saveSearchSettings(username, vacancyId, { prompt, queries } = {}) {
       queriesState = 'manual';
     }
   }
-  return { prompt: savedPrompt, queries_state: queriesState };
+  return { queries_state: queriesState };
 }
 
 // Everything the page's prompt panel shows for one vacancy.
@@ -586,7 +635,6 @@ function searchSettingsView(username, vacancyId) {
   const record = readStoredQueriesRecord(username, vacancyId);
   return {
     vacancy_id: String(vacancyId),
-    ...loadSearchPrompt(username, vacancyId),
     queries: record?.queries || [],
     queries_manual: Boolean(record?.manual),
     queries_generated_at: record?.generated_at || null,
@@ -687,7 +735,7 @@ async function generateSearchQueries(atsConfig, orKey, exclusions = []) {
       : '';
     const prompt = `Вакансия: "${cfg.vacancy_title || 'без названия'}"
 Контекст: ${cfg.vacancy_context || '—'}
-Ключевые критерии: ${criteriaStr}${recruiterPromptBlock(cfg)}
+Ключевые критерии: ${criteriaStr}${cfg.knockout?.length ? `\nСтоп-факторы (таких не искать): ${cfg.knockout.join('; ')}` : ''}
 ${exclusionsBlock}
 Составь 5-7 СПЕЦИАЛИЗИРОВАННЫХ поисковых запросов для HH.ru под эту конкретную вакансию.
 
@@ -786,29 +834,24 @@ function buildScoringPromptText(username, vacancyId) {
   const prefStr = (cfg.preferred || []).map(c => `• +${c.weight} — ${c.name}`).join('\n') || '(не задано)';
   const areaStr = describeSearchAreas(latest, workDir);
 
-  const current = loadSearchPrompt(username, id).prompt;
-  const usedPrompt = String(cfg.recruiter_prompt || '').trim();
-  const promptStr = usedPrompt
-    ? `\n✏️ Указания рекрутера (учтены в этом поиске):\n${usedPrompt}\n${current !== usedPrompt ? '(промпт с тех пор изменён — новый применится при следующем запуске)\n' : ''}`
-    : (current ? '\n✏️ Указания рекрутера сохранены, применятся при следующем запуске.\n' : '');
 
   return `Как мы подбираем кандидатов для «${cfg.vacancy_title || 'вакансии'}» (проактивный поиск):
-${areaStr ? `\n📍 Регион поиска в базе резюме HH: ${areaStr}\n` : ''}${promptStr}
+${areaStr ? `\n📍 Регион поиска в базе резюме HH: ${areaStr}\n` : ''}
 🔍 Поисковые запросы в базе резюме HH (сгенерированы под эту вакансию):
 ${queriesStr}
 
 ⛔ Отсекаем на этапе поиска: опыт работы менее ${minExp} лет
-⛔ Стоп-факторы, которые дальше проверяет AI:
+
+📊 Оценка по АТС-воронке (Gemini 2.5 Flash), шкала 0–10 — по ней отсортирован список:
+⛔ Стоп-факторы — нарушен хотя бы один → оценка не выше 2:
 ${knockoutStr}
-
-📊 Предварительный скоринг (для отбора топ-30 перед AI):
-• +1.5 — базовый порог по опыту
+Обязательные:
 ${reqStr}
+Желательные:
 ${prefStr}
-PASS/REVIEW считаются относительно суммы весов этой вакансии — точную оценку даёт следующий шаг.
+PASS — от ${Number(rawConfig.pass_threshold) || 7}, REVIEW — от ${Number(rawConfig.review_threshold) || 5}.
 
-🤖 AI-теги (Gemini 2.5 Flash через OpenRouter):
-До 30 лучших кандидатов по предварительному скорингу и до 50 новых вне этого списка (кроме первого запуска) оцениваются AI по тем же критериям; неизменившиеся оценки берутся из кэша — получают зелёные теги (плюсы), жёлтые (стоит уточнить), красные (явные стоп-факторы) и краткое резюме для клиента. В Telegram-дайджест кандидаты по именам не попадают — только счётчик и ссылка на страницу со списком.`;
+Сначала оцениваются 60 самых похожих по ключевым словам кандидатов и все новые, остальные дооцениваются в фоне; неоценённые стоят в конце списка. Изменить критерии — в редакторе АТС-воронки: после сохранения кандидаты переоцениваются.`;
 }
 
 // HH resume search with optional one-shot refresh on token-expired (401/403).
@@ -841,9 +884,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const resolved = resolveSearchContext(workDir, options.vacancyId);
   const vacancyKey = resolved.vacancyId;
   const atsConfig = normalizeAtsConfig(resolved.config);
-  const recruiterPrompt = loadSearchPrompt(username, vacancyKey).prompt;
-  if (recruiterPrompt) atsConfig.recruiter_prompt = recruiterPrompt;
-  else delete atsConfig.recruiter_prompt;
+  delete atsConfig.recruiter_prompt;
   let activeVacancy = resolved.vacancy;
   // Older selection tools stored only title/id. Fetch the actual region instead
   // of guessing from a city name or broadening the search silently.
@@ -900,7 +941,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   for (const r of allCandidates.values()) {
     const result = scoreCandidate(r, atsConfig);
     if (!result) continue;
-    const { score, signals, tag, totalPossible } = result;
+    const { score, signals } = result;
     const expMonths = r.total_experience?.months ?? 0;
     const companies = (r.experience || []).slice(0, 3).map(e => e.company || '').filter(Boolean);
     scored.push({
@@ -913,12 +954,10 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
       area: r.area?.name || '',
       total_exp_months: expMonths,
       total_exp_years: Math.round(expMonths / 12 * 10) / 10,
-      score,
-      // Normalized 0-100 score, relative to this vacancy's own criteria weights —
-      // lets a recruiter set one Telegram notify threshold (e.g. "≥80") that means
-      // the same thing across vacancies with very different raw weight totals.
-      score_pct: totalPossible > 0 ? Math.round((score / totalPossible) * 100) : 0,
-      tag,
+      // Keyword pre-score: only picks who gets AI-scored first. score/score_pct/tag
+      // come from the ATS assessment (atsScoreFields) and are absent until then, so a
+      // re-found candidate keeps the assessment already stored for them.
+      pre_score: score,
       score_signals: signals,
       salary: r.salary || null,
       recent_companies: companies,
@@ -931,7 +970,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
     });
   }
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.pre_score - a.pre_score);
 
   // Seen/new status must be computed against the FULL scored pool, not just the
   // AI-enriched slice below — otherwise a genuinely new candidate who scores outside
@@ -944,9 +983,9 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
     totalSeenAfter: Object.keys(seenBucketBefore).length + newIds.size,
     firstRun: Object.keys(seenBucketBefore).length === 0 };
 
-  const top30 = scored.slice(0, 30);
+  const top30 = scored.slice(0, TOP_ENRICH);
   const top30Ids = new Set(top30.map(c => c.id));
-  // AI enrichment covers the top-30 by pre-score (for the review page) plus every
+  // AI enrichment covers the top-N by pre-score (for the review page) plus every
   // candidate that's new this run, so new candidates always get tags/summary and
   // show up in the Telegram digest even when their pre-score doesn't crack the
   // top-30. Skipped on first run — then every candidate is "new" and this would
@@ -963,12 +1002,12 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const toEnrich = [...top30, ...newButNotTop30];
 
   const previous = loadAllCandidates(username, vacancyKey);
-  const assessmentHash = c => require('crypto').createHash('sha256').update(JSON.stringify({ candidate: c, config: atsConfig })).digest('hex');
+  const assessmentHash = c => require('crypto').createHash('sha256').update(JSON.stringify({ candidate: c, config: atsConfig, v: ATS_SCORING_VERSION })).digest('hex');
   const pending = [];
   const cached = [];
   for (const c of toEnrich) {
     const hash = assessmentHash(c);
-    if (previous[c.id]?.assessment_hash === hash && previous[c.id]?.plus_tags) cached.push({ ...previous[c.id], ...c });
+    if (previous[c.id]?.assessment_hash === hash && previous[c.id]?.ats_scored) cached.push({ ...previous[c.id], ...c });
     else pending.push({ ...c, assessment_hash: hash });
   }
   let enriched = [...cached, ...pending];
@@ -996,7 +1035,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const markedCandidates = scored.map(c => ({
     ...(enrichedById.get(c.id) || c), is_new: seenInfo.newIds.has(c.id),
     ai_pending: enrichedById.has(c.id),
-  }));
+  })).sort(compareByAtsScore);
   const foundAtById = {};
   for (const c of markedCandidates) {
     foundAtById[c.id] = new Date(seenBucketBefore[c.id] || now).toISOString();
@@ -1072,16 +1111,25 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       const prior = latest.get(String(results.vacancy_id));
       if (!prior || Date.parse(results.searched_at) > Date.parse(prior.results.searched_at)) latest.set(String(results.vacancy_id), { file, results });
     }
-    // Keep the existing total budget of 30 per profile, shared across vacancies.
-    let remaining = 30, completed = 0, vacanciesLeft = latest.size;
+    // Budget per background tick, per profile, shared across vacancies.
+    let remaining = 60, completed = 0, vacanciesLeft = latest.size;
+    const workDir = path.join(usersRoot(), String(username));
     for (const { file, results } of latest.values()) {
       if (remaining <= 0) break;
+      // Score against the funnel as it is now (the recruiter may have edited it in
+      // the ATS editor since the search ran), not the snapshot taken at search time.
+      let atsConfig = results.ats_config || {};
+      try {
+        atsConfig = normalizeAtsConfig(require('./hh-cold-search-context').resolveSearchContext(workDir, results.vacancy_id).config);
+      } catch { /* config gone — keep scoring with the snapshot */ }
+      results.ats_config = atsConfig;
+      const hash = atsScoringHash(atsConfig);
       const candidates = results.candidates || [];
       const allowance = Math.ceil(remaining / vacanciesLeft--);
-      const unscored = candidates.filter(c => c.ai_pending !== false && !c.plus_tags).slice(0, allowance);
+      const unscored = candidates.filter(c => needsAtsScore(c, hash)).slice(0, allowance);
       if (!unscored.length) continue;
       remaining -= unscored.length;
-      const enriched = await enrichCandidates(unscored, results.ats_config || {}, key);
+      const enriched = await enrichCandidates(unscored, atsConfig, key);
       for (const candidate of enriched) {
         const idx = candidates.findIndex(c => c.id === candidate.id);
         if (idx >= 0) Object.assign(candidates[idx], candidate);
@@ -1090,7 +1138,8 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       const temp = file + '.tmp-' + process.pid;
       fs.writeFileSync(temp, JSON.stringify(results, null, 2), 'utf8');
       fs.renameSync(temp, file);
-      completed += enriched.filter(c => c.plus_tags).length;
+      candidates.sort(compareByAtsScore);
+      completed += enriched.filter(c => c.ats_scored).length;
     }
     return completed;
   } finally { release(); }
@@ -1129,6 +1178,7 @@ module.exports = {
   queriesLookSane,
   deriveFallbackQueries,
   normalizeAtsConfig,
+  scoreCandidate,
   loadSeenIds,
   saveSeenIds,
   mergeSeenIds,
@@ -1155,9 +1205,9 @@ module.exports = {
   saveStoredQueries,
   readStoredQueriesRecord,
   // Recruiter search prompt (web editor)
-  searchPromptPath,
-  loadSearchPrompt,
-  saveSearchPrompt,
+  atsScoreFields,
+  atsScoringHash,
+  compareByAtsScore,
   saveSearchSettings,
   searchSettingsView,
   // Schedule config
