@@ -498,7 +498,7 @@ async function hhAction(endpoint, payload) {
     const r = await fetch(CALLBACK_BASE + endpoint, {
       method: 'POST', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: HH_USER, ...payload }),
+      body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, ...payload }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || r.statusText);

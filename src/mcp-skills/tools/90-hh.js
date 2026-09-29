@@ -1681,7 +1681,7 @@ module.exports = {
         const html = generateReviewHtml(enriched, vacancy_name, {
           callbackBase,
           username: USER_ID,
-          agentSecret: process.env.AGENT_SECRET || '',
+          pageToken: process.env.AGENT_SECRET ? require('crypto').createHmac('sha256', process.env.AGENT_SECRET).update(String(USER_ID)).digest('hex').slice(0, 16) : '',
           rejectionTemplate: loadRejectionTemplate(USER_ID),
         });
         const dataDir = dataRoot();
@@ -2052,7 +2052,7 @@ function saveCandidateHistory(userId, negotiationId, data) {
 // ── Review page HTML ────────────────────────────────────────────────────────
 
 function generateReviewHtml(candidates, vacancyName, opts = {}) {
-  const { callbackBase = '', username = '', agentSecret = '', rejectionTemplate = DEFAULT_REJECTION_TEMPLATE } = opts;
+  const { callbackBase = '', username = '', pageToken = '', rejectionTemplate = DEFAULT_REJECTION_TEMPLATE } = opts;
   const verdictOrder = { 'ПРОПУСТИТЬ': 0, 'УТОЧНИТЬ': 1, 'ОТКЛОНИТЬ': 2 };
   const sorted = [...candidates].sort((a, b) => (verdictOrder[a.verdict] ?? 3) - (verdictOrder[b.verdict] ?? 3));
 
@@ -2247,7 +2247,7 @@ ${cards}
 <script>
 const CALLBACK_BASE = '${callbackBase}';
 const HH_USER = '${username}';
-const HH_SECRET = '${agentSecret}';
+const HH_PAGE_TOKEN = '${pageToken}';
 
 const done = new Set();
 
@@ -2266,8 +2266,8 @@ async function hhAction(endpoint, payload) {
   }
   const r = await fetch(CALLBACK_BASE + endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + HH_SECRET },
-    body: JSON.stringify({ username: HH_USER, ...payload }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, ...payload }),
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || r.statusText);
