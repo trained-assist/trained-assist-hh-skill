@@ -782,7 +782,11 @@ describe('hh_draft_review_page', () => {
 
       // Callback URL must be embedded in page JS
       expect(html).toContain("const CALLBACK_BASE = 'http://127.0.0.1:13579';");
-      expect(html).toContain(`const HH_SECRET = 'test-secret-xyz';`);
+      // The page reaches the recruiter's browser: it carries only their own HMAC,
+      // never the master secret.
+      expect(html).not.toContain('test-secret-xyz');
+      const expectedToken = require('crypto').createHmac('sha256', 'test-secret-xyz').update(String(TEST_UID)).digest('hex').slice(0, 16);
+      expect(html).toContain(`const HH_PAGE_TOKEN = '${expectedToken}';`);
       expect(html).toContain(`const HH_USER = '${TEST_UID}';`);
 
       // Live badge shown

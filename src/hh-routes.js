@@ -73,6 +73,16 @@ function proactiveHmac(uname) {
   return createHmac('sha256', secret).update(uname).digest('hex').slice(0, 16);
 }
 
+// Browser pages act for exactly one recruiter: they carry that recruiter's HMAC
+// (`token` in the JSON body), never the master AGENT_SECRET. Server-to-server
+// callers may still use the Bearer secret. No secret configured = local dev.
+function pageAuthOk(req, username, token) {
+  const secret = process.env.AGENT_SECRET || '';
+  if (!secret) return true;
+  if (req.headers.authorization === `Bearer ${secret}`) return true;
+  return !!username && String(token || '') === proactiveHmac(String(username));
+}
+
 // Signed URL to the recruiter's proactive results page. Was referenced in server.js
 // but never defined there — /api/hh/proactive/search always 500'd. Defined here
 // (same scheme as 92-hh-proactive.js / hh-autoscan.js proactiveUrlFor). `vacancyId`
@@ -258,6 +268,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#f1f5f9;color:#1e
 <script>
 const NEG_ID = '${esc(String(neg_id))}';
 const HH_USER = '${esc(String(username))}';
+const HH_PAGE_TOKEN = '${process.env.AGENT_SECRET ? proactiveHmac(String(username)) : ''}';
 const CALLBACK_BASE = ${JSON.stringify(callbackBase)} || (location.pathname.startsWith('/agent/') ? '/agent' : '');
 
 function showToast(msg, err) {
@@ -276,7 +287,7 @@ async function doSend(force) {
     const r = await fetch(CALLBACK_BASE + '/hh/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: HH_USER, negotiation_id: NEG_ID, message: msg, force: !!force }),
+      body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, negotiation_id: NEG_ID, message: msg, force: !!force }),
     });
     const data = await r.json().catch(() => ({}));
     if (data.blocked) {
@@ -546,6 +557,86 @@ if (req.method === 'GET' && url.pathname === '/hh/sync-log') {
 </body></html>`);
 }
 
+// Editor page writes (moved pre-gate: the page authenticates with the recruiter's
+// HMAC, not the master secret it used to embed).
+if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const body = JSON.parse(await readBody(req));
+  const { config, stages, username, vacancy_id: vacancyId } = body || {};
+  if (!config || typeof config !== 'object') return json(res, 400, { error: 'config required' });
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
+  // Must match BASE_USERS_DIR so runHhScoringForUser can find the file
+  const contextBase = username
+    ? path.join(BASE_USERS_DIR, username, 'contexts')
+    : path.join(process.cwd(), 'contexts');
+  const hhContextDir = path.join(contextBase, 'hh');
+  fs.mkdirSync(hhContextDir, { recursive: true });
+  const now = new Date().toISOString();
+  // Once the editor knows which vacancy it's editing (multi-vacancy tabs), save under
+  // the per-vacancy key only — writing to the legacy singleton too would let whichever
+  // vacancy tab saves last silently clobber the others' config (same class of bug
+  // step 2/6 fixed for the background scoring read path; see hh-scoring.js readAtsConfig).
+  const configName = vacancyId ? `ats_config:${vacancyId}` : 'ats_config';
+  // The editor form only knows some fields (no filters.area, search queries, …).
+  // Keep whatever it doesn't send instead of silently dropping it on every save.
+  const configFile = path.join(hhContextDir, `${configName}.json`);
+  let prev = {};
+  try { prev = JSON.parse(fs.readFileSync(configFile, 'utf8')).value || {}; } catch { /* first save */ }
+  if (typeof prev === 'string') { try { prev = JSON.parse(prev); } catch { prev = {}; } }
+  const merged = { ...prev, ...config, vacancy_id: vacancyId || config.vacancy_id || prev.vacancy_id };
+  if (prev.filters && typeof prev.filters === 'object') merged.filters = { ...prev.filters, ...(config.filters || {}) };
+  fs.writeFileSync(configFile, JSON.stringify({ value: merged, updated_at: now }, null, 2));
+  // Funnel stages stay a single global blob for now (deliberately deferred, like
+  // hh_generate_message tone context in PR #1067 — different vacancies commonly share
+  // the same interview stages; per-vacancy stages can follow if that stops being true).
+  if (Array.isArray(stages)) {
+    fs.writeFileSync(
+      path.join(hhContextDir, 'ats_stages.json'),
+      JSON.stringify({ value: stages, updated_at: now }, null, 2),
+    );
+  }
+  console.log(`[hh/ats-config] saved vacancy="${config.vacancy_title}" vacancy_id=${vacancyId || 'legacy'} stages=${stages?.length || 0} user=${username || 'default'}`);
+  return json(res, 200, { ok: true });
+}
+
+if (req.method === 'POST' && url.pathname === '/hh/reset-ats-results') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  // NOTE (multi-vacancy step 3/6, deliberately deferred): candidate history files
+  // (candidates/{neg_id}.json) don't record which vacancy they belong to, so this
+  // still resets ALL of a user's candidates across every tracked vacancy — "Re-run
+  // Funnel" on one vacancy's tab wipes another vacancy's scores too. Scoping this
+  // properly needs either stamping vacancy_id onto candidate history on write, or
+  // fetching the vacancy's negotiation ID set here before filtering. Out of scope for
+  // the tabs-only pass; flagging so it isn't mistaken for "already handled".
+  const body = JSON.parse(await readBody(req));
+  const { username } = body || {};
+  if (!username) return json(res, 400, { error: 'username required' });
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
+  const dataDir = dataRoot();
+  const candDir = path.join(dataDir, 'hh', String(username), 'candidates');
+  let reset = 0;
+  let skipped = 0;
+  if (fs.existsSync(candDir)) {
+    for (const f of fs.readdirSync(candDir)) {
+      if (!f.endsWith('.json')) continue;
+      const fp = path.join(candDir, f);
+      try {
+        const hist = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        if (hist.ats_result !== undefined) {
+          delete hist.ats_result;
+          hist.ats_reset_at = new Date().toISOString();
+          fs.writeFileSync(fp, JSON.stringify(hist, null, 2));
+          reset++;
+        } else {
+          skipped++;
+        }
+      } catch { skipped++; }
+    }
+  }
+  console.log(`[hh/reset-ats-results] user=${username} reset=${reset} skipped=${skipped}`);
+  return json(res, 200, { ok: true, reset, skipped });
+}
+
 if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
   const username = url.searchParams.get('username') || '';
   const agentSecret = process.env.AGENT_SECRET || '';
@@ -584,7 +675,7 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
   const html = atsEditorHtml(currentConfig, currentStages, {
     callbackBase,
     username,
-    agentSecret: agentSecret || '',
+    pageToken: agentSecret ? proactiveHmac(username) : '',
     vacancies: activeVacancies,
     activeVacancyId: activeVacancy?.id || '',
     isDraft,
@@ -599,6 +690,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
   const { username, negotiation_id, message, force } = body || {};
   if (!username || !negotiation_id || !message) return json(res, 400, { error: 'missing fields' });
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
 
   const hhTokensBase = tokensRoot();
   const tokenFile = path.join(hhTokensBase, String(username), 'hh');
@@ -663,6 +755,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   const body = JSON.parse(await readBody(req));
   const { username, negotiation_id, resume_text, candidate_name, already_sent, message_type } = body || {};
   if (!username || !negotiation_id) return json(res, 400, { error: 'missing fields' });
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
 
   const hhTokensBase = tokensRoot();
   const orKeyFile = path.join(hhTokensBase, String(username), 'openrouter');
@@ -829,6 +922,7 @@ if (req.method === 'POST' && url.pathname === '/hh/reject') {
   if (!username || !Array.isArray(negotiation_ids) || negotiation_ids.length === 0) {
     return json(res, 400, { error: 'missing fields' });
   }
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
   const hhTokensBase2 = tokensRoot();
   const tokenFile2 = path.join(hhTokensBase2, String(username), 'hh');
   if (!fs.existsSync(tokenFile2)) return json(res, 403, { error: 'HH not connected for this user' });
@@ -851,6 +945,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
   const { username, negotiation_id, force } = body || {};
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
   if (!username || !negotiation_id || !message) return json(res, 400, { error: 'missing fields' });
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
 
   const hhTokensBase = tokensRoot();
   const tokenFile = path.join(hhTokensBase, String(username), 'hh');
@@ -1585,76 +1680,7 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-config') {
   return json(res, 200, { ok: true, config, stages });
 }
 
-if (req.method === 'POST' && url.pathname === '/hh/reset-ats-results') {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  // NOTE (multi-vacancy step 3/6, deliberately deferred): candidate history files
-  // (candidates/{neg_id}.json) don't record which vacancy they belong to, so this
-  // still resets ALL of a user's candidates across every tracked vacancy — "Re-run
-  // Funnel" on one vacancy's tab wipes another vacancy's scores too. Scoping this
-  // properly needs either stamping vacancy_id onto candidate history on write, or
-  // fetching the vacancy's negotiation ID set here before filtering. Out of scope for
-  // the tabs-only pass; flagging so it isn't mistaken for "already handled".
-  const body = JSON.parse(await readBody(req));
-  const { username } = body || {};
-  if (!username) return json(res, 400, { error: 'username required' });
-  const dataDir = dataRoot();
-  const candDir = path.join(dataDir, 'hh', String(username), 'candidates');
-  let reset = 0;
-  let skipped = 0;
-  if (fs.existsSync(candDir)) {
-    for (const f of fs.readdirSync(candDir)) {
-      if (!f.endsWith('.json')) continue;
-      const fp = path.join(candDir, f);
-      try {
-        const hist = JSON.parse(fs.readFileSync(fp, 'utf8'));
-        if (hist.ats_result !== undefined) {
-          delete hist.ats_result;
-          hist.ats_reset_at = new Date().toISOString();
-          fs.writeFileSync(fp, JSON.stringify(hist, null, 2));
-          reset++;
-        } else {
-          skipped++;
-        }
-      } catch { skipped++; }
-    }
-  }
-  console.log(`[hh/reset-ats-results] user=${username} reset=${reset} skipped=${skipped}`);
-  return json(res, 200, { ok: true, reset, skipped });
-}
 
-if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const body = JSON.parse(await readBody(req));
-  const { config, stages, username, vacancy_id: vacancyId } = body || {};
-  if (!config || typeof config !== 'object') return json(res, 400, { error: 'config required' });
-  // Must match BASE_USERS_DIR so runHhScoringForUser can find the file
-  const contextBase = username
-    ? path.join(BASE_USERS_DIR, username, 'contexts')
-    : path.join(process.cwd(), 'contexts');
-  const hhContextDir = path.join(contextBase, 'hh');
-  fs.mkdirSync(hhContextDir, { recursive: true });
-  const now = new Date().toISOString();
-  // Once the editor knows which vacancy it's editing (multi-vacancy tabs), save under
-  // the per-vacancy key only — writing to the legacy singleton too would let whichever
-  // vacancy tab saves last silently clobber the others' config (same class of bug
-  // step 2/6 fixed for the background scoring read path; see hh-scoring.js readAtsConfig).
-  const configName = vacancyId ? `ats_config:${vacancyId}` : 'ats_config';
-  fs.writeFileSync(
-    path.join(hhContextDir, `${configName}.json`),
-    JSON.stringify({ value: { ...config, vacancy_id: vacancyId || config.vacancy_id }, updated_at: now }, null, 2),
-  );
-  // Funnel stages stay a single global blob for now (deliberately deferred, like
-  // hh_generate_message tone context in PR #1067 — different vacancies commonly share
-  // the same interview stages; per-vacancy stages can follow if that stops being true).
-  if (Array.isArray(stages)) {
-    fs.writeFileSync(
-      path.join(hhContextDir, 'ats_stages.json'),
-      JSON.stringify({ value: stages, updated_at: now }, null, 2),
-    );
-  }
-  console.log(`[hh/ats-config] saved vacancy="${config.vacancy_title}" vacancy_id=${vacancyId || 'legacy'} stages=${stages?.length || 0} user=${username || 'default'}`);
-  return json(res, 200, { ok: true });
-}
   return false;
 }
 

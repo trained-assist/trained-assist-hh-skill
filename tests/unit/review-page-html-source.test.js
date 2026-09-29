@@ -14,16 +14,18 @@ describe('generateReviewHtml source — callback embedding', () => {
     'utf8',
   );
 
-  it('90-hh.js source embeds callbackBase/username/agentSecret template vars', () => {
+  it('90-hh.js source embeds callbackBase/username/per-user page token (never the master secret)', () => {
     expect(src).toContain("const CALLBACK_BASE = '${callbackBase}';");
     expect(src).toContain("const HH_USER = '${username}';");
-    expect(src).toContain("const HH_SECRET = '${agentSecret}';");
+    expect(src).toContain("const HH_PAGE_TOKEN = '${pageToken}';");
+    expect(src).not.toContain("'${agentSecret}'");
   });
 
   it('90-hh.js source calls /hh/send and /hh/reject endpoints', () => {
     expect(src).toContain("'/hh/send'");
     expect(src).toContain("'/hh/reject'");
-    expect(src).toContain("'Authorization': 'Bearer ' + HH_SECRET");
+    expect(src).toContain("token: HH_PAGE_TOKEN");
+    expect(src).not.toContain('HH_SECRET');
   });
 
   it('hh_draft_review_page passes callbackBase from AGENT_PUBLIC_URL', () => {

@@ -424,6 +424,7 @@ ${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${call
     <label for="promptText">Кого ищем — указания для поиска и AI-оценки</label>
     <textarea id="promptText" rows="6" maxlength="4000" placeholder="Например: нужен опыт в станкостроении, КОМПАС-3D обязателен; кандидаты из автосервисов не подходят; предпочтительно опыт на заводе.">${escHtml(settings.prompt || '')}</textarea>
     <div class="prompt-hint">Учитывается при составлении поисковых запросов и при AI-оценке каждого кандидата. Приоритетнее автоматически извлечённых критериев.</div>
+    ${vacancyId ? `<div class="prompt-hint" data-testid="ats-editor-link">Критерии оценки (обязательные, желательные, стоп-факторы, пороги) — в <a href="${escHtml(callbackBase)}/hh/ats-editor?username=${escHtml(encodeURIComponent(username))}&token=${escHtml(encodeURIComponent(token))}&vacancy_id=${escHtml(encodeURIComponent(vacancyId))}" target="_blank">редакторе критериев ↗</a>. Их использует и этот поиск.</div>` : ''}
     <label for="promptQueries">Поисковые запросы в базу резюме HH (по одному на строку)</label>
     <textarea id="promptQueries" rows="6">${escHtml((settings.queries || []).join('\n'))}</textarea>
     <div class="prompt-hint">${settings.queries_manual

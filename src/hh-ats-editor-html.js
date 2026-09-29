@@ -2,7 +2,8 @@
 // mcp-skill-conformance: browser-fetch — every fetch() here is emitted client-side JS inside <script>.
 
 // Generates the ATS Template Editor HTML page.
-// opts: { callbackBase, username, agentSecret }
+// opts: { callbackBase, username, pageToken } — pageToken is the recruiter's own HMAC,
+// never the master AGENT_SECRET (this HTML is delivered to the recruiter's browser).
 // currentConfig: the saved ats_config value (may be null)
 
 const TEMPLATES = {
@@ -135,9 +136,9 @@ const TEMPLATES = {
 };
 
 function atsEditorHtml(currentConfig, currentStages, opts = {}) {
-  const { callbackBase = '', username = '', agentSecret = '', vacancies = [], activeVacancyId = '', isDraft = false } = opts;
+  const { callbackBase = '', username = '', pageToken = '', vacancies = [], activeVacancyId = '', isDraft = false } = opts;
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const vacancyToken = agentSecret ? require('crypto').createHmac('sha256', agentSecret).update(String(username)).digest('hex').slice(0, 16) : '';
+  const vacancyToken = pageToken;
   const templatesJson = JSON.stringify(TEMPLATES);
   const initConfigJson = JSON.stringify(currentConfig || null);
   const initStagesJson = JSON.stringify(currentStages || null);
@@ -407,7 +408,7 @@ ${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${call
 const TEMPLATES = ${templatesJson};
 const CALLBACK_BASE = '${callbackBase}';
 const HH_USER = '${username}';
-const HH_SECRET = '${agentSecret}';
+const HH_PAGE_TOKEN = '${pageToken}';
 const VACANCY_ID = ${JSON.stringify(activeVacancyId || null)};
 
 let initConfig = ${initConfigJson};
@@ -712,10 +713,10 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = 'Сохраняю...';
   try {
-    const payload = { username: HH_USER, config: buildConfig(), stages, vacancy_id: VACANCY_ID };
+    const payload = { username: HH_USER, token: HH_PAGE_TOKEN, config: buildConfig(), stages, vacancy_id: VACANCY_ID };
     const r = await fetch(CALLBACK_BASE + '/hh/ats-config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + HH_SECRET },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     const data = await r.json();
@@ -743,8 +744,8 @@ document.getElementById('resetAtsBtn').addEventListener('click', async () => {
   try {
     const r = await fetch(CALLBACK_BASE + '/hh/reset-ats-results', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + HH_SECRET },
-      body: JSON.stringify({ username: HH_USER, vacancy_id: VACANCY_ID }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, vacancy_id: VACANCY_ID }),
     });
     const data = await r.json();
     if (r.ok && data.ok) {
