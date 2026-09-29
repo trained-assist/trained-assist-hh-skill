@@ -656,6 +656,30 @@ ${exclusionsBlock}
   return fallback.length ? fallback : aiQueries;
 }
 
+function searchAreaNames(ids, vacancy) {
+  const area = vacancy?.area && typeof vacancy.area === 'object' ? vacancy.area : null;
+  const names = {};
+  for (const id of ids || []) if (area && String(area.id) === String(id) && area.name) names[id] = area.name;
+  return names;
+}
+
+// The region is the first filter of the HH query; without it in the explanation the
+// recruiter cannot tell a Zlatoust search from a Moscow one.
+function describeSearchAreas(latest, workDir) {
+  if (!Object.prototype.hasOwnProperty.call(latest, 'search_area_ids')) return null;
+  const ids = latest.search_area_ids || [];
+  if (!ids.length) return 'вся Россия (без ограничения по региону)';
+  const names = { ...(latest.search_area_names || {}) };
+  if (ids.some(id => !names[id])) {
+    const { readSearchContext } = require('./hh-cold-search-context');
+    const vacancies = [readSearchContext(workDir, 'active_vacancy'), ...(readSearchContext(workDir, 'active_vacancies') || [])];
+    for (const v of vacancies) {
+      if (v?.area && typeof v.area === 'object' && ids.includes(String(v.area.id)) && !names[v.area.id]) names[v.area.id] = v.area.name;
+    }
+  }
+  return ids.map(id => names[id] || `регион HH №${id}`).join(', ');
+}
+
 // Scoring explanation shown to the recruiter on request — built from the latest actual
 // run's ats_config + generated queries, not a static domain-specific description.
 function buildScoringPromptText(username, vacancyId) {
@@ -674,9 +698,10 @@ function buildScoringPromptText(username, vacancyId) {
   const minExp = cfg.filters?.min_experience_years ?? 2;
   const reqStr = (cfg.required || []).map(c => `• +${c.weight} — ${c.name}`).join('\n') || '(не задано)';
   const prefStr = (cfg.preferred || []).map(c => `• +${c.weight} — ${c.name}`).join('\n') || '(не задано)';
+  const areaStr = describeSearchAreas(latest, workDir);
 
   return `Как мы подбираем кандидатов для «${cfg.vacancy_title || 'вакансии'}» (проактивный поиск):
-
+${areaStr ? `\n📍 Регион поиска в базе резюме HH: ${areaStr}\n` : ''}
 🔍 Поисковые запросы в базе резюме HH (сгенерированы под эту вакансию):
 ${queriesStr}
 
@@ -889,6 +914,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
     vacancy_title: atsConfig.vacancy_title || 'Вакансия',
     search_queries: queries,
     search_area_ids: searchAreas,
+    search_area_names: searchAreaNames(searchAreas, activeVacancy),
     searched_at: now.toISOString(),
     total_collected: allCandidates.size,
     total_after_knockout: scored.length,

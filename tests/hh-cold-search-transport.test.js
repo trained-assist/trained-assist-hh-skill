@@ -189,6 +189,33 @@ describe('scoring explanation belongs to the requested run', () => {
   });
 });
 
+describe('scoring explanation names the search region', () => {
+  it('shows the region actually sent to HH, falling back to the tracked vacancy for older runs', () => {
+    const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
+    const { buildScoringPromptText } = require('../src/hh-proactive-search');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-explain-area-'));
+    const old = { AGENT_DATA_DIR: process.env.AGENT_DATA_DIR, USERS_DIR: process.env.USERS_DIR };
+    process.env.AGENT_DATA_DIR = root; process.env.USERS_DIR = path.join(root, 'users');
+    const dir = path.join(root, 'hh', 'fixture', 'proactive'); fs.mkdirSync(dir, { recursive: true });
+    const write = (id, extra) => fs.writeFileSync(path.join(dir, 'search-results-' + id + '.json'), JSON.stringify({ vacancy_id: id, searched_at: '2026-09-29',
+      ats_config: { vacancy_title: 'Инженер-конструктор', required: [], preferred: [] }, search_queries: ['Конструктор'], ...extra }));
+    try {
+      write('Z', { search_area_ids: ['1390'], search_area_names: { 1390: 'Златоуст' } });
+      write('ALL', { search_area_ids: [] });
+      write('LEGACY', { search_area_ids: ['1390'] });
+      write('OLD', {});
+      expect(buildScoringPromptText('fixture', 'Z')).toContain('Регион поиска в базе резюме HH: Златоуст');
+      expect(buildScoringPromptText('fixture', 'Z')).not.toContain('Москва');
+      expect(buildScoringPromptText('fixture', 'ALL')).toContain('без ограничения по региону');
+      expect(buildScoringPromptText('fixture', 'LEGACY')).toContain('регион HH №1390');
+      expect(buildScoringPromptText('fixture', 'OLD')).not.toContain('Регион поиска');
+    } finally {
+      for (const [key, value] of Object.entries(old)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('background scoring isolation', () => {
   it('scores latest snapshot of each vacancy with its own criteria and skips superseded history', async () => {
     const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
