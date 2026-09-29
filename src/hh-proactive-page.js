@@ -140,6 +140,7 @@ function candidateCard(c, idx, existingComment) {
 function generateProactivePageHtml(results, username, callbackBase, token, existingComments, opts = {}) {
   const { activeVacancies = [], vacancyId = '', listView = 'active', stateCounts = { active: 0, starred: 0, archived: 0 } } = opts;
   const monitoring = opts.monitoring || {};
+  const settings = opts.searchSettings || null;
   const candidates = results.candidates || [];
   const comments = existingComments || {};
   const searchedAt = results.searched_at
@@ -190,6 +191,16 @@ a:hover{text-decoration:underline}
 
 /* Main */
 .main{max-width:860px;margin:0 auto;padding:18px 14px}
+
+/* Search prompt panel */
+.prompt-panel{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 15px;margin-bottom:14px}
+.prompt-panel summary{cursor:pointer;font-weight:600;font-size:.9rem}
+.prompt-panel label{display:block;font-size:.8rem;font-weight:600;color:#475569;margin:12px 0 4px}
+.prompt-panel textarea{width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:8px;font:inherit;font-size:.85rem;background:inherit;color:inherit}
+.prompt-hint{font-size:.75rem;color:#64748b;margin-top:3px}
+.prompt-explain{white-space:pre-wrap;font-size:.78rem;color:#475569;background:#f8fafc;border-radius:6px;padding:10px;margin-top:6px}
+.prompt-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.btn-secondary{background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;padding:8px 14px;font-size:.83rem;cursor:pointer}
 
 /* Card */
 .card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:15px;margin-bottom:12px}
@@ -408,6 +419,25 @@ ${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${call
 </div>
 
 <div class="main">
+  ${settings ? `<details class="prompt-panel" id="promptPanel" data-testid="prompt-panel">
+    <summary>✏️ Промпт поиска — посмотреть и изменить${settings.prompt ? '' : ' (пока не задан)'}</summary>
+    <label for="promptText">Кого ищем — указания для поиска и AI-оценки</label>
+    <textarea id="promptText" rows="6" maxlength="4000" placeholder="Например: нужен опыт в станкостроении, КОМПАС-3D обязателен; кандидаты из автосервисов не подходят; предпочтительно опыт на заводе.">${escHtml(settings.prompt || '')}</textarea>
+    <div class="prompt-hint">Учитывается при составлении поисковых запросов и при AI-оценке каждого кандидата. Приоритетнее автоматически извлечённых критериев.</div>
+    <label for="promptQueries">Поисковые запросы в базу резюме HH (по одному на строку)</label>
+    <textarea id="promptQueries" rows="6">${escHtml((settings.queries || []).join('\n'))}</textarea>
+    <div class="prompt-hint">${settings.queries_manual
+      ? 'Запросы заданы вручную и используются как есть. Очистите поле, чтобы они снова составлялись автоматически по промпту.'
+      : 'Составляются автоматически по вакансии и промпту. Если изменить список, он будет использоваться как есть. Если очистить поле, запросы составятся заново.'}</div>
+    <div class="prompt-actions">
+      <button class="btn-secondary" id="promptSaveBtn" onclick="savePrompt(false)">Сохранить</button>
+      <button class="btn-search" id="promptRunBtn" onclick="savePrompt(true)">Сохранить и запустить поиск</button>
+      <span id="promptStatus" class="prompt-hint" role="status"></span>
+    </div>
+    <details style="margin-top:12px"><summary style="font-weight:500;font-size:.8rem">Как подбирали в последнем поиске</summary>
+      <div class="prompt-explain">${escHtml(settings.explanation || '')}</div>
+    </details>
+  </details>` : ''}
   <div id="cards"></div>
   <div class="empty" id="emptyState" style="display:none">Нет кандидатов, подходящих под фильтр</div>
 </div>
@@ -602,6 +632,30 @@ async function vacancyAction(action, button) {
     if (!response.ok || data.error) throw new Error(data.error || 'Ошибка сохранения');
     location.reload();
   } catch (error) { alert(error.message); button.disabled = false; }
+}
+
+async function savePrompt(andRun) {
+  const status = document.getElementById('promptStatus');
+  const buttons = [document.getElementById('promptSaveBtn'), document.getElementById('promptRunBtn')];
+  buttons.forEach(b => { b.disabled = true; });
+  status.textContent = 'Сохраняем…';
+  try {
+    const res = await fetch(CALLBACK_BASE + '/api/hh/proactive/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: USERNAME, token: TOKEN, vacancy_id: VACANCY_ID,
+        prompt: document.getElementById('promptText').value,
+        queries: document.getElementById('promptQueries').value }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Ошибка сохранения');
+    status.textContent = '✅ Сохранено';
+    if (andRun) { status.textContent = '✅ Сохранено, запускаем поиск…'; await runSearch(); }
+  } catch (e) {
+    status.textContent = '⚠️ ' + e.message;
+  } finally {
+    buttons.forEach(b => { b.disabled = false; });
+  }
 }
 
 async function runSearch() {

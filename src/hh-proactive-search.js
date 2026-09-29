@@ -99,6 +99,14 @@ function scoreCandidate(r, atsConfig) {
   return { score, signals, tag, totalPossible };
 }
 
+// Recruiter's own per-vacancy instruction (edited on the cold-search page). It is the
+// one piece of the search the recruiter controls directly, so it outranks the
+// auto-extracted criteria in every LLM step that sees it.
+function recruiterPromptBlock(cfg) {
+  const text = String(cfg.recruiter_prompt || '').trim();
+  return text ? `\n\nУКАЗАНИЯ РЕКРУТЕРА (приоритетнее критериев ниже, если противоречат):\n${text}` : '';
+}
+
 // AI enrichment: plus/yellow/red tags + 2-para summary for one candidate
 async function enrichCandidate(candidate, atsConfig, orKey) {
   const cfg = normalizeAtsConfig(atsConfig);
@@ -110,7 +118,7 @@ async function enrichCandidate(candidate, atsConfig, orKey) {
     .join('\n') || '—';
 
   const prompt = `Оцени кандидата для вакансии "${cfg.vacancy_title || 'Вакансия'}".
-${cfg.vacancy_context ? `\nКонтекст вакансии: ${cfg.vacancy_context}` : ''}
+${cfg.vacancy_context ? `\nКонтекст вакансии: ${cfg.vacancy_context}` : ''}${recruiterPromptBlock(cfg)}
 
 СТОП-ФАКТОРЫ (knockout, критичны):
 ${knockoutStr}
@@ -197,7 +205,7 @@ async function enrichCandidates(candidates, atsConfig, orKey) {
 function queriesLookSane(queries, cfg) {
   if (!Array.isArray(queries) || queries.length === 0) return false;
   const titleWords = extractKeywords(cfg.vacancy_title || '');
-  const ctxWords = extractKeywords(cfg.vacancy_context || '');
+  const ctxWords = [...extractKeywords(cfg.vacancy_context || ''), ...extractKeywords(cfg.recruiter_prompt || '')];
   const reqWords = (cfg.required || []).flatMap(c => extractKeywords(c.name));
   const prefWords = (cfg.preferred || []).flatMap(c => extractKeywords(c.name));
   const domainWords = new Set([...titleWords, ...ctxWords, ...reqWords, ...prefWords]);
@@ -474,6 +482,7 @@ function atsConfigHash(cfg, exclusions = []) {
   const key = JSON.stringify({
     title: normalized.vacancy_title,
     context: normalized.vacancy_context,
+    recruiter_prompt: String(normalized.recruiter_prompt || '').trim(),
     required: (normalized.required || []).map(c => c.name).sort(),
     preferred: (normalized.preferred || []).map(c => c.name).sort(),
     knockout: (normalized.knockout || []).slice().sort(),
@@ -482,9 +491,22 @@ function atsConfigHash(cfg, exclusions = []) {
   return require('crypto').createHash('md5').update(key).digest('hex').slice(0, 12);
 }
 
+// Raw stored record, or null. `manual: true` marks queries the recruiter typed in
+// themselves — those are kept as-is until the recruiter clears them.
+function readStoredQueriesRecord(username, vacancyId) {
+  try {
+    const data = JSON.parse(fs.readFileSync(queriesStorePath(username, vacancyId), 'utf8'));
+    return data && Array.isArray(data.queries) ? data : null;
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('[proactive-search] queries store read failed:', e.message);
+    return null;
+  }
+}
+
 function loadStoredQueries(username, vacancyId, configHash) {
   try {
     const data = JSON.parse(fs.readFileSync(queriesStorePath(username, vacancyId), 'utf8'));
+    if (data.manual && Array.isArray(data.queries) && data.queries.length > 0) return data.queries;
     if (data.config_hash === configHash && Array.isArray(data.queries) && data.queries.length > 0) {
       return data.queries;
     }
@@ -495,7 +517,7 @@ function loadStoredQueries(username, vacancyId, configHash) {
   }
 }
 
-function saveStoredQueries(username, vacancyId, queries, configHash) {
+function saveStoredQueries(username, vacancyId, queries, configHash, options = {}) {
   const file = queriesStorePath(username, vacancyId);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.tmp-' + process.pid;
@@ -503,9 +525,73 @@ function saveStoredQueries(username, vacancyId, queries, configHash) {
     vacancy_id: vacancyId,
     queries,
     config_hash: configHash,
+    ...(options.manual ? { manual: true } : {}),
     generated_at: new Date().toISOString(),
   }, null, 2), 'utf8');
   fs.renameSync(tmp, file);
+}
+
+// --- Recruiter search prompt (per vacancy, edited on the cold-search web page) ---
+// Lives next to the query cache, not inside ats_config: the ATS editor rewrites the
+// whole config on save and would silently drop a field it doesn't know about.
+const SEARCH_PROMPT_MAX = 4000;
+
+function searchPromptPath(username, vacancyId) {
+  return path.join(dataRoot(), 'hh', String(username), 'proactive', `search-prompt-${encodeURIComponent(vacancyId)}.json`);
+}
+
+function loadSearchPrompt(username, vacancyId) {
+  try {
+    const data = JSON.parse(fs.readFileSync(searchPromptPath(username, vacancyId), 'utf8'));
+    return { prompt: String(data.prompt || ''), updated_at: data.updated_at || null };
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('[proactive-search] search prompt read failed:', e.message);
+    return { prompt: '', updated_at: null };
+  }
+}
+
+function saveSearchPrompt(username, vacancyId, prompt) {
+  const text = String(prompt || '').trim();
+  if (text.length > SEARCH_PROMPT_MAX) throw new Error(`Промпт длиннее ${SEARCH_PROMPT_MAX} символов`);
+  const file = searchPromptPath(username, vacancyId);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp-' + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify({ vacancy_id: String(vacancyId), prompt: text, updated_at: new Date().toISOString() }, null, 2), 'utf8');
+  fs.renameSync(tmp, file);
+  return text;
+}
+
+// Save what the recruiter edited on the page. Queries equal to the stored list are
+// left alone (so a prompt-only edit regenerates auto queries via the config hash);
+// a changed list is pinned as manual; an empty list drops the cache → regenerate.
+function saveSearchSettings(username, vacancyId, { prompt, queries } = {}) {
+  const savedPrompt = saveSearchPrompt(username, vacancyId, prompt);
+  let queriesState = 'unchanged';
+  if (Array.isArray(queries)) {
+    const next = queries.map(q => String(q).trim()).filter(Boolean).slice(0, 15);
+    const current = readStoredQueriesRecord(username, vacancyId)?.queries || [];
+    if (!next.length) {
+      try { fs.unlinkSync(queriesStorePath(username, vacancyId)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      queriesState = 'reset';
+    } else if (JSON.stringify(next) !== JSON.stringify(current)) {
+      saveStoredQueries(username, vacancyId, next, 'manual', { manual: true });
+      queriesState = 'manual';
+    }
+  }
+  return { prompt: savedPrompt, queries_state: queriesState };
+}
+
+// Everything the page's prompt panel shows for one vacancy.
+function searchSettingsView(username, vacancyId) {
+  const record = readStoredQueriesRecord(username, vacancyId);
+  return {
+    vacancy_id: String(vacancyId),
+    ...loadSearchPrompt(username, vacancyId),
+    queries: record?.queries || [],
+    queries_manual: Boolean(record?.manual),
+    queries_generated_at: record?.generated_at || null,
+    explanation: buildScoringPromptText(username, vacancyId),
+  };
 }
 
 // --- Candidate comments (for search refinement) ---
@@ -601,7 +687,7 @@ async function generateSearchQueries(atsConfig, orKey, exclusions = []) {
       : '';
     const prompt = `Вакансия: "${cfg.vacancy_title || 'без названия'}"
 Контекст: ${cfg.vacancy_context || '—'}
-Ключевые критерии: ${criteriaStr}
+Ключевые критерии: ${criteriaStr}${recruiterPromptBlock(cfg)}
 ${exclusionsBlock}
 Составь 5-7 СПЕЦИАЛИЗИРОВАННЫХ поисковых запросов для HH.ru под эту конкретную вакансию.
 
@@ -700,8 +786,14 @@ function buildScoringPromptText(username, vacancyId) {
   const prefStr = (cfg.preferred || []).map(c => `• +${c.weight} — ${c.name}`).join('\n') || '(не задано)';
   const areaStr = describeSearchAreas(latest, workDir);
 
+  const current = loadSearchPrompt(username, id).prompt;
+  const usedPrompt = String(cfg.recruiter_prompt || '').trim();
+  const promptStr = usedPrompt
+    ? `\n✏️ Указания рекрутера (учтены в этом поиске):\n${usedPrompt}\n${current !== usedPrompt ? '(промпт с тех пор изменён — новый применится при следующем запуске)\n' : ''}`
+    : (current ? '\n✏️ Указания рекрутера сохранены, применятся при следующем запуске.\n' : '');
+
   return `Как мы подбираем кандидатов для «${cfg.vacancy_title || 'вакансии'}» (проактивный поиск):
-${areaStr ? `\n📍 Регион поиска в базе резюме HH: ${areaStr}\n` : ''}
+${areaStr ? `\n📍 Регион поиска в базе резюме HH: ${areaStr}\n` : ''}${promptStr}
 🔍 Поисковые запросы в базе резюме HH (сгенерированы под эту вакансию):
 ${queriesStr}
 
@@ -749,6 +841,9 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const resolved = resolveSearchContext(workDir, options.vacancyId);
   const vacancyKey = resolved.vacancyId;
   const atsConfig = normalizeAtsConfig(resolved.config);
+  const recruiterPrompt = loadSearchPrompt(username, vacancyKey).prompt;
+  if (recruiterPrompt) atsConfig.recruiter_prompt = recruiterPrompt;
+  else delete atsConfig.recruiter_prompt;
   let activeVacancy = resolved.vacancy;
   // Older selection tools stored only title/id. Fetch the actual region instead
   // of guessing from a city name or broadening the search silently.
@@ -780,7 +875,8 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   // off-topic queries (e.g. "Data Scientist" for "Финансовый советник") survive across
   // deploys because the cache key matches but the content was generated by an older,
   // buggy code path that lacked the sanity check.
-  if (queries && !queriesLookSane(queries, atsConfig)) {
+  const manualQueries = Boolean(queries && readStoredQueriesRecord(username, vacancyKey)?.manual);
+  if (queries && !manualQueries && !queriesLookSane(queries, atsConfig)) {
     console.warn(`[proactive-search] cached queries failed sanity check for "${atsConfig.vacancy_title}": ${JSON.stringify(queries)}. Forcing regeneration.`);
     queries = null;
   }
@@ -1057,6 +1153,13 @@ module.exports = {
   queriesStorePath,
   loadStoredQueries,
   saveStoredQueries,
+  readStoredQueriesRecord,
+  // Recruiter search prompt (web editor)
+  searchPromptPath,
+  loadSearchPrompt,
+  saveSearchPrompt,
+  saveSearchSettings,
+  searchSettingsView,
   // Schedule config
   schedulePath,
   loadSchedule,
