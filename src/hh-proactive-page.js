@@ -96,7 +96,7 @@ function candidateCard(c, idx, existingComment) {
     <button class="btn-archive" onclick="setStatus('${idAttr}','archived',this)">🗄 В архив</button>`
     : `<button class="btn-restore" onclick="setStatus('${idAttr}','active',this)">↩ Вернуть в список</button>`;
 
-  return `<div class="card ${isNew ? 'card-new' : ''}" data-idx="${idx}" data-id="${idAttr}" data-score="${Number(c.score || 0)}" data-tag="${escHtml(c.tag || '')}" data-source="${source}" data-search="${searchBlob.toLowerCase()}">
+  return `<div class="card ${isNew ? 'card-new' : ''}" data-idx="${idx}" data-id="${idAttr}" data-score="${c.ats_scored ? Number(c.score || 0) : 0}" data-tag="${escHtml(c.ats_scored ? c.tag || '' : '')}" data-source="${source}" data-search="${searchBlob.toLowerCase()}">
   <div class="card-header">
     <div class="card-left">
       <a class="card-title" href="${escHtml(c.hh_url)}" target="_blank" rel="noopener">${escHtml(c.title)}</a>
@@ -110,7 +110,9 @@ function candidateCard(c, idx, existingComment) {
       </div>
     </div>
     <div class="card-right">
-      <span class="badge" style="background:${tagBadgeBg(c.tag)}">${escHtml(c.tag)} ${(Number(c.score) || 0).toFixed(1)}</span>
+      ${c.ats_scored
+        ? `<span class="badge" style="background:${tagBadgeBg(c.tag)}" title="Оценка по АТС-воронке, 0–10">${escHtml(c.tag)} ${(Number(c.score) || 0).toFixed(1)}</span>`
+        : '<span class="badge" style="background:#94a3b8" title="Оценка по АТС-воронке появится после фоновой проверки">оценивается</span>'}
     </div>
   </div>
 
@@ -419,17 +421,14 @@ ${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${call
 </div>
 
 <div class="main">
+  ${vacancyId ? `<div class="prompt-panel ats-link" data-testid="ats-editor-link">🎯 Кандидаты отсортированы по оценке 0–10 по АТС-воронке: стоп-факторы, обязательные и желательные навыки, пороги PASS/REVIEW. <a href="${escHtml(callbackBase)}/hh/ats-editor?username=${escHtml(encodeURIComponent(username))}&token=${escHtml(encodeURIComponent(token))}&vacancy_id=${escHtml(encodeURIComponent(vacancyId))}" target="_blank">Открыть АТС-воронку ↗</a> — после сохранения кандидаты переоцениваются.</div>` : ''}
   ${settings ? `<details class="prompt-panel" id="promptPanel" data-testid="prompt-panel">
-    <summary>✏️ Промпт поиска — посмотреть и изменить${settings.prompt ? '' : ' (пока не задан)'}</summary>
-    <label for="promptText">Кого ищем — указания для поиска и AI-оценки</label>
-    <textarea id="promptText" rows="6" maxlength="4000" placeholder="Например: нужен опыт в станкостроении, КОМПАС-3D обязателен; кандидаты из автосервисов не подходят; предпочтительно опыт на заводе.">${escHtml(settings.prompt || '')}</textarea>
-    <div class="prompt-hint">Учитывается при составлении поисковых запросов и при AI-оценке каждого кандидата. Приоритетнее автоматически извлечённых критериев.</div>
-    ${vacancyId ? `<div class="prompt-hint" data-testid="ats-editor-link">Критерии оценки (обязательные, желательные, стоп-факторы, пороги) — в <a href="${escHtml(callbackBase)}/hh/ats-editor?username=${escHtml(encodeURIComponent(username))}&token=${escHtml(encodeURIComponent(token))}&vacancy_id=${escHtml(encodeURIComponent(vacancyId))}" target="_blank">редакторе критериев ↗</a>. Их использует и этот поиск.</div>` : ''}
+    <summary>🔍 Поисковые запросы — посмотреть и изменить</summary>
     <label for="promptQueries">Поисковые запросы в базу резюме HH (по одному на строку)</label>
     <textarea id="promptQueries" rows="6">${escHtml((settings.queries || []).join('\n'))}</textarea>
     <div class="prompt-hint">${settings.queries_manual
-      ? 'Запросы заданы вручную и используются как есть. Очистите поле, чтобы они снова составлялись автоматически по промпту.'
-      : 'Составляются автоматически по вакансии и промпту. Если изменить список, он будет использоваться как есть. Если очистить поле, запросы составятся заново.'}</div>
+      ? 'Запросы заданы вручную и используются как есть. Очистите поле, чтобы они снова составлялись автоматически по АТС-воронке.'
+      : 'Составляются автоматически по АТС-воронке вакансии. Если изменить список, он будет использоваться как есть. Если очистить поле, запросы составятся заново.'}</div>
     <div class="prompt-actions">
       <button class="btn-secondary" id="promptSaveBtn" onclick="savePrompt(false)">Сохранить</button>
       <button class="btn-search" id="promptRunBtn" onclick="savePrompt(true)">Сохранить и запустить поиск</button>
@@ -645,7 +644,6 @@ async function savePrompt(andRun) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: USERNAME, token: TOKEN, vacancy_id: VACANCY_ID,
-        prompt: document.getElementById('promptText').value,
         queries: document.getElementById('promptQueries').value }),
     });
     const data = await res.json();

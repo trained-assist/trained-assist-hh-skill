@@ -221,13 +221,13 @@ describe('background scoring isolation', () => {
     const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
     const api = require('../src/hh-proactive-search');
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-bg-scope-'));
-    const old = { AGENT_DATA_DIR: process.env.AGENT_DATA_DIR, AGENT_TOKENS_DIR: process.env.AGENT_TOKENS_DIR, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY };
-    process.env.AGENT_DATA_DIR = root; process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens'); process.env.OPENROUTER_API_KEY = 'fixture';
+    const old = { AGENT_DATA_DIR: process.env.AGENT_DATA_DIR, AGENT_TOKENS_DIR: process.env.AGENT_TOKENS_DIR, USERS_DIR: process.env.USERS_DIR, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY };
+    process.env.AGENT_DATA_DIR = root; process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens'); process.env.USERS_DIR = path.join(root, 'users'); process.env.OPENROUTER_API_KEY = 'fixture';
     const dir = path.join(root, 'hh', 'fixture', 'proactive'); fs.mkdirSync(dir, { recursive: true });
     const prompts = [];
     vi.stubGlobal('fetch', async (_url, init) => {
       prompts.push(JSON.parse(init.body).messages[0].content);
-      return response(200, { choices: [{ message: { content: JSON.stringify({ plus_tags: ['match'] }) } }] });
+      return response(200, { choices: [{ message: { content: JSON.stringify({ score: 7, plus_tags: ['match'] }) } }] });
     });
     try {
       for (const [id, title, date] of [['A', 'Old criteria', '2026-09-21'], ['A', 'Designer', '2026-09-23'], ['B', 'Sales', '2026-09-24']]) {

@@ -1181,8 +1181,8 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
   for (const c of byVacancy) stateCounts[candidateStatusOf(c)]++;
   let unified = byVacancy.filter(c => candidateStatusOf(c) === listView);
   if (listView === 'active') {
-    // Main feed: rank by fit for the vacancy (score), not by recency.
-    unified.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+    // Main feed: rank by the ATS-funnel score, not by recency; not-yet-scored last.
+    unified.sort(require('./hh-proactive-search').compareByAtsScore);
     // Fallback for the very first run, before anything has been merged into the
     // unified store yet — show the freshly-computed (already score-sorted) results.
     if (!byVacancy.length) unified = results.candidates || [];
@@ -1379,8 +1379,9 @@ if (req.method === 'POST' && url.pathname === '/api/hh/proactive/search') {
   }
 }
 
-// Recruiter-editable search prompt per vacancy — lets a web-only user see how the
-// search is set up, change it and relaunch without going through Telegram.
+// Recruiter-editable search queries per vacancy — lets a web-only user see how the
+// search is set up, change the queries and relaunch without going through Telegram.
+// Who counts as a good candidate is edited in the ATS editor, not here.
 if (url.pathname === '/api/hh/proactive/prompt' && (req.method === 'GET' || req.method === 'POST')) {
   let body = {};
   if (req.method === 'POST') {
@@ -1396,8 +1397,8 @@ if (url.pathname === '/api/hh/proactive/prompt' && (req.method === 'GET' || req.
     if (req.method === 'POST') {
       const queries = typeof body.queries === 'string' ? body.queries.split('\n')
         : (Array.isArray(body.queries) ? body.queries : undefined);
-      const saved = search.saveSearchSettings(username, vacancyId, { prompt: body.prompt, queries });
-      console.log(`[hh/proactive-prompt] saved user=${username} vacancy=${vacancyId} prompt_len=${saved.prompt.length} queries=${saved.queries_state}`);
+      const saved = search.saveSearchSettings(username, vacancyId, { queries });
+      console.log(`[hh/proactive-prompt] saved user=${username} vacancy=${vacancyId} queries=${saved.queries_state}`);
       return json(res, 200, { ok: true, ...saved, ...search.searchSettingsView(username, vacancyId) });
     }
     return json(res, 200, { ok: true, ...search.searchSettingsView(username, vacancyId) });
