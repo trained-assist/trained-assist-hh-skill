@@ -141,7 +141,7 @@ module.exports = {
           if (!Array.isArray(newQueries) || newQueries.length === 0) return { error: 'queries[] обязателен и не должен быть пустым для action=update' };
           const validQueries = newQueries.map(q => String(q).trim()).filter(Boolean);
           if (!validQueries.length) return { error: 'Все фразы пустые — ничего не сохранено' };
-          saveStoredQueries(userId, vacancyId, validQueries, configHash || 'manual');
+          saveStoredQueries(userId, vacancyId, validQueries, configHash || 'manual', { manual: true });
           return {
             ok: true,
             vacancy_id: vacancyId,

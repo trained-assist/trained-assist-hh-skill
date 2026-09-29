@@ -1097,8 +1097,13 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
   }
   results.candidates = unified;
   const monitoring = await coldSearchMonitoring(username, workDir, vacancyId);
+  let searchSettings = null;
+  if (vacancyId) {
+    try { searchSettings = require('./hh-proactive-search').searchSettingsView(username, vacancyId); }
+    catch (e) { console.error('[hh/proactive] search settings read failed:', e.message); }
+  }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring }));
+  return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring, searchSettings }));
 }
 
 // ── Recruiting hub v1 (#1742, UX spec docs/specs/recruiting-web-hub-and-playbook-launch-ux.md) ──
@@ -1276,6 +1281,33 @@ if (req.method === 'POST' && url.pathname === '/api/hh/proactive/search') {
     return json(res, 200, result);
   } catch (e) {
     return json(res, 500, { error: e.message });
+  }
+}
+
+// Recruiter-editable search prompt per vacancy — lets a web-only user see how the
+// search is set up, change it and relaunch without going through Telegram.
+if (url.pathname === '/api/hh/proactive/prompt' && (req.method === 'GET' || req.method === 'POST')) {
+  let body = {};
+  if (req.method === 'POST') {
+    try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  }
+  const pick = k => (req.method === 'POST' ? body?.[k] : url.searchParams.get(k)) || '';
+  const username = String(pick('username'));
+  const vacancyId = String(pick('vacancy_id'));
+  if (![username, vacancyId].every(x => hhHub.SAFE_ID.test(x))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && String(pick('token')) !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
+  const search = require('./hh-proactive-search');
+  try {
+    if (req.method === 'POST') {
+      const queries = typeof body.queries === 'string' ? body.queries.split('\n')
+        : (Array.isArray(body.queries) ? body.queries : undefined);
+      const saved = search.saveSearchSettings(username, vacancyId, { prompt: body.prompt, queries });
+      console.log(`[hh/proactive-prompt] saved user=${username} vacancy=${vacancyId} prompt_len=${saved.prompt.length} queries=${saved.queries_state}`);
+      return json(res, 200, { ok: true, ...saved, ...search.searchSettingsView(username, vacancyId) });
+    }
+    return json(res, 200, { ok: true, ...search.searchSettingsView(username, vacancyId) });
+  } catch (e) {
+    return json(res, 400, { error: e.message });
   }
 }
 
