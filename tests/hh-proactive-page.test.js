@@ -72,7 +72,7 @@ describe('manual-add badge (#2)', () => {
 describe('client-side filter data attributes (#3, #4, #5)', () => {
   it('embeds score/tag/source/search text for each candidate card', () => {
     const html = render([
-      { id: 'r1', title: 'Аналитик Данных', first_name: 'Иван', last_name: 'Петров', score: 9.2, tag: 'PASS', source: 'search', found_at: '2026-09-15T00:00:00Z', experience: [] },
+      { id: 'r1', title: 'Аналитик Данных', first_name: 'Иван', last_name: 'Петров', score: 9.2, tag: 'PASS', ats_scored: true, source: 'search', found_at: '2026-09-15T00:00:00Z', experience: [] },
     ]);
     expect(html).toContain('data-score=\\"9.2\\"');
     expect(html).toContain('data-tag=\\"PASS\\"');
