@@ -31,4 +31,21 @@ function connectPendingDir() {
   return process.env.CONNECT_PENDING_DIR || path.join(home(), 'connect-pending');
 }
 
-module.exports = { home, tokensRoot, dataRoot, usersRoot, connectPendingDir };
+// HH state (vacancies, ATS configs, recruiter identity, drafts) belongs to the
+// profile, not to a project: the web pages (/hh/proactive, hub) and the core
+// context store read <users>/<USER_ID>/contexts. A session bound to a project
+// runs with cwd = <profile>/projects/<id>, so a cwd-relative write forked the
+// state into the project and the site never saw it. Climb back to the profile
+// root when cwd sits under <USER_ID>/projects/; any other cwd is used as is
+// (legacy sessions, tests that chdir into a sandbox).
+function profileWorkDir(cwd = process.cwd()) {
+  const userId = String(process.env.USER_ID || '');
+  if (!userId) return cwd;
+  const parts = path.resolve(cwd).split(path.sep);
+  for (let i = parts.length - 1; i > 0; i--) {
+    if (parts[i] === 'projects' && parts[i - 1] === userId) return parts.slice(0, i).join(path.sep) || path.sep;
+  }
+  return cwd;
+}
+
+module.exports = { home, tokensRoot, dataRoot, usersRoot, connectPendingDir, profileWorkDir };

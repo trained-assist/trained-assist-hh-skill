@@ -1,5 +1,5 @@
 'use strict';
-const { dataRoot, tokensRoot } = require('../../data-paths.js');
+const { dataRoot, tokensRoot, profileWorkDir } = require('../../data-paths.js');
 const { hydrateResume, buildResumeText, resumeHash, RESUME_VERSION } = require('../../hh-resume');
 
 const fs = require('fs');
@@ -14,7 +14,7 @@ const USER_ID = process.env.USER_ID || '';
 // ── Context store (mirrors 03-context-store.js logic) ────────────────────────────
 
 function contextPath(skill, key) {
-  return path.join(process.cwd(), 'contexts', skill, `${key}.json`);
+  return path.join(profileWorkDir(), 'contexts', skill, `${key}.json`);
 }
 
 function readContext(skill, key) {
@@ -46,7 +46,7 @@ function addActiveVacancy(value) {
 }
 
 function removeActiveVacancy(vacancyId) {
-  require('../../hh-cold-search-schedule').updateSchedule(USER_ID, process.cwd(), vacancyId, { enabled: false });
+  require('../../hh-cold-search-schedule').updateSchedule(USER_ID, profileWorkDir(), vacancyId, { enabled: false });
   // Its scheduled cold search stops with it (core cron job, agent#1489 S7.1). Best effort:
   // a failed call leaves a job whose search reports the untracked vacancy, never a silent run.
   require('../../hh-cold-search-cron').disableColdSearch(USER_ID, vacancyId).catch(e => console.error('[hh] cold-search job not removed:', e.message));
@@ -133,7 +133,7 @@ function loadCommunicationStyle(userId) {
 }
 
 // message_config.json (agency/name/signature/rules) — set via the recruiter-identity
-// page, lives under process.cwd()/contexts/hh like the rest of the context store.
+// page, lives under the profile's contexts/hh like the rest of the context store.
 function loadRecruiterIdentityConfig() {
   const raw = readContext('hh', 'message_config');
   let val = raw?.value;
@@ -1340,7 +1340,7 @@ module.exports = {
         // (ats_config:{vacancy_id}, set via hh_extract_ats_config), legacy singleton
         // as fallback for profiles that only ever tracked one vacancy.
         if (!ats_config) {
-          ats_config = readAtsConfigForVacancy(process.cwd(), vacancy_id);
+          ats_config = readAtsConfigForVacancy(profileWorkDir(), vacancy_id);
           if (!ats_config) {
             const legacy = readContext('hh', 'ats_config')?.value;
             if (legacy?.vacancy_id && legacy.vacancy_id !== vacancy_id) {
@@ -1521,7 +1521,7 @@ module.exports = {
           vacancy_id = ctx.value.id;
         }
         if (!ats_config) {
-          ats_config = readAtsConfigForVacancy(process.cwd(), vacancy_id);
+          ats_config = readAtsConfigForVacancy(profileWorkDir(), vacancy_id);
           if (!ats_config) {
             const legacy = readContext('hh', 'ats_config')?.value;
             if (legacy?.vacancy_id && legacy.vacancy_id !== vacancy_id) {
@@ -1629,7 +1629,7 @@ module.exports = {
       handler: async ({ candidates, vacancy_id, vacancy_name, vacancy_context, output_path }) => {
         const apiKey = readOrKey(USER_ID);
         const resolvedVacancyId = vacancy_id || readContext('hh', 'active_vacancy')?.value?.id || null;
-        const atsConfig = resolvedVacancyId ? readAtsConfigForVacancy(process.cwd(), resolvedVacancyId) : readContext('hh', 'ats_config')?.value;
+        const atsConfig = resolvedVacancyId ? readAtsConfigForVacancy(profileWorkDir(), resolvedVacancyId) : readContext('hh', 'ats_config')?.value;
         const atsConfigCtx = atsConfig ? { value: atsConfig } : null;
 
         const enriched = [];
@@ -1892,7 +1892,7 @@ module.exports = {
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
         const { readVacancyState } = require('./../../hh-vacancy');
-        const state = readVacancyState(process.cwd());
+        const state = readVacancyState(profileWorkDir());
         if (!state?.draft) return { error: 'No vacancy draft found. Create one first.' };
         return { vacancy_id: state.vacancy_id, status: state.status, draft: state.draft, landing_url: state.landing_url };
       },
@@ -1922,10 +1922,10 @@ module.exports = {
       },
       handler: async (args) => {
         const { readVacancyState, writeVacancyState } = require('./../../hh-vacancy');
-        const state = readVacancyState(process.cwd());
+        const state = readVacancyState(profileWorkDir());
         if (!state?.draft) return { error: 'No vacancy draft found.' };
         const updatedDraft = { ...state.draft, ...args };
-        writeVacancyState(process.cwd(), { ...state, draft: updatedDraft, status: 'draft_ready' });
+        writeVacancyState(profileWorkDir(), { ...state, draft: updatedDraft, status: 'draft_ready' });
         return { ok: true, updated_fields: Object.keys(args), vacancy_id: state.vacancy_id };
       },
     },
@@ -1970,7 +1970,7 @@ module.exports = {
           company_description: args.company_description || null,
           response_letter_required: false,
         };
-        writeVacancyState(process.cwd(), { vacancy_id: vacancyId, status: 'draft_ready', draft, landing_url: null });
+        writeVacancyState(profileWorkDir(), { vacancy_id: vacancyId, status: 'draft_ready', draft, landing_url: null });
         return { ok: true, vacancy_id: vacancyId, message: `Черновик создан: «${args.name}». Используй hh_vacancy_publish_page чтобы опубликовать страницу.` };
       },
     },
@@ -1980,10 +1980,10 @@ module.exports = {
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
         const { readVacancyState, publishVacancyPage, getMissingFields } = require('./../../hh-vacancy');
-        const state = readVacancyState(process.cwd());
+        const state = readVacancyState(profileWorkDir());
         if (!state?.draft) return { error: 'No vacancy draft found. Create one first with hh_vacancy_create_draft.' };
         try {
-          const url = await publishVacancyPage(process.cwd(), state.draft, state.vacancy_id, USER_ID);
+          const url = await publishVacancyPage(profileWorkDir(), state.draft, state.vacancy_id, USER_ID);
           const missing = getMissingFields(state.draft);
           const missingNote = missing.length
             ? `\n\n📋 Уточни, чтобы дополнить страницу:\n${missing.join('\n')}`

@@ -370,11 +370,7 @@ h1{font-size:18px}
 </head>
 <body>
 <h1>Кандидаты: ${esc(vacancyTitle)}</h1>
-${vacancies.length > 1 ? `<div class="vacancy-tabs">${vacancies.map(v => {
-  const href = `?username=${esc(username)}&token=${pageToken}&vacancy_id=${esc(v.id)}`;
-  const isActive = String(v.id) === String(vacancyId);
-  return `<a class="vacancy-tab${isActive ? ' active' : ''}" href="${href}">${esc(v.title || v.id)}</a>`;
-}).join('')}</div>` : ''}
+${require('./hh-nav').vacancyPickerHtml(vacancies, vacancyId, v => `?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(v.id)}`)}
 ${syncError ? `<p role="alert">${esc(syncError)}</p>` : ''}
 <nav class="vacancy-tabs" aria-label="Статус отклика">${[['active','Активные'],['starred','★ Избранные'],['archived','Архив']].map(([status,label]) => `<a class="vacancy-tab${status === listView ? ' active' : ''}" href="?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}&list=${status}">${label} (${counts[status]})</a>`).join('')}</nav>
 <p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()">↻ Обновить</button></p>

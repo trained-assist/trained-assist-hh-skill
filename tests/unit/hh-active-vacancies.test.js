@@ -186,3 +186,27 @@ describe('hh-utils.readActiveVacancies — shared resolver used by the backgroun
     expect(readActiveVacancies(workDir)).toEqual([]);
   });
 });
+
+// A session bound to a project runs with cwd = <profile>/projects/<id>. The web pages
+// (/hh/proactive, /hh/review, hub) read <profile>/contexts, so a tracked vacancy written
+// under the project folder never showed up there (mbk_luda_recruiter, 2026-09-29).
+describe('project-bound session — HH state stays in the profile', () => {
+  it('hh_set_active_vacancy from <profile>/projects/<id> writes <profile>/contexts/hh', async () => {
+    const profile = join(workDir, TEST_USER_ID);
+    const project = join(profile, 'projects', 'recruiting-demo');
+    mkdirSync(project, { recursive: true });
+    process.chdir(project);
+    const r = await tools.hh_set_active_vacancy.handler({ vacancy_id: DEFAULT_VACANCIES[0].id });
+    expect(r.ok).toBe(true);
+    const list = JSON.parse(readFileSync(join(profile, 'contexts', 'hh', 'active_vacancies.json'), 'utf8')).value;
+    expect(list.map(v => v.id)).toEqual([DEFAULT_VACANCIES[0].id]);
+    expect(existsSync(join(project, 'contexts'))).toBe(false);
+  });
+
+  it('profileWorkDir leaves a cwd outside <USER_ID>/projects untouched', () => {
+    const { profileWorkDir } = require('../../src/data-paths.js');
+    expect(profileWorkDir('/srv/users/other/projects/x')).toBe('/srv/users/other/projects/x');
+    expect(profileWorkDir(`/srv/users/${TEST_USER_ID}/projects/x/sub`)).toBe(`/srv/users/${TEST_USER_ID}`);
+    expect(profileWorkDir(`/srv/users/${TEST_USER_ID}`)).toBe(`/srv/users/${TEST_USER_ID}`);
+  });
+});

@@ -86,4 +86,30 @@ function withHhNav(req, url, res, { isAuthorized } = {}) {
   return res;
 }
 
-module.exports = { NAV_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav, escHtml };
+// Full vacancy name for pickers: title · city · company. Profiles track the same role
+// in several cities, so a bare title is ambiguous; company comes from company_label
+// ("Атон — Финансовый советник" → "Атон").
+function vacancyLabel(v = {}) {
+  const city = v.area?.name || (typeof v.area === 'string' ? v.area : '');
+  const company = String(v.company_label || '').split(' — ')[0].trim();
+  return [v.title || v.id, city, company].filter(Boolean).join(' · ');
+}
+
+// One-line vacancy switcher shared by every /hh/* page (proactive, review, ATS editor).
+// A dropdown instead of a row of chips: with 10+ vacancies the chips filled the whole
+// first screen and had to truncate names. hrefFor(v) builds each page's own link.
+function vacancyPickerHtml(vacancies, currentId, hrefFor) {
+  if (!Array.isArray(vacancies) || vacancies.length < 2) return '';
+  const options = vacancies.map(v => {
+    const selected = String(v.id) === String(currentId) ? ' selected' : '';
+    return `<option value="${escHtml(hrefFor(v))}"${selected}>${escHtml(vacancyLabel(v))}</option>`;
+  }).join('');
+  const hasCurrent = vacancies.some(v => String(v.id) === String(currentId));
+  return `<div class="vacancy-picker" data-testid="vacancy-picker" style="margin:0 0 10px">` +
+    `<label style="display:block;font-size:12px;color:#64748b;margin-bottom:4px">Вакансия (${vacancies.length})</label>` +
+    `<select aria-label="Вакансия" onchange="if(this.value)location.href=this.value" ` +
+    `style="width:100%;max-width:720px;padding:8px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff">` +
+    `${hasCurrent ? '' : '<option value="" selected>— выберите вакансию —</option>'}${options}</select></div>`;
+}
+
+module.exports = { NAV_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav, escHtml, vacancyLabel, vacancyPickerHtml };

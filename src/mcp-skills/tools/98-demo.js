@@ -182,7 +182,7 @@ const CANDIDATES_POOL = [
 // ── Context store helpers ─────────────────────────────────────────────────────
 
 function ctxPath(key) {
-  return path.join(process.cwd(), 'contexts', 'demo', `${key}.json`);
+  return path.join(require('../../data-paths.js').profileWorkDir(), 'contexts', 'demo', `${key}.json`);
 }
 
 function ctxRead(key, def = null) {
@@ -200,7 +200,7 @@ function ctxWrite(key, value) {
 }
 
 function hhCtxWrite(key, value) {
-  const p = path.join(process.cwd(), 'contexts', 'hh', `${key}.json`);
+  const p = path.join(require('../../data-paths.js').profileWorkDir(), 'contexts', 'hh', `${key}.json`);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = `${p}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ value, updated_at: new Date().toISOString() }, null, 2));
