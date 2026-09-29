@@ -120,9 +120,16 @@ describe('cold search end to end (HH and LLM stubbed)', () => {
     await api.runProactiveSearch(user, workDir, { vacancyId: 'A' });
     expect(await api.scoreUnscoredProactiveCandidates(user)).toBe(0);
     put('ats_config:A', { ...CONFIG, knockout: [...CONFIG.knockout, 'нет опыта на производстве'] });
+    // Snapshot saved in the wrong order: the background pass must write it back sorted.
+    const snapFile = require('../../src/hh-cold-search-snapshots').latestProactiveFile(user, 'A');
+    const stale = JSON.parse(fs.readFileSync(snapFile, 'utf8'));
+    stale.candidates.reverse();
+    fs.writeFileSync(snapFile, JSON.stringify(stale));
     const before = scoringPrompts.length;
     expect(await api.scoreUnscoredProactiveCandidates(user)).toBe(2);
     expect(scoringPrompts.slice(before).every(p => p.includes('нет опыта на производстве'))).toBe(true);
+    const snapshot = JSON.parse(fs.readFileSync(require('../../src/hh-cold-search-snapshots').latestProactiveFile(user, 'A'), 'utf8'));
+    expect(snapshot.candidates.map(c => c.id)).toEqual(['reng', 'r1c']);
   });
 });
 
