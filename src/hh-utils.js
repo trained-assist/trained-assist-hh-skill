@@ -27,9 +27,10 @@ function readHhToken(userId) {
   } catch { return null; }
 }
 
-// Context helpers — workDir is explicit (for runner) or null → process.cwd() (for MCP).
+// Context helpers — workDir is explicit (for runner) or null → the profile root (for MCP),
+// never the project folder a session may be bound to (see data-paths.profileWorkDir).
 function hhContextPath(workDir, skill, key) {
-  return path.join(workDir || process.cwd(), 'contexts', skill, `${key}.json`);
+  return path.join(workDir || require('./data-paths').profileWorkDir(), 'contexts', skill, `${key}.json`);
 }
 
 function readHhContext(workDir, skill, key) {

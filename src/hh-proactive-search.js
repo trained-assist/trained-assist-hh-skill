@@ -704,6 +704,17 @@ async function runProactiveSearch(username, workDir, options = {}) {
   finally { release(); }
 }
 
+async function trackVacancy(workDir, vacancyId, known, fallbackTitle, token) {
+  const { readActiveVacancies, writeHhContext, hhFetch } = require('./hh-utils');
+  const list = readActiveVacancies(workDir);
+  if (list.some(v => String(v.id) === String(vacancyId))) return;
+  let v = known && known.name ? known : null;
+  if (!v) { try { v = await hhFetch(`/vacancies/${encodeURIComponent(vacancyId)}`, token); } catch { /* title from ATS config */ } }
+  const area = v?.area && typeof v.area === 'object' ? v.area : undefined;
+  list.push({ id: String(vacancyId), title: v?.name || fallbackTitle || String(vacancyId), ...(area ? { area } : {}), set_at: new Date().toISOString() });
+  await writeHhContext(workDir, 'hh', 'active_vacancies', list);
+}
+
 async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const refreshAccessToken = typeof options.refreshAccessToken === 'function' ? options.refreshAccessToken : null;
   let token = readHhToken(username);
@@ -889,6 +900,11 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   fs.writeFileSync(outFile + '.tmp-' + process.pid, JSON.stringify(output, null, 2), 'utf8');
   fs.renameSync(outFile + '.tmp-' + process.pid, outFile);
 
+  // A vacancy searched by id but not tracked yet (the agent skipped hh_set_active_vacancy)
+  // must still show up in the /hh/* vacancy pickers — otherwise its results page exists
+  // but the recruiter can't reach it from the list.
+  await trackVacancy(workDir, vacancyKey, activeVacancy, output.vacancy_title, token);
+
   const pass_count = enriched.filter(c => c.tag === 'PASS').length;
   const review_count = enriched.filter(c => c.tag === 'REVIEW').length;
 
@@ -896,6 +912,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   return {
     file: outFile,
     count: enriched.length,
+    total_found: scored.length,
     pass_count,
     review_count,
     searched_at: now.toISOString(),
@@ -984,6 +1001,7 @@ function saveSchedule(username, data) {
 
 module.exports = {
   runProactiveSearch,
+  trackVacancy,
   buildScoringPromptText,
   scoreUnscoredProactiveCandidates,
   queriesLookSane,

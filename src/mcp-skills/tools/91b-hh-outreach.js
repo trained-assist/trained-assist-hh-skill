@@ -33,7 +33,7 @@ function readOrKey(userId) {
 // ── Context store ─────────────────────────────────────────────────────────────
 
 function contextPath(skill, key) {
-  return path.join(process.cwd(), 'contexts', skill, `${key}.json`);
+  return path.join(require('../../data-paths.js').profileWorkDir(), 'contexts', skill, `${key}.json`);
 }
 
 function writeContext(skill, key, value) {

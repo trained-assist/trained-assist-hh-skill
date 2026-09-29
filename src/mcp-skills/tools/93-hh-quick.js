@@ -12,7 +12,7 @@
 
 const q = require('../../hh-quick');
 
-const WORK_DIR = () => process.env.WORK_DIR || process.cwd();
+const WORK_DIR = () => process.env.WORK_DIR || require('../../data-paths.js').profileWorkDir();
 
 const INTENTS = {
   status:          (u) => q.hhStatus(u),

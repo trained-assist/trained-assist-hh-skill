@@ -175,9 +175,6 @@ a:hover{text-decoration:underline}
 /* Header */
 .header{background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 24px;position:sticky;top:0;z-index:10}
 .header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.vacancy-tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
-.vacancy-tab{padding:6px 14px;border:1px solid #c7d2fe;border-radius:20px;font-size:13px;font-weight:600;text-decoration:none;color:#4f46e5;background:#eef2ff}
-.vacancy-tab.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
 .state-tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
 .state-tab{padding:6px 14px;border:1px solid #e2e8f0;border-radius:20px;font-size:13px;font-weight:600;text-decoration:none;color:#475569;background:#f1f5f9}
 .state-tab.active{background:#1e293b;color:#fff;border-color:#1e293b}
@@ -335,11 +332,7 @@ details[open] .exp-toggle::before{content:"▾ "}
 </head>
 <body>
 <div class="header">
-${activeVacancies.length > 1 ? `<div class="vacancy-tabs">${activeVacancies.map(v => {
-  const href = `${escHtml(callbackBase)}/hh/proactive?username=${escHtml(username)}&token=${escHtml(token)}&vacancy_id=${escHtml(v.id)}`;
-  const isActive = String(v.id) === String(vacancyId);
-  return `<a class="vacancy-tab${isActive ? ' active' : ''}" href="${href}">${escHtml(v.title || v.id)}</a>`;
-}).join('')}</div>` : ''}
+${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${callbackBase}/hh/proactive?username=${encodeURIComponent(username)}&token=${encodeURIComponent(token)}&vacancy_id=${encodeURIComponent(v.id)}`)}
   <div class="state-tabs">${[
     ['active', 'Найдено'],
     ['starred', '⭐ Выбрано'],

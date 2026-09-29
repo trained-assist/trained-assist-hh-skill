@@ -243,18 +243,11 @@ details summary:hover{color:var(--accent)}
 pre.json-preview{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;overflow-x:auto;color:#a8b5d0;margin-top:8px;white-space:pre-wrap;word-break:break-word}
 
 /* Vacancy tabs */
-.vacancy-tabs{display:flex;gap:4px;padding:10px 24px;background:var(--bg);border-bottom:1px solid var(--border);flex-wrap:wrap}
-.vacancy-tab{padding:6px 14px;border:1px solid var(--border);border-radius:20px;font-size:13px;font-weight:600;text-decoration:none;color:var(--muted)}
-.vacancy-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 </style>
 </head>
 <body>
 
-${vacancies.length > 1 ? `<div class="vacancy-tabs">${vacancies.map(v => {
-  const href = `${esc(callbackBase)}/hh/ats-editor?username=${esc(username)}&token=${vacancyToken}&vacancy_id=${esc(v.id)}`;
-  const isActive = String(v.id) === String(activeVacancyId);
-  return `<a class="vacancy-tab${isActive ? ' active' : ''}" href="${href}">${esc(v.title || v.id)}</a>`;
-}).join('')}</div>` : ''}
+${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${callbackBase}/hh/ats-editor?username=${encodeURIComponent(username)}&token=${vacancyToken}&vacancy_id=${encodeURIComponent(v.id)}`)}
 
 <header>
   <span class="logo">Candidate Funnel</span>

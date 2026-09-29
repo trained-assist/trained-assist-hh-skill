@@ -56,13 +56,19 @@ module.exports = {
           // vacancy_id is only known after runProactiveSearch resolves it — rebuild
           // the URL with it so the chat-facing link opens directly on the right tab.
           const url = proactiveUrl(userId, result.vacancy_id);
-          const digest = (result.new_count > 0)
-            ? `\n🆕 Из них новых (не показывались ранее): ${result.new_count}.`
-            : (result.first_run ? `\n(первый прогон — все ${result.count} считаются новыми)` : `\nНовых с прошлого прогона: 0.`);
+          // new_count is measured over every candidate found (total_found), not over the
+          // top slice shown on the page (count) — «30 found, 185 of them new» read as a bug.
+          const total = result.total_found ?? result.count;
+          const digest = result.first_run
+            ? `\n(первый прогон по вакансии — все ${total} найденных считаются новыми)`
+            : (result.new_count > 0
+              ? `\n🆕 Новых среди найденных (раньше не попадались): ${result.new_count}.`
+              : `\nНовых с прошлого прогона: 0.`);
           return {
             ok: true,
             url,
             count: result.count,
+            total_found: result.total_found,
             pass_count: result.pass_count,
             review_count: result.review_count,
             vacancy_title: result.vacancy_title,
@@ -70,7 +76,7 @@ module.exports = {
             new_count: result.new_count,
             total_seen: result.total_seen,
             first_run: result.first_run,
-            message: `Найдено ${result.count} кандидатов (PASS: ${result.pass_count}, REVIEW: ${result.review_count}).${result.ai_enriched ? ' AI-теги и резюме добавлены.' : ''}${digest}\nСтраница с результатами: ${url}\n\nХотите узнать, по каким критериям мы отбирали и оценивали? Скажите «покажи промпт оценки кандидатов».`,
+            message: `Найдено ${total} кандидатов${total > result.count ? `, на страницу отобраны лучшие ${result.count}` : ''} (PASS: ${result.pass_count}, REVIEW: ${result.review_count}).${result.ai_enriched ? ' AI-теги и резюме добавлены.' : ''}${digest}\nСтраница с результатами: ${url}\n\nХотите узнать, по каким критериям мы отбирали и оценивали? Скажите «покажи промпт оценки кандидатов».`,
           };
         } catch (e) {
           return { error: e.message };
