@@ -1111,8 +1111,10 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       const prior = latest.get(String(results.vacancy_id));
       if (!prior || Date.parse(results.searched_at) > Date.parse(prior.results.searched_at)) latest.set(String(results.vacancy_id), { file, results });
     }
-    // Budget per background tick, per profile, shared across vacancies.
-    let remaining = 60, completed = 0, vacanciesLeft = latest.size;
+    // Budget per background tick (5 min), per profile, shared across vacancies. Sized
+    // so a funnel edit (or a scoring-version bump) re-scores a ~10-vacancy profile
+    // within about an hour, not an afternoon.
+    let remaining = 150, completed = 0, vacanciesLeft = latest.size;
     const workDir = path.join(usersRoot(), String(username));
     for (const { file, results } of latest.values()) {
       if (remaining <= 0) break;
@@ -1135,10 +1137,12 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
         if (idx >= 0) Object.assign(candidates[idx], candidate);
       }
       mergeSearchCandidatesIntoAll(username, enriched, {}, results.vacancy_id);
+      // Sort before writing: the snapshot order is what the tool view and the page's
+      // first-run fallback show.
+      candidates.sort(compareByAtsScore);
       const temp = file + '.tmp-' + process.pid;
       fs.writeFileSync(temp, JSON.stringify(results, null, 2), 'utf8');
       fs.renameSync(temp, file);
-      candidates.sort(compareByAtsScore);
       completed += enriched.filter(c => c.ats_scored).length;
     }
     return completed;
