@@ -16,6 +16,9 @@ const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { generateConversation } = require('./conversation-generation');
 const { ladderChat, ladderToken } = require('./llm-ladder');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
+// `gigachat` / `openrouter` keys and `hh-message-style` live under agent-tokens.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 
@@ -139,10 +142,8 @@ async function gcCall(credentials, messages, maxTokens = 2000, temperature = 0.1
 function readGigachatKey(username) {
   const tokensBase = tokensRoot();
   const file = path.join(tokensBase, String(username), 'gigachat');
-  if (fs.existsSync(file)) {
-    const key = fs.readFileSync(file, 'utf8').trim();
-    if (key) return key;
-  }
+  const key = readCredentialFileSafe(file)?.trim();
+  if (key) return key;
   return process.env.GIGACHAT_API_KEY || null;
 }
 
@@ -290,10 +291,8 @@ function readAtsDraft(workDir, vacancyId) {
 function readOrKey(username) {
   const tokensBase = tokensRoot();
   const file = path.join(tokensBase, String(username), 'openrouter');
-  if (fs.existsSync(file)) {
-    const key = fs.readFileSync(file, 'utf8').trim();
-    if (key) return key;
-  }
+  const key = readCredentialFileSafe(file)?.trim();
+  if (key) return key;
   return process.env.OPENROUTER_API_KEY || null;
 }
 
@@ -409,7 +408,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
 
   const tokensBase = tokensRoot();
   const styleFile = path.join(tokensBase, String(username), 'hh-message-style');
-  const commStyle = fs.existsSync(styleFile) ? fs.readFileSync(styleFile, 'utf8').trim() : null;
+  const commStyle = readCredentialFileSafe(styleFile)?.trim() || null;
   const baseOverride = loadBaseOverride(tokensBase, username);
 
   // Read recruiter identity config (agency, name, signature, rules)

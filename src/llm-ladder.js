@@ -15,9 +15,13 @@
 // trained-assist-agent src/service-llm.js). Callers fail loudly: an exception here
 // reaches the route/tool error path the old direct-OpenRouter errors did.
 
-const fs = require('fs');
 const path = require('path');
 const { tokensRoot } = require('./data-paths');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader: the
+// ladder token lives at $AGENT_TOKENS_DIR/llm-ladder/token, which the one-time
+// migration encrypts — plaintext transparent, envelope decrypted, a base64 stub
+// never returned as a token, missing CRED_ENCRYPTION_KEY → null with a warning.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 function ladderUrl() {
   return (process.env.LLM_LADDER_URL || 'https://llm-ladder.trainedassist.store').replace(/\/+$/, '');
@@ -25,11 +29,8 @@ function ladderUrl() {
 
 function ladderToken() {
   if (process.env.LLM_LADDER_TOKEN) return process.env.LLM_LADDER_TOKEN.trim();
-  try {
-    const file = path.join(tokensRoot(), 'llm-ladder', 'token');
-    if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim() || null;
-  } catch { /* unreadable token file = no token */ }
-  return null;
+  const text = readCredentialFileSafe(path.join(tokensRoot(), 'llm-ladder', 'token'));
+  return text ? text.trim() : null; // absent / unreadable = no token
 }
 
 /**

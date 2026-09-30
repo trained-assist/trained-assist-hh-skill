@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { createHmac } = require('crypto');
-const { hhFetch, readActiveVacancies } = require('./hh-utils');
+const { hhFetch, readActiveVacancies, readHhTokenFile } = require('./hh-utils');
 const { hasRealAvailability } = require('./hh-message-prompts');
 const { hydrateResumes } = require('./hh-resume');
 const { scoreUnscoredCandidates, generateDraftMessages, readAtsConfig } = require('./hh-scoring');
@@ -290,8 +290,7 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
       const hhTokensBase = tokensRoot();
       const tokenFile = path.join(hhTokensBase, String(username), 'hh');
       if (!fs.existsSync(tokenFile)) return;
-      let tokenData;
-      try { tokenData = JSON.parse(fs.readFileSync(tokenFile, 'utf8')); } catch { return; }
+      const tokenData = readHhTokenFile(tokenFile);
       if (!tokenData?.access_token) return;
 
       // workDir must match where Claude writes context (/run handler uses BASE_USERS_DIR)

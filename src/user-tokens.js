@@ -3,6 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+// Credential store (trained-assist-agent#1939): every profile credential file is
+// read through readCredentialFile — legacy plaintext transparent, a v2 envelope
+// decrypted, a base64 stub never returned as a token value, a missing
+// CRED_ENCRYPTION_KEY → plaintext with a warning. `.meta` sidecars the store
+// writes are bookkeeping: never services, never env values.
+const { readCredentialFile, isMetaSidecar, deleteCredential } = require('./credential-store');
 
 const TOKENS_ROOT = tokensRoot();
 const CONNECT_PENDING_DIR = connectPendingDir();
@@ -142,7 +148,7 @@ function loadUserTokens(userId, legacyChatId) {
   // Priority: 1) the supplied legacyChatId, 2) any other chatId-like folder (negative integer).
   const userDir = tokensDir(userId);
   const userHasFiles = () => fs.existsSync(userDir) &&
-    fs.readdirSync(userDir).filter(f => !LOG_FILES.has(f) && !f.startsWith('.')).length > 0;
+    fs.readdirSync(userDir).filter(f => !LOG_FILES.has(f) && !f.startsWith('.') && !isMetaSidecar(f)).length > 0;
 
   if (!userHasFiles()) {
     // Build candidate list: supplied chatId first, then scan for other chatId-like dirs
@@ -157,7 +163,7 @@ function loadUserTokens(userId, legacyChatId) {
     for (const candidate of candidates) {
       const legacyDir = path.join(TOKENS_ROOT, candidate);
       if (!fs.existsSync(legacyDir)) continue;
-      const hasContent = fs.readdirSync(legacyDir).filter(f => !LOG_FILES.has(f) && !f.startsWith('.')).length > 0;
+      const hasContent = fs.readdirSync(legacyDir).filter(f => !LOG_FILES.has(f) && !f.startsWith('.') && !isMetaSidecar(f)).length > 0;
       if (!hasContent) continue;
       // Check if this folder's .username marker matches (skip if it belongs to someone else)
       const markerFile = path.join(legacyDir, '.username');
@@ -194,12 +200,15 @@ function loadUserTokens(userId, legacyChatId) {
   if (!fs.existsSync(dir)) return extra;
   const accessed = [];
   for (const file of fs.readdirSync(dir)) {
-    if (LOG_FILES.has(file)) continue;
+    if (LOG_FILES.has(file) || isMetaSidecar(file)) continue;
     const filePath = path.join(dir, file);
     try { if (fs.statSync(filePath).isDirectory()) continue; } catch { continue; }
     let val;
-    try { val = fs.readFileSync(filePath, 'utf8').trim(); }
-    catch (e) { console.warn('[user-tokens] readFileSync race:', e.message); continue; } // file deleted between readdirSync and readFileSync — skip
+    // Credential store: decrypts when needed (trained-assist-agent#1939). An
+    // unreadable file — e.g. encrypted while CRED_ENCRYPTION_KEY is absent — is
+    // skipped loudly instead of being exported to the engine env as base64 stub.
+    try { val = readCredentialFile(filePath).trim(); }
+    catch (e) { console.warn('[user-tokens] cannot read %s: %s', filePath, e.message); continue; }
     const label = file.toLowerCase();
     accessed.push(label);
     if (label === 'github') {
@@ -239,7 +248,7 @@ function listConnectedServices(userId) {
   const dir = tokensDir(userId);
   if (!fs.existsSync(dir)) return null;
   const files = fs.readdirSync(dir).filter(f => {
-    if (LOG_FILES.has(f)) return false;
+    if (LOG_FILES.has(f) || isMetaSidecar(f)) return false; // .meta sidecars are not services
     try { return !fs.statSync(path.join(dir, f)).isDirectory(); } catch { return false; }
   });
   if (files.length === 0) return null;
@@ -276,7 +285,12 @@ function revokeService(userId, serviceName) {
     if (fs.statSync(filePath).isDirectory()) {
       fs.rmSync(filePath, { recursive: true });
     } else {
-      fs.unlinkSync(filePath);
+      fs.unlinkSync(filePath); // throws → 'not_found', as before
+      // Drop the store's bookkeeping too: a stale .meta sidecar would make the
+      // next read fail instead of falling back, and a stale .index.json entry
+      // would keep listing the revoked service. deleteCredential tolerates the
+      // file already being gone.
+      deleteCredential(userId, key);
     }
   } catch (e) { console.warn('[user-tokens] revokeService unlink:', e.message); return 'not_found'; }
   appendSecretsLog(userId, [`revoke:${key}`]);

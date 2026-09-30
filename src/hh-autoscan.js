@@ -14,12 +14,18 @@ const { tokensRoot } = require('./data-paths.js');
 //   { enabled: bool, intervalMinutes: number, lastRunAt: ISO|null, enabledAt: ISO|null }
 // Absent file = disabled (default OFF — we never auto-scan or notify unasked).
 
-const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { createHmac } = require('crypto');
+// Credential store (trained-assist-agent#1939): this state file lives under
+// agent-tokens, so the migration encrypts it — read/write it through the store
+// (legacy plaintext transparent, v2 envelope decrypted, stub never returned,
+// missing CRED_ENCRYPTION_KEY → plaintext with a warning).
+const { readCredentialFileSafe } = require('./hh-utils');
+const { writeCredentialFile } = require('./credential-store');
 
 const DEFAULT_INTERVAL_MIN = 60; // don't burn HH API / spam chat every 5 min
+const DEFAULT_STATE = () => ({ enabled: false, intervalMinutes: DEFAULT_INTERVAL_MIN, lastRunAt: null, enabledAt: null });
 
 function tokensBase() {
   return tokensRoot();
@@ -30,8 +36,11 @@ function statePath(username) {
 }
 
 function readState(username) {
+  // Absent or undecryptable → OFF (we never auto-scan unasked), never the stub.
+  const text = readCredentialFileSafe(statePath(username));
+  if (text == null) return DEFAULT_STATE();
   try {
-    const raw = JSON.parse(fs.readFileSync(statePath(username), 'utf8'));
+    const raw = JSON.parse(text);
     const iv = Number(raw.intervalMinutes);
     return {
       enabled: !!raw.enabled,
@@ -40,17 +49,16 @@ function readState(username) {
       enabledAt: raw.enabledAt || null,
     };
   } catch {
-    return { enabled: false, intervalMinutes: DEFAULT_INTERVAL_MIN, lastRunAt: null, enabledAt: null };
+    return DEFAULT_STATE();
   }
 }
 
 function writeState(username, patch) {
   const next = { ...readState(username), ...patch };
   const file = statePath(username);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, file); // atomic — no half-written state if we crash mid-write
+  // The store mkdir's the profile dir and writes mode 0600 (plus the .meta
+  // sidecar / .index.json entry when a master key is present).
+  writeCredentialFile(file, JSON.stringify(next, null, 2));
   return next;
 }
 

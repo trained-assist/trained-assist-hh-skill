@@ -25,10 +25,12 @@
 // The steps below are that process, expressed as a closed set.
 
 const https = require('https');
-const fs = require('fs');
 const path = require('path');
 const { tokensRoot } = require('./data-paths.js');
 const { ladderChat, ladderToken } = require('./llm-ladder');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
+// `openrouter` key lives under agent-tokens.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 // Bump when the decision rules or the action set change: drafts are cached per
 // candidate and a stale draft written by older logic would otherwise live forever
@@ -115,10 +117,8 @@ function llmCall(apiKey, messages, { maxTokens = 400, temperature = 0 } = {}) {
 function getApiKey(username) {
   if (username) {
     const file = path.join(tokensRoot(), String(username), 'openrouter');
-    if (fs.existsSync(file)) {
-      const key = fs.readFileSync(file, 'utf8').trim();
-      if (key) return key;
-    }
+    const key = readCredentialFileSafe(file);
+    if (key !== null && key.trim()) return key.trim();
   }
   return process.env.OPENROUTER_API_KEY || null;
 }

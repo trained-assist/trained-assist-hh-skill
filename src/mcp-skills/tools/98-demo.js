@@ -7,6 +7,9 @@
 const fs   = require('fs');
 const path = require('path');
 const https = require('https');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
+// `openrouter` key lives under agent-tokens.
+const { readCredentialFileSafe } = require('../../hh-utils');
 
 // ── ATS config for the ОРГРЭС vacancy ────────────────────────────────────────
 
@@ -212,7 +215,9 @@ function hhCtxWrite(key, value) {
 async function generateCandidateReply(candidate, recruiterMessage, userId) {
   const keyPath = path.join(require('../../data-paths.js').tokensRoot(), String(userId), 'openrouter');
   let apiKey = '';
-  try { apiKey = fs.readFileSync(keyPath, 'utf8').trim(); } catch {}
+  // Credential store (trained-assist-agent#1939): plaintext passes through, an
+  // envelope is decrypted, an unreadable file yields no key — never the stub.
+  try { apiKey = (readCredentialFileSafe(keyPath) || '').trim(); } catch {}
   if (!apiKey) return null;
 
   const system = [
