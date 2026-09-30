@@ -1,0 +1,2200 @@
+{
+ "meta": {
+  "temperature": 0.7,
+  "reps": 2,
+  "n": 30,
+  "at": "2026-09-30T18:49:13.947Z"
+ },
+ "results": [
+  {
+   "id": "88bc5bde0006f701180097a60472376e6f6b79",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 12487,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Сильный кандидат именно под private banking sales: 11 лет в wealth management и private banking, включая Otkritie Privat",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "88bc5bde0006f701180097a60472376e6f6b79",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 14795,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат сильный: 11 лет в private banking/wealth management, включая Credit Suisse и Otkritie Private Banking, сейчас р",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "88bc5bde0006f701180097a60472376e6f6b79",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 11304,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 11 лет релевантного опыта в private banking и wealth management, включая более восьми лет в клиентских и ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "88bc5bde0006f701180097a60472376e6f6b79",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 14014,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 7,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 11 лет опыта в private banking и wealth management: от Private Banking Otkritie и BCS Global Markets до C",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "c2af54d7000d1a28850097a6044e5673447136",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 5992,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 14-летним опытом в private banking и wealth management: прошёл путь от персонального менеджера VIP-клиентов в",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "c2af54d7000d1a28850097a6044e5673447136",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 5800,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — сильный private banker с 14-летним опытом в ВТБ, Открытии, Зените и ОТП, прошёл путь от персонального менедже",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "c2af54d7000d1a28850097a6044e5673447136",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 18854,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 14 лет в банковском клиентском обслуживании, с 2019 года — в Private Banking, а с июня 2024 года возглавл",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "c2af54d7000d1a28850097a6044e5673447136",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 8512,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 14 лет опыта в Private Banking и с 2012 года работал с VIP-клиентами в ВТБ,随后 в «Открытии», «Зените» и ОТ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e579e46c000f25c1b50097a6046f6e41697839",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 16270,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 14-летним опытом senior private banker в Открытии/Петрокоммерце и 2.5 года в должности исполнительного директ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e579e46c000f25c1b50097a6046f6e41697839",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 13182,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — редкий профиль: 14 лет проработал senior private banker в Открытии/Петрокоммерке, затем 2.5 года был исполнит",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e579e46c000f25c1b50097a6046f6e41697839",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 26624,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Более 13 лет кандидат работал senior private bankir в «Открытии» и Петрокоммерце, а затем руководил Управляющей компание",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e579e46c000f25c1b50097a6046f6e41697839",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 32357,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет около 14 лет опыта в private banking: занимал позицию Senior private bankier в Открытии и Петрокоммерце, ",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "2f082fe100106e14a00097a6044d4c53344966",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 9605,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 17-летним опытом в private banking/wealth management: управляющий директор Private Banking в Росбанке, персон",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "2f082fe100106e14a00097a6044d4c53344966",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 8726,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Сильный кандидат с 17-летним опытом в private banking и wealth management: руководил Private banking в РОСБАНКе, работал",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "2f082fe100106e14a00097a6044d4c53344966",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": false,
+   "error": "every rung failed",
+   "ms": 60462
+  },
+  {
+   "id": "2f082fe100106e14a00097a6044d4c53344966",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 20605,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 17 лет опыта в private banking и wealth management, включая управляющего директора по private banki",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "44bd2426000ca101840097a6043467706c5a72",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 7732,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 17-летним опытом, из них 12 лет в премиальном обслуживании БКС/БКС Ультима: от старшего финансового советника",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "44bd2426000ca101840097a6043467706c5a72",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 10330,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 17-летний опыт в финансах, из них более 12 лет в private banking и wealth management в БКС Ультима и БКС,",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "44bd2426000ca101840097a6043467706c5a72",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 26432,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 17 лет опыта в финансах, включая более 12 лет работы в БКС на позициях старшего финансового советника и д",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "44bd2426000ca101840097a6043467706c5a72",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 16230,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет профильный опыт: руководитель группы Private Banking, директор по инвестициям в БКС Ультима и старший фин",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "a5f64326000ca25bed0097a6044a59364c346f",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 10252,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — состоявшийся private banker: 15+ лет в Citibank, БКС Ультима и Альфа-Банке, включая директорскую позицию. Раб",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "a5f64326000ca25bed0097a6044a59364c346f",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 8642,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Смотри, это прямой попаданец: 15+ лет именно в private banking, из них 7 лет senior manager в Citibank, 4 года директоро",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "a5f64326000ca25bed0097a6044a59364c346f",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 31015,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Профильный private banking-кандидат с 15,7 годами опыта: Senior Manager Private Banking в Citibank, директор по работе с",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "a5f64326000ca25bed0097a6044a59364c346f",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 21272,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 15,7 года опыта в private banking и работе с VIP-клиентами в Альфа-Банке, БКС Ультима, Citibank и Сбербан",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "3451e834000c0bb09c0097a6046f446f50477a",
+   "prod_score": 9,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 9210,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — редкий случай: 10+ лет именно в private banking, от персонального менеджера до директора по продажам Wealth M",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "3451e834000c0bb09c0097a6046f446f50477a",
+   "prod_score": 9,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 8265,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Сильный кандидат: 10 лет в private banking и wealth management, прошёл путь от персонального менеджера в Росбанке до дир",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "3451e834000c0bb09c0097a6046f446f50477a",
+   "prod_score": 9,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 13665,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 10 лет опыта в private banking и wealth management: руководил направлением в Совкомбанке, работал с",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "3451e834000c0bb09c0097a6046f446f50477a",
+   "prod_score": 9,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 8506,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 7 лет непрерывного опыта в private banking и wealth management: работал с состоятельными и VIP-клие",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "87e1e6f10009c35d820097a6043963377a676a",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 9715,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — готовый private banking продавец: 14 лет в ВТБ, из них более 10 лет с VIP-клиентами, с 2020 руководит отделом",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "87e1e6f10009c35d820097a6043963377a676a",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 9581,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Сильный кандидат: 14 лет в ВТБ, прошёл путь от главного персонального менеджера до начальника отдела Private Banking. Уп",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "87e1e6f10009c35d820097a6043963377a676a",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 18191,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат провел 14,1 года в ВТБ и вырос от главного персонального менеджера до руководителя направления привлечения и об",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "87e1e6f10009c35d820097a6043963377a676a",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 41861,
+   "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 14 лет опыта в ВТБ, сейчас руководит отделом привлечения и обслуживания VIP клиентов Private Bankin",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "dc1793b400030a283e0097a60442685a4b6869",
+   "prod_score": 8.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 5876,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — состоявшийся private banker с 20-летним опытом: от менеджера по VIP-клиентам до директора Private Banking в О",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "dc1793b400030a283e0097a60442685a4b6869",
+   "prod_score": 8.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 8794,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — 20 лет в private banking, прошёл путь от ведущего менеджера до директора Private Banking в Открытии и сейчас ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "dc1793b400030a283e0097a60442685a4b6869",
+   "prod_score": 8.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 9213,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 20 лет опыта в Private Banking, включая руководящие должности в Открытии и текущую роль начальника ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "dc1793b400030a283e0097a60442685a4b6869",
+   "prod_score": 8.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 19228,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 7,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 20 лет опыта в Private Banking: с 2014 года работал с VIP-клиентами в М2М Праймет банке, затем зани",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6987267f001113b14d0097a60432555a327445",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 8034,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Это готовый private banker: 13 лет в сегменте, с 2016 года работал с состоятельными клиентами в ВТБ, вырос от персональн",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6987267f001113b14d0097a60432555a327445",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 9399,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 8.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — чистый private banking: 13 лет в ВТБ, карьера от старшего персонального менеджера до директора по инвестициям",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6987267f001113b14d0097a60432555a327445",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 17356,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат более 13 лет развивает карьеру в банковском обслуживании состоятельных клиентов: от старшего персонального мене",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6987267f001113b14d0097a60432555a327445",
+   "prod_score": 7.5,
+   "prod_tag": "PASS",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 20173,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 13,1 года банковского опыта и сейчас занимает позицию директора по работе с клиентами Private Banking в В",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "4cbe0037000edb7bbc0097a6044b3279334769",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 10858,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с сильным бэкграундом в Private Banking и управлении активами: руководил направлением структурных продуктов и и",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "4cbe0037000edb7bbc0097a6044b3279334769",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 9343,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с глубокой экспертизой в private banking и wealth management: руководил направлением структурных продуктов и ин",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "4cbe0037000edb7bbc0097a6044b3279334769",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 13927,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет свыше восьми лет в Private Banking, опыт работы с family office, структурными продуктами, иностранными фо",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "4cbe0037000edb7bbc0097a6044b3279334769",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 30743,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 29,6 года опыта в инвестициях и более восьми лет непосредственно в Private Banking РОСБАНКА, где руководи",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e6a30893000e8ee6cc0097a60466714179494e",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 17900,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 5.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат 6.4 года работает в клиентском сервисе и инвестиционных продуктах: вёл клиентов в Т-Банке и Freedom Finance, бы",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e6a30893000e8ee6cc0097a60466714179494e",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 28277,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат 6.4 года работает в инвестиционном обслуживании и private banking: вёл персональных клиентов в Т-Банке, сейчас ",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e6a30893000e8ee6cc0097a60466714179494e",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 31682,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 6,4 года опыта в финансовом консалтинге и релевантные роли в Private Banking/Wealth Management, включая в",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "e6a30893000e8ee6cc0097a60466714179494e",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 29943,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Профиль прямо связан с private banking и wealth management: кандидат работал инвестиционным консультантом в Т-Банке, вед",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "7fe0c234000825ca8b0097a604667658727671",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 16788,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — сильный продуктовый эксперт с 10+ годами в private banking: сейчас руководит structured products в Sber Priva",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "7fe0c234000825ca8b0097a604667658727671",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 13811,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 10+ годами опыта именно в private banking: сейчас Executive Director в Sber Private Banking, ранее L'Hermitag",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "7fe0c234000825ca8b0097a604667658727671",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 24577,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Более 10 лет опыта в private banking, structured products и инвестиционных решениях, включая текущую роль Executive Dire",
+   "n_plus": 4,
+   "n_yellow": 2,
+   "n_red": 0
+  },
+  {
+   "id": "7fe0c234000825ca8b0097a604667658727671",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 15995,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 10,3 года в инвестиционных продуктах и сейчас возглавляет структурированные продукты и инвестиционные реш",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "0dc32ee3000398b1670097a604596952356b66",
+   "prod_score": 5.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 13095,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный банкир с 12.8-летним опытом в международных и топ-российских банках, но его карьера построена в корпо",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "0dc32ee3000398b1670097a604596952356b66",
+   "prod_score": 5.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 29851,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — опытный корпоративный relationship-менеджер и продавец транзакционных продуктов, но в карьере нет ролей в pri",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 1
+  },
+  {
+   "id": "0dc32ee3000398b1670097a604596952356b66",
+   "prod_score": 5.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 33811,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "У кандидата 12,8 лет банковского опыта, включая Relationship Manager в UniCredit и HSBC, а также Leading Manager по межд",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "0dc32ee3000398b1670097a604596952356b66",
+   "prod_score": 5.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 20216,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 12,8 лет опыта в банках, включая Relationship Manager в UniCredit и HSBC, а также текущую роль в междунар",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "29035445000cc99dfc0097a604745953766c65",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 21466,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный инвестиционный финансист с 16,8 года опыта в M&A, ECM и корпоративных финансах: VTB, Raiffeisenbank, ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "29035445000cc99dfc0097a604745953766c65",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 18325,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный инвестбанкир с 16+ годами в M&A, ECM и корпоративных финансах, включая VTB и Raiffeisen, но это не pr",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "29035445000cc99dfc0097a604745953766c65",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 42770,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный инвестиционно-банковский руководитель с опытом M&A и ECM в Raiffeisenbank, стратегических инвестиций ",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "29035445000cc99dfc0097a604745953766c65",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 20116,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат обладает значительным опытом в инвестиционном банкинге, M&A, ECM и стратегическом развитии, включая руководящие",
+   "n_plus": 4,
+   "n_yellow": 2,
+   "n_red": 2
+  },
+  {
+   "id": "525e9a920009dc6f3a0097a6046b4376564e69",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 13723,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат сильный в GR, клиентском опыте и международных проектах, но для Private Banking Sales непрофильный: в ATON зани",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "525e9a920009dc6f3a0097a6046b4376564e69",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 16818,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 15 лет опыта, но только часть из них связана с wealth management: в ATON LLC он руководил корпоративным и",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "525e9a920009dc6f3a0097a6046b4376564e69",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 23140,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет 15 лет опыта в GR, клиентском сервисе, продажах и маркетинге, а также руководил клиентскими сервисами в A",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "525e9a920009dc6f3a0097a6046b4376564e69",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 23716,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 3,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 15 лет опыта и профильный клиентский опыт в ATON LLC — компании в сфере internet trading, wealth manageme",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6ded7646000e01492f0097a6045765776e576b",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 13878,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "22 года в продажах и трейдинге, из них 7 лет директором офиса брокерского обслуживания в РОСБАНКе. Весь опыт — в институ",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "6ded7646000e01492f0097a6045765776e576b",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 17462,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 22-летним опытом в инвестиционных продажах и управлении активами: руководил офисом брокерского обслуживания в",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6ded7646000e01492f0097a6045765776e576b",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": false,
+   "error": "fetch failed",
+   "ms": 60621
+  },
+  {
+   "id": "6ded7646000e01492f0097a6045765776e576b",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": false,
+   "error": "every rung failed",
+   "ms": 60726
+  },
+  {
+   "id": "2cbbcc9a000b34f5700097a604646575566d33",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 8089,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат 21 год работает с деньгами состоятельных клиентов: управлял фондом, был управляющим партнёром инвестклуба и fam",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "2cbbcc9a000b34f5700097a604646575566d33",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 14182,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат 21 год работает в инвестициях и управлении капиталом: управляющий партнёр инвестиционного клуба, управляющий ди",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "2cbbcc9a000b34f5700097a604646575566d33",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 8643,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 20 лет опыта в инвестиционной сфере, руководил AI1 Ventures и инвестиционной компанией, а также дес",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "2cbbcc9a000b34f5700097a604646575566d33",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 13113,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 21,3 года опыта в инвестиционной сфере, включая управление фондом, инвестиционной компанией и работу с ин",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "18d23aae0006b1d7f30097a60454636e4c434f",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 10487,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат с 11-летним опытом в обслуживании состоятельных клиентов: сейчас финансовый советник в Private Banking МТС Банк",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "18d23aae0006b1d7f30097a60454636e4c434f",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 10754,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 7.5,
+    "tag": "PASS",
+    "knockout": false
+   },
+   "summary_why": "Кандидат 11 лет работает с состоятельными клиентами: сейчас он финансовый советник в Private Banking МТС Банка, до этого",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "18d23aae0006b1d7f30097a60454636e4c434f",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 12415,
+   "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+   "fields": {
+    "score": 5.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 11 лет опыта в банковской сфере, включая текущую позицию Финансового советника в Private Banking в ",
+   "n_plus": 3,
+   "n_yellow": 2,
+   "n_red": 0
+  },
+  {
+   "id": "18d23aae0006b1d7f30097a60454636e4c434f",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 18482,
+   "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+   "fields": {
+    "score": 6.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более 11 лет опыта в private banking и работе с VIP-клиентами, включая позиции персонального менеджера в ",
+   "n_plus": 5,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "8a90fb8e0001de6fdb0097a6044d3833595047",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 17109,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный корпоративный банкир с 25-летним опытом в международных банках (UniCredit, Intesa San Paolo), senior ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "8a90fb8e0001de6fdb0097a6044d3833595047",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 14225,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный корпоративный банкир с 25-летней карьерой в UniCredit и Intesa, развивал бизнес с крупными корпоратив",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "8a90fb8e0001de6fdb0097a6044d3833595047",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 29180,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет почти 26 лет опыта в банковском бизнесе, включая руководство развитием корпоративных клиентов и работу с ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 1
+  },
+  {
+   "id": "8a90fb8e0001de6fdb0097a6044d3833595047",
+   "prod_score": 6.5,
+   "prod_tag": "REVIEW",
+   "arm": "standard",
+   "rep": 2,
+   "ok": false,
+   "error": "every rung failed",
+   "ms": 60511
+  },
+  {
+   "id": "7cd18bd0000e2442240097a604474564795978",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 13107,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный strategy/operations специалист с опытом в BCG, AB InBev, Ozon, но его карьера не содержит ни одной по",
+   "n_plus": 3,
+   "n_yellow": 2,
+   "n_red": 2
+  },
+  {
+   "id": "7cd18bd0000e2442240097a604474564795978",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 20340,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "По сути это стратег/операционщик с сильным аналитическим бэкграундом (BCG, AB InBev, Ozon), но в private banking/wealth ",
+   "n_plus": 3,
+   "n_yellow": 2,
+   "n_red": 2
+  },
+  {
+   "id": "7cd18bd0000e2442240097a604474564795978",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 25669,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "За 6,4 года кандидат работал финансовым аналитиком, FP&A-менеджером и консультантом в Ozon, AB InBev и BCG. Опыт аналити",
+   "n_plus": 2,
+   "n_yellow": 1,
+   "n_red": 2
+  },
+  {
+   "id": "7cd18bd0000e2442240097a604474564795978",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 17395,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет более 6 лет опыта в стратегии, операциях, FP&A и консалтинге, включая работу в AB InBev, BCG и Ozon. Его ",
+   "n_plus": 4,
+   "n_yellow": 2,
+   "n_red": 2
+  },
+  {
+   "id": "4600e0160000aaf6b20097a604736563726574",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 7891,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный B2B business development менеджер с 19+ годами опыта в retail, pharma, HoReCa и IT, но его карьера не",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "4600e0160000aaf6b20097a604736563726574",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 12594,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный B2B-продажник с 19-летним опытом в Т1, BIA-Technologies, CHEP, но карьера полностью в retail/pharma/f",
+   "n_plus": 3,
+   "n_yellow": 0,
+   "n_red": 2
+  },
+  {
+   "id": "4600e0160000aaf6b20097a604736563726574",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 12729,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет почти 20 лет опыта в развитии бизнеса, управлении ключевыми клиентами и продажах в различных отраслях. Од",
+   "n_plus": 4,
+   "n_yellow": 2,
+   "n_red": 3
+  },
+  {
+   "id": "4600e0160000aaf6b20097a604736563726574",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 24913,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Канцидат имеет 19,9 лет опыта в продажах и развитии бизнеса, включая руководящие роли в T1, BIA-Technologies и CHEP. При",
+   "n_plus": 3,
+   "n_yellow": 2,
+   "n_red": 3
+  },
+  {
+   "id": "5bb04ff800072a59ea0097a604586854354158",
+   "prod_score": 4.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 36551,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 5.5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат — опытный финансист с 7+ годами работы инвестиционным консультантом и управляющим активами в брокерской компани",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "5bb04ff800072a59ea0097a604586854354158",
+   "prod_score": 4.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 9471,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 5,
+    "tag": "REVIEW",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет 11.6 лет опыта в финансах, включая 7 лет инвестиционным консультантом и управляющим активами в брокерской",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "5bb04ff800072a59ea0097a604586854354158",
+   "prod_score": 4.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 27628,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "Кандидат имеет более семи лет опыта инвестиционного консультирования и управления активами в брокерской компании, а такж",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "5bb04ff800072a59ea0097a604586854354158",
+   "prod_score": 4.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 29681,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 4,
+    "tag": "WEAK",
+    "knockout": false
+   },
+   "summary_why": "С 2018 года кандидат работал инвестиционным консультантом и управляющим активами в брокерской компании; ранее накопил бо",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "bc89a73f00075b74490097a6044f7848643964",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 12650,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат силён в управлении продажами и развитии бизнеса (руководитель допофиса ВТБ, директор филиала страховой компании",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "bc89a73f00075b74490097a6044f7848643964",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 18042,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет 17-летний опыт, включая руководство доп. офисом ВТБ и филиалом страховой компании, и умеет управлять бизн",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "bc89a73f00075b74490097a6044f7848643964",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": false,
+   "error": "every rung failed",
+   "ms": 60474
+  },
+  {
+   "id": "bc89a73f00075b74490097a6044f7848643964",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": false,
+   "error": "every rung failed",
+   "ms": 60472
+  },
+  {
+   "id": "60d786da00102525e90097a60459524b494c76",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 8366,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный корпоративный финансист с 16-летним опытом в VTB, Сбере и VESPER, но это другой профиль: нет private ",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "60d786da00102525e90097a60459524b494c76",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 18963,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — сильный корпоративный кредитор с 16.5 годами в ВТБ и Сбере, но это другая профессия: corporate lending, а не ",
+   "n_plus": 2,
+   "n_yellow": 2,
+   "n_red": 2
+  },
+  {
+   "id": "60d786da00102525e90097a60459524b494c76",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 17512,
+   "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет 16,5 лет опыта в корпоративном финансировании и управлении в топ-банках (ВТБ, Сбер). Однако его опыт соср",
+   "n_plus": 0,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "60d786da00102525e90097a60459524b494c76",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 41670,
+   "model": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат обладает 16,5 годами опыта в крупных российских банках, занимал руководящие позиции в корпоративном финансирова",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 0
+  },
+  {
+   "id": "6d9a98590010637d790097a60457524262304e",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 20653,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат 17 лет работает с состоятельными семьями: сейчас управляет family office UHNW-семьи, ранее был техническим упра",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "6d9a98590010637d790097a60457524262304e",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 9160,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет 17 лет опыта и работал управляющим семейного офиса UHNW-семьи, что даёт понимание потребностей состоятель",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "6d9a98590010637d790097a60457524262304e",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": false,
+   "error": "The operation was aborted due to timeout",
+   "ms": 70002
+  },
+  {
+   "id": "6d9a98590010637d790097a60457524262304e",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": false,
+   "error": "The operation was aborted due to timeout",
+   "ms": 70008
+  },
+  {
+   "id": "00c0f9bd0010abe9110097a604504a6b73616e",
+   "prod_score": 0.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 11523,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Коллеги, это мимо: 20 лет в международных партнёрках, производстве еды и дистрибуции, а не в private banking. Нет ни одн",
+   "n_plus": 0,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "00c0f9bd0010abe9110097a604504a6b73616e",
+   "prod_score": 0.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 7605,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Слушай, кандидат вообще не из финансов — 20 лет в международных продажах и партнёрствах, но ни слова про private banking",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "00c0f9bd0010abe9110097a604504a6b73616e",
+   "prod_score": 0.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": false,
+   "error": "The operation was aborted due to timeout",
+   "ms": 70007
+  },
+  {
+   "id": "00c0f9bd0010abe9110097a604504a6b73616e",
+   "prod_score": 0.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": false,
+   "error": "The operation was aborted due to timeout",
+   "ms": 70007
+  },
+  {
+   "id": "cd4ef3d40000c169360097a604726437664a6e",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 16373,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет большой опыт (22 года) и работал в крупных банках — Сбербанк, Райффайзен, ОТП, умеет работать с розничным",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "cd4ef3d40000c169360097a604726437664a6e",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 17845,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат 22 года работает в финансовой сфере, есть опыт в Сбере, Райффайзенбанке и ОТП Банке, обслуживал и физических, и",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "cd4ef3d40000c169360097a604726437664a6e",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 14198,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 2,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет многолетний банковский опыт: в Сбербанке обслуживал физических лиц, а в ОТП Банке — юридических лиц; такж",
+   "n_plus": 4,
+   "n_yellow": 2,
+   "n_red": 2
+  },
+  {
+   "id": "cd4ef3d40000c169360097a604726437664a6e",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 19044,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет большой банковский опыт: работал в OTP Банке, Сбербанке и Райффайзенбанке, обслуживал юридических лиц и с",
+   "n_plus": 4,
+   "n_yellow": 0,
+   "n_red": 2
+  },
+  {
+   "id": "c59848e70009cfed660097a604324d576d6b45",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 18380,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат сильный в партнерствах и управлении проектами, но это не private banking. За 7 лет карьеры нет работы с HNW/UHN",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "c59848e70009cfed660097a604324d576d6b45",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 7154,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат — крепкий менеджер по партнерствам и премиальным проектам (WOW Summit, Cosmoscow), но это не private banking: в",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "c59848e70009cfed660097a604324d576d6b45",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 9199,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет семь лет опыта, включая позицию Head of Partnerships и несколько ролей в сфере бизнес-поддержки и управле",
+   "n_plus": 3,
+   "n_yellow": 2,
+   "n_red": 3
+  },
+  {
+   "id": "c59848e70009cfed660097a604324d576d6b45",
+   "prod_score": 2,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 12271,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 0.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Представленная карьера посвящена партнёрствам, проектам и административным ролям: Head of Partnerships в WOW Summit, Pro",
+   "n_plus": 2,
+   "n_yellow": 2,
+   "n_red": 3
+  },
+  {
+   "id": "053f3210000366aa410097a6044b7076506a5a",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 1,
+   "ok": true,
+   "ms": 8375,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат сильный проектный менеджер и консультант: Сбер, Ростех, McKinsey, 11+ лет опыта. Но это не private banking/weal",
+   "n_plus": 3,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "053f3210000366aa410097a6044b7076506a5a",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "free",
+   "rep": 2,
+   "ok": true,
+   "ms": 8173,
+   "model": "opencode-go/deepseek-v4-flash",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет сильный бэкграунд в крупных структурах — Сбер, McKinsey, Ростех, но его карьера построена вокруг проектно",
+   "n_plus": 4,
+   "n_yellow": 3,
+   "n_red": 2
+  },
+  {
+   "id": "053f3210000366aa410097a6044b7076506a5a",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 1,
+   "ok": true,
+   "ms": 22003,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Кандидат имеет 11,4 года опыта в проектах и консалтинге, включая позиции Senior project manager в Сбере и консультанта в",
+   "n_plus": 3,
+   "n_yellow": 0,
+   "n_red": 2
+  },
+  {
+   "id": "053f3210000366aa410097a6044b7076506a5a",
+   "prod_score": 1.5,
+   "prod_tag": "WEAK",
+   "arm": "standard",
+   "rep": 2,
+   "ok": true,
+   "ms": 13831,
+   "model": "opencode-go/space-bunny-free",
+   "fields": {
+    "score": 1.5,
+    "tag": "WEAK",
+    "knockout": true
+   },
+   "summary_why": "Карьера полностью сосредоточена в проектном управлении и консалтинге: с 2019 года кандидат был Senior project manager в ",
+   "n_plus": 4,
+   "n_yellow": 2,
+   "n_red": 2
+  }
+ ]
+}
