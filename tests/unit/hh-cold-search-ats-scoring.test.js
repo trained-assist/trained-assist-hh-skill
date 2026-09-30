@@ -54,7 +54,21 @@ describe('ATS score', () => {
     expect(api.atsScoreFields({ score: 8, knockout_failed: ['нет опыта конструктора'] }, CONFIG)).toMatchObject({ score: 2, tag: 'WEAK', ats_scored: true });
     expect(api.atsScoreFields({ score: 7.3, knockout_failed: [] }, CONFIG)).toMatchObject({ score: 7.5, score_pct: 75, tag: 'PASS' });
     expect(api.atsScoreFields({ score: 6 }, { ...CONFIG, review_threshold: 6.5 }).tag).toBe('WEAK');
-    expect(api.atsScoreFields({ plus_tags: ['x'] }, CONFIG)).toEqual({});
+  });
+
+  it('a JSON answer without a usable score is marked done (degraded), not left "unscored"', () => {
+    // 2026-09-30 leak guard: returning {} left the record permanently unscored and
+    // the background pass re-bought it from the LLM on every tick.
+    const deg = api.atsScoreFields({ plus_tags: ['x'] }, CONFIG);
+    expect(deg).toMatchObject({ ats_scored: true, ats_degraded: true });
+    expect(deg.ats_hash).toBe(api.atsScoringHash(CONFIG));
+    expect(deg.score).toBeUndefined();
+    // …but a genuinely empty answer stays unmarked (nothing to persist).
+    expect(api.atsScoreFields(null, CONFIG)).toEqual({});
+    // A degraded record is NOT re-scored by the background pass under the same funnel.
+    expect(api.needsAtsScore({ ...deg }, api.atsScoringHash(CONFIG))).toBe(false);
+    // …until the funnel changes.
+    expect(api.needsAtsScore({ ...deg }, api.atsScoringHash({ ...CONFIG, knockout: [] }))).toBe(true);
   });
 
   it('generic words («опыт», «работы») no longer count as a criterion match', () => {
@@ -72,6 +86,35 @@ describe('ATS score', () => {
   it('editing the funnel changes the scoring fingerprint', () => {
     expect(api.atsScoringHash(CONFIG)).not.toBe(api.atsScoringHash({ ...CONFIG, knockout: [] }));
     expect(api.atsScoringHash(CONFIG)).toBe(api.atsScoringHash({ ...CONFIG }));
+  });
+
+  it('carryAssessment moves a stored assessment onto a fresh search object only under the same funnel', () => {
+    const hash = api.atsScoringHash(CONFIG);
+    const fresh = { id: 'r1', title: 'Инженер', pre_score: 7 };   // what a new search builds: no ats_* at all
+    const prev = { score: 8, score_pct: 80, tag: 'PASS', ats_scored: true, ats_hash: hash,
+      plus_tags: ['КОМПАС-3D'], summary_why: 'сильный', source: 'search' };
+
+    const carried = api.carryAssessment(fresh, prev, hash);
+    expect(carried).toMatchObject({ id: 'r1', pre_score: 7, score: 8, tag: 'PASS', ats_scored: true, plus_tags: ['КОМПАС-3D'] });
+    expect(carried).not.toBe(fresh);
+
+    // funnel edited (hash differs) → untouched, a re-score IS due
+    expect(api.carryAssessment(fresh, prev, api.atsScoringHash({ ...CONFIG, knockout: [] }))).toBe(fresh);
+    // no stored assessment → untouched
+    expect(api.carryAssessment(fresh, null, hash)).toBe(fresh);
+    expect(api.carryAssessment(fresh, { id: 'r1' }, hash)).toBe(fresh);
+  });
+
+  it('storeAssessment prefers vacancy-scoped fields and never fabricates a score', () => {
+    const raw = { id: 'r1', ats_scored: true, score: 8, ats_hash: 'abc',
+      vacancy_data: { A: { score: 6.5, tag: 'REVIEW' } } };
+    expect(api.storeAssessment(raw, 'A')).toMatchObject({ score: 6.5, tag: 'REVIEW', ats_hash: 'abc' });
+    expect(api.storeAssessment(raw, 'B')).toMatchObject({ score: 8 });          // no scope → top-level
+    expect(api.storeAssessment(undefined, 'A')).toBeNull();
+    // candidateForVacancy (the render path) would have fabricated score:0 here —
+    // storeAssessment must not, or the carry path would believe a fake assessment.
+    const wildcard = { id: 'w', ats_scored: true, score: 8, ats_hash: 'abc' };
+    expect(api.storeAssessment(wildcard, 'A').score).toBe(8);
   });
 });
 
@@ -130,6 +173,34 @@ describe('cold search end to end (HH and LLM stubbed)', () => {
     expect(scoringPrompts.slice(before).every(p => p.includes('нет опыта на производстве'))).toBe(true);
     const snapshot = JSON.parse(fs.readFileSync(require('../../src/hh-cold-search-snapshots').latestProactiveFile(user, 'A'), 'utf8'));
     expect(snapshot.candidates.map(c => c.id)).toEqual(['reng', 'r1c']);
+  });
+
+  it('leak guard: a rebuilt snapshot does not re-buy already-scored candidates from the LLM', async () => {
+    // 2026-09-30 incident: every 30-min search wrote fresh HH objects without ats_*
+    // fields → the background pass saw "unscored" and re-enriched the same ~250
+    // candidates per cycle (~12k LLM calls/day). The store, not the snapshot, is
+    // the source of truth — carrying must happen with ZERO LLM traffic.
+    const { user, workDir, scoringPrompts } = fixture();
+    await api.runProactiveSearch(user, workDir, { vacancyId: 'A' });
+    const snapFile = require('../../src/hh-cold-search-snapshots').latestProactiveFile(user, 'A');
+    const firstRunPrompts = scoringPrompts.length;
+    expect(firstRunPrompts).toBeGreaterThan(0);
+
+    // Simulate what a fresh search writes: same candidates, no assessment fields.
+    const snap = JSON.parse(fs.readFileSync(snapFile, 'utf8'));
+    snap.candidates = snap.candidates.map(c => {
+      const { score, score_pct, tag, knockout_failed, ats_scored, ats_hash, ats_degraded,
+        plus_tags, yellow_tags, red_tags, summary_why, summary_pitch, ...rest } = c;
+      return rest;
+    });
+    fs.writeFileSync(snapFile, JSON.stringify(snap));
+
+    expect(await api.scoreUnscoredProactiveCandidates(user)).toBe(2);   // both carried…
+    expect(scoringPrompts.length).toBe(firstRunPrompts);                // …without a single LLM call
+
+    const healed = JSON.parse(fs.readFileSync(snapFile, 'utf8'));
+    expect(healed.candidates.every(c => c.ats_scored)).toBe(true);
+    expect(healed.candidates.map(c => [c.id, c.tag])).toEqual([['reng', 'PASS'], ['r1c', 'WEAK']]);
   });
 });
 

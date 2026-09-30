@@ -110,7 +110,9 @@ function candidateCard(c, idx, existingComment) {
       </div>
     </div>
     <div class="card-right">
-      ${c.ats_scored
+      ${c.ats_degraded
+        ? '<span class="badge" style="background:#94a3b8" title="Модель не вернула числовую оценку — переоценка при изменении воронки">н/д</span>'
+        : c.ats_scored
         ? `<span class="badge" style="background:${tagBadgeBg(c.tag)}" title="Оценка по АТС-воронке, 0–10">${escHtml(c.tag)} ${(Number(c.score) || 0).toFixed(1)}</span>`
         : '<span class="badge" style="background:#94a3b8" title="Оценка по АТС-воронке появится после фоновой проверки">оценивается</span>'}
     </div>
