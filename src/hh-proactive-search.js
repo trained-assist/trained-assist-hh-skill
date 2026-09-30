@@ -141,12 +141,50 @@ function needsAtsScore(candidate, hash) {
   return !candidate?.ats_scored || candidate.ats_hash !== hash;
 }
 
+// The fields that make up an ATS assessment. A fresh search snapshot rebuilds
+// candidates from the HH payload (score/tags are absent until enriched), so the
+// assessment is carried over from the unified store instead of being bought from
+// the LLM again — a re-found candidate is the same person, not a new one.
+const ATS_ASSESSMENT_FIELDS = [
+  'score', 'score_pct', 'tag', 'knockout_failed',
+  'ats_scored', 'ats_hash', 'ats_degraded',
+  'plus_tags', 'yellow_tags', 'red_tags', 'summary_why', 'summary_pitch',
+];
+
+// prev = store record (already vacancy-scoped), atsHash = current funnel fingerprint.
+// Returns `candidate` untouched unless prev holds an assessment made under exactly
+// this funnel: a stale hash means the funnel was edited and a re-score IS due.
+function carryAssessment(candidate, prev, atsHash) {
+  if (!prev || !prev.ats_scored || prev.ats_hash !== atsHash) return candidate;
+  const carried = {};
+  for (const f of ATS_ASSESSMENT_FIELDS) if (prev[f] !== undefined) carried[f] = prev[f];
+  return { ...candidate, ...carried };
+}
+
+// The unified-store record as it applies to one vacancy, WITHOUT candidateForVacancy's
+// default-fill (that helper fabricates score:0/REVIEW for records it can't scope —
+// fine for rendering a card, wrong for deciding whether an assessment exists).
+// vacancy_data wins per-field; top-level fills the rest.
+function storeAssessment(raw, vacancyId) {
+  if (!raw) return null;
+  const scoped = raw.vacancy_data && raw.vacancy_data[String(vacancyId)];
+  return scoped ? { ...raw, ...scoped } : raw;
+}
+
 // The candidate's place in the list comes from the ATS funnel the recruiter edits in
 // /hh/ats-editor (стоп-факторы, обязательные, желательные, пороги) — the same source
 // the scoring of responses uses. Score 0-10; any violated stop-factor caps it at 2.
 function atsScoreFields(ai, atsConfig) {
   const raw = Number(ai?.score);
-  if (!Number.isFinite(raw)) return {};
+  if (!Number.isFinite(raw)) {
+    // The model answered valid JSON but no usable score. Mark the assessment as
+    // done anyway (flagged): returning nothing here left the record permanently
+    // "unscored", and the background pass re-bought it from the LLM on every tick
+    // (2026-09-30: 510 such records in one profile). No score is fabricated — the
+    // card shows "н/д" and a funnel edit / ATS_SCORING_VERSION bump re-scores it.
+    if (ai == null || typeof ai !== 'object') return {};
+    return { ats_scored: true, ats_degraded: true, ats_hash: atsScoringHash(atsConfig) };
+  }
   const knockoutFailed = (Array.isArray(ai.knockout_failed) ? ai.knockout_failed : [])
     .map(k => String(k || '').trim()).filter(Boolean);
   let score = Math.max(0, Math.min(10, raw));
@@ -1001,7 +1039,16 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   }
   const toEnrich = [...top30, ...newButNotTop30];
 
-  const previous = loadAllCandidates(username, vacancyKey);
+  // One load of the unified store, two views of it:
+  //  - previous: vacancy-scoped (same shape loadAllCandidates(username, vacancyKey)
+  //    returned) — keeps the assessment_hash cache path byte-compatible;
+  //  - storeRaw + storeAssessment: unscoped per-field merge — the carry path must
+  //    see the real stored score, not candidateForVacancy's score:0 default-fill.
+  const storeRaw = loadAllCandidates(username);
+  const previous = {};
+  for (const [id, c] of Object.entries(storeRaw)) {
+    if (candidateMatchesVacancy(c, vacancyKey)) previous[id] = candidateForVacancy(c, vacancyKey);
+  }
   const assessmentHash = c => require('crypto').createHash('sha256').update(JSON.stringify({ candidate: c, config: atsConfig, v: ATS_SCORING_VERSION })).digest('hex');
   const pending = [];
   const cached = [];
@@ -1032,8 +1079,16 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const enrichedById = new Map(enriched.map(c => [c.id, c]));
   // Persist the full collected pool, including candidates outside the enrichment
   // budget. A candidate must exist durably before it can become "seen".
+  //
+  // Carry the existing ATS assessment over for everyone outside toEnrich: scored[]
+  // holds fresh HH objects with no ats_* fields, so writing them as-is made the
+  // snapshot claim ~250 candidates per search are unscored while all-candidates
+  // had them scored — the background pass then re-bought every one of them from
+  // the LLM on each 30-min search cycle (the 2026-09-30 spend leak).
+  const atsHash = atsScoringHash(atsConfig);
   const markedCandidates = scored.map(c => ({
-    ...(enrichedById.get(c.id) || c), is_new: seenInfo.newIds.has(c.id),
+    ...(enrichedById.get(c.id) || carryAssessment(c, storeAssessment(storeRaw[c.id], vacancyKey), atsHash)),
+    is_new: seenInfo.newIds.has(c.id),
     ai_pending: enrichedById.has(c.id),
   })).sort(compareByAtsScore);
   const foundAtById = {};
@@ -1116,6 +1171,11 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
     // within about an hour, not an afternoon.
     let remaining = 150, completed = 0, vacanciesLeft = latest.size;
     const workDir = path.join(usersRoot(), String(username));
+    // Unified store loaded once per tick: the snapshot is NOT authoritative for
+    // "who is scored" (a fresh search rebuilds candidates without ats_* fields),
+    // the store is. Second-layer guard — even if the snapshot writer regresses,
+    // an already-assessed candidate never costs an LLM call again.
+    const store = loadAllCandidates(username);
     for (const { file, results } of latest.values()) {
       if (remaining <= 0) break;
       // Score against the funnel as it is now (the recruiter may have edited it in
@@ -1130,8 +1190,28 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       const allowance = Math.ceil(remaining / vacanciesLeft--);
       const unscored = candidates.filter(c => needsAtsScore(c, hash)).slice(0, allowance);
       if (!unscored.length) continue;
-      remaining -= unscored.length;
-      const enriched = await enrichCandidates(unscored, atsConfig, key);
+      // Carry what the store already knows before spending budget: only the
+      // genuinely-new candidates (or an edited funnel) reach the LLM below.
+      // Carrying is free (no LLM), so it does NOT consume the remaining budget.
+      const carried = [];
+      const needScore = [];
+      for (const c of unscored) {
+        const merged = carryAssessment(c, storeAssessment(store[c.id], results.vacancy_id), hash);
+        if (merged !== c) { Object.assign(c, merged); carried.push(c); }
+        else needScore.push(c);
+      }
+      if (!needScore.length) {
+        if (carried.length) {
+          candidates.sort(compareByAtsScore);
+          const temp0 = file + '.tmp-' + process.pid;
+          fs.writeFileSync(temp0, JSON.stringify(results, null, 2), 'utf8');
+          fs.renameSync(temp0, file);
+          completed += carried.length;
+        }
+        continue;
+      }
+      remaining -= needScore.length;
+      const enriched = await enrichCandidates(needScore, atsConfig, key);
       for (const candidate of enriched) {
         const idx = candidates.findIndex(c => c.id === candidate.id);
         if (idx >= 0) Object.assign(candidates[idx], candidate);
@@ -1143,7 +1223,7 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       const temp = file + '.tmp-' + process.pid;
       fs.writeFileSync(temp, JSON.stringify(results, null, 2), 'utf8');
       fs.renameSync(temp, file);
-      completed += enriched.filter(c => c.ats_scored).length;
+      completed += carried.length + enriched.filter(c => c.ats_scored).length;
     }
     return completed;
   } finally { release(); }
@@ -1211,6 +1291,9 @@ module.exports = {
   // Recruiter search prompt (web editor)
   atsScoreFields,
   atsScoringHash,
+  needsAtsScore,
+  carryAssessment,
+  storeAssessment,
   compareByAtsScore,
   saveSearchSettings,
   searchSettingsView,
