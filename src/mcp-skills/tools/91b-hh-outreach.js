@@ -15,7 +15,7 @@ function tokenBase() {
   return tokensRoot();
 }
 
-const { readHhToken: _readHhTokenUtil } = require('../../hh-utils');
+const { readHhToken: _readHhTokenUtil, readCredentialFileSafe } = require('../../hh-utils');
 
 function readHhToken(userId) {
   return _readHhTokenUtil(userId || USER_ID);
@@ -23,10 +23,10 @@ function readHhToken(userId) {
 
 function readOrKey(userId) {
   const file = path.join(tokenBase(), String(userId || USER_ID), 'openrouter');
-  if (fs.existsSync(file)) {
-    const key = fs.readFileSync(file, 'utf8').trim();
-    if (key) return key;
-  }
+  // Credential store (trained-assist-agent#1939): plaintext passes through, an
+  // envelope is decrypted, an unreadable file falls back to the platform key.
+  const key = readCredentialFileSafe(file);
+  if (key !== null && key.trim()) return key.trim();
   return process.env.OPENROUTER_API_KEY || null;
 }
 

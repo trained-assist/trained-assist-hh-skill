@@ -14,7 +14,13 @@ const userWorkDir = (username) => path.join(usersRoot(), String(username));
 
 const { sendRejection, REJECT_REASON_ACTION } = require('./hh-rejection');
 const { hydrateResume, buildResumeText, resumeNotice } = require('./hh-resume');
-const { hhFetch, hhPut, hhPostForm, readHhToken, refreshHhToken, readActiveVacancies } = require('./hh-utils');
+const { hhFetch, hhPut, hhPostForm, readHhToken, readHhTokenFile, readCredentialFileSafe, refreshHhToken, readActiveVacancies } = require('./hh-utils');
+// Credential store (trained-assist-agent#1939): every credential file this
+// module touches (`hh`, `openrouter`, `hh-message-style`, `hh-message-base-prompt`)
+// passes through it — legacy plaintext transparent, a v2 envelope decrypted,
+// a base64 stub never returned, a missing CRED_ENCRYPTION_KEY → plaintext with a
+// warning (never a hard failure).
+const { writeCredentialFile, deleteCredential } = require('./credential-store');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, DEFAULT_MESSAGE_BASE, BASE_PROMPT_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
@@ -397,8 +403,8 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
     if (given !== expected) return errPage('Ссылка недействительна. Запроси новую у бота.');
   }
   if (!username || !fs.existsSync(tokenFile)) return errPage('HH не подключён. Скажи боту «подключи HH».');
-  let tokenData;
-  try { tokenData = JSON.parse(fs.readFileSync(tokenFile, 'utf8')); } catch { return errPage('Ошибка чтения токена.'); }
+  const tokenData = readHhTokenFile(tokenFile);
+  if (!tokenData) return errPage('Ошибка чтения токена.');
 
   const dataDir = dataRoot();
   const workDir = path.join(BASE_USERS_DIR, username);
@@ -478,8 +484,8 @@ if (req.method === 'GET' && url.pathname === '/hh/candidate') {
   const hhTokensBase = tokensRoot();
   const tokenFile = path.join(hhTokensBase, String(username), 'hh');
   if (!fs.existsSync(tokenFile)) return errPage('HH не подключён.');
-  let tokenData;
-  try { tokenData = JSON.parse(fs.readFileSync(tokenFile, 'utf8')); } catch { return errPage('Ошибка чтения токена.'); }
+  const tokenData = readHhTokenFile(tokenFile);
+  if (!tokenData) return errPage('Ошибка чтения токена.');
 
   const dataDir = dataRoot();
   const candFile = path.join(dataDir, 'hh', String(username), 'candidates', `${neg_id}.json`);
@@ -700,7 +706,8 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   const hhTokensBase = tokensRoot();
   const tokenFile = path.join(hhTokensBase, String(username), 'hh');
   if (!fs.existsSync(tokenFile)) return json(res, 403, { error: 'HH not connected for this user' });
-  const tokenData = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
+  const tokenData = readHhTokenFile(tokenFile);
+  if (!tokenData) return json(res, 403, { error: 'HH token unreadable' });
 
   const dataDir = dataRoot();
   const histDir = path.join(dataDir, 'hh', String(username), 'candidates');
@@ -781,7 +788,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   if (!ladderToken()) return json(res, 503, { error: 'llm-ladder token not configured' });
 
   const styleFile = path.join(hhTokensBase, String(username), 'hh-message-style');
-  const commStyle = fs.existsSync(styleFile) ? fs.readFileSync(styleFile, 'utf8').trim() : null;
+  const commStyle = readCredentialFileSafe(styleFile)?.trim() || null;
   const baseOverride = loadBaseOverride(hhTokensBase, username);
 
   // Read recruiter identity config (agency, name, signature, rules)
@@ -811,7 +818,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   let hhToken = null;
   try {
     const hhTokenFile = path.join(hhTokensBase, String(username), 'hh');
-    if (fs.existsSync(hhTokenFile)) hhToken = JSON.parse(fs.readFileSync(hhTokenFile, 'utf8'));
+    if (fs.existsSync(hhTokenFile)) hhToken = readHhTokenFile(hhTokenFile);
   } catch { /* ignore */ }
 
   let fullResumeText = (resume_text || '').trim();
@@ -952,7 +959,8 @@ if (req.method === 'POST' && url.pathname === '/hh/reject') {
   const hhTokensBase2 = tokensRoot();
   const tokenFile2 = path.join(hhTokensBase2, String(username), 'hh');
   if (!fs.existsSync(tokenFile2)) return json(res, 403, { error: 'HH not connected for this user' });
-  const tokenData2 = JSON.parse(fs.readFileSync(tokenFile2, 'utf8'));
+  const tokenData2 = readHhTokenFile(tokenFile2);
+  if (!tokenData2) return json(res, 403, { error: 'HH token unreadable' });
   const results = [];
   for (const negId of negotiation_ids) {
     try {
@@ -976,7 +984,8 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
   const hhTokensBase = tokensRoot();
   const tokenFile = path.join(hhTokensBase, String(username), 'hh');
   if (!fs.existsSync(tokenFile)) return json(res, 403, { error: 'HH not connected for this user' });
-  const tokenData = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
+  const tokenData = readHhTokenFile(tokenFile);
+  if (!tokenData) return json(res, 403, { error: 'HH token unreadable' });
 
   const dataDir2 = dataRoot();
   const histDir2 = path.join(dataDir2, 'hh', String(username), 'candidates');
@@ -1039,7 +1048,7 @@ if (req.method === 'GET' && url.pathname === '/hh/style') {
   if (!username) return errStylePage('Не указан пользователь.');
   const hhTokensBase3 = tokensRoot();
   const styleFile3 = path.join(hhTokensBase3, String(username), 'hh-message-style');
-  const existingStyle = fs.existsSync(styleFile3) ? fs.readFileSync(styleFile3, 'utf8').trim() : '';
+  const existingStyle = readCredentialFileSafe(styleFile3)?.trim() || '';
   const callbackBase3 = (process.env.AGENT_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
   const hmacToken3 = agentSecret ? require('crypto').createHmac('sha256', agentSecret).update(username).digest('hex').slice(0, 16) : '';
   const defaultStyle = '- Тон: профессиональный, дружелюбный, без официоза. Обращение на «вы».\n- Приветствие: «Добрый день, [Имя]!» или «Здравствуйте, [Имя]!»\n- Структура: приветствие → что понравилось в резюме → описание роли → 1-2 конкретных вопроса → призыв ответить\n- Всегда задаю конкретные вопросы по опыту из требований вакансии, не общие\n- Не использую штампы: «рассмотрели вашу кандидатуру», «вакансия открылась», «мы ищем»\n- Длина: 4-6 предложений\n- Подпись: имя рекрутера';
@@ -1069,13 +1078,13 @@ if (req.method === 'POST' && url.pathname === '/hh/update-style') {
   if (direct) {
     fs.mkdirSync(path.join(hhTokensBase4, String(username)), { recursive: true });
     const styleFile = path.join(hhTokensBase4, String(username), 'hh-message-style');
-    fs.writeFileSync(styleFile, examples.trim(), { mode: 0o600 });
+    writeCredentialFile(styleFile, examples.trim());
     console.log('[hh/update-style] direct save for', username, 'len=', examples.length);
     return json(res, 200, { ok: true, style: examples.trim() });
   }
 
   const orKeyFile4 = path.join(hhTokensBase4, String(username), 'openrouter');
-  const apiKey4 = fs.existsSync(orKeyFile4) ? fs.readFileSync(orKeyFile4, 'utf8').trim() : process.env.OPENROUTER_API_KEY;
+  const apiKey4 = readCredentialFileSafe(orKeyFile4)?.trim() || process.env.OPENROUTER_API_KEY;
   if (!apiKey4) return json(res, 503, { error: 'OpenRouter key not configured' });
 
   const systemPrompt4 = 'Ты — аналитик коммуникаций. Тебе могут прислать отдельные сообщения рекрутера ИЛИ полные диалоги между рекрутером и кандидатом. Если это диалог — проанализируй только сообщения рекрутера, проигнорируй ответы кандидата.\n\nСоставь краткое описание стиля общения рекрутера. Это описание будет использоваться как инструкция для нейросети при генерации новых сообщений.\n\nФормат — структурированный список на русском языке (через дефис):\n- Тон и манера (формальность, теплота)\n- Характерные обороты и приветствия (с реальными примерами из текста)\n- Структура типичного сообщения\n- Что обычно уточняет или спрашивает\n- Чего избегает\n- Длина сообщений\n\nБудь конкретным — цитируй реальные фразы из примеров.';
@@ -1113,7 +1122,7 @@ if (req.method === 'POST' && url.pathname === '/hh/update-style') {
     if (doSave !== false) {
       fs.mkdirSync(path.join(hhTokensBase4, String(username)), { recursive: true });
       const styleFile = path.join(hhTokensBase4, String(username), 'hh-message-style');
-      fs.writeFileSync(styleFile, style.trim(), { mode: 0o600 });
+      writeCredentialFile(styleFile, style.trim());
       console.log('[hh/update-style] saved style for', username, 'len=', style.length);
     }
     return json(res, 200, { ok: true, style });
@@ -1138,7 +1147,9 @@ if (req.method === 'POST' && url.pathname === '/hh/update-base-prompt') {
   const baseFile5 = path.join(hhTokensBase5, String(username), BASE_PROMPT_FILENAME);
 
   if (reset) {
-    try { fs.unlinkSync(baseFile5); } catch { /* already absent */ }
+    // file + .meta sidecar + .index.json entry — a stale sidecar would make the
+    // next read throw instead of falling back to the default prompt.
+    try { deleteCredential(username, BASE_PROMPT_FILENAME); } catch { /* already absent */ }
     console.log('[hh/update-base-prompt] reset to default for', username);
     return json(res, 200, { ok: true, text: DEFAULT_MESSAGE_BASE });
   }
@@ -1147,7 +1158,7 @@ if (req.method === 'POST' && url.pathname === '/hh/update-base-prompt') {
     return json(res, 400, { error: 'text too short' });
   }
   fs.mkdirSync(path.join(hhTokensBase5, String(username)), { recursive: true });
-  fs.writeFileSync(baseFile5, text.trim());
+  writeCredentialFile(baseFile5, text.trim());
   console.log('[hh/update-base-prompt] saved override for', username, 'len=', text.length);
   return json(res, 200, { ok: true });
 }
@@ -1162,7 +1173,8 @@ if (req.method === 'POST' && url.pathname === '/hh/sync-negotiations') {
   const syncTokenFile = path.join(hhTokensBase, String(syncUser), 'hh');
   if (!fs.existsSync(syncTokenFile)) return json(res, 403, { error: 'HH not connected' });
   if (!readActiveVacancies(path.join(BASE_USERS_DIR, syncUser)).some(v => String(v.id) === String(syncVacancyId))) return json(res, 403, { error: 'Unknown vacancy' });
-  const syncTokenData = JSON.parse(fs.readFileSync(syncTokenFile, 'utf8'));
+  const syncTokenData = readHhTokenFile(syncTokenFile);
+  if (!syncTokenData) return json(res, 403, { error: 'HH token unreadable' });
   const syncDataDir = dataRoot();
   try {
     const { negotiations, synced_at } = await getHhNegotiationsWithCache(syncDataDir, syncUser, syncVacancyId, syncTokenData.access_token, { force: true });
@@ -1358,7 +1370,7 @@ ${expLines || '—'}
 
   const hhTokensBase2 = tokensRoot();
   const orKeyFile2 = path.join(hhTokensBase2, String(username), 'openrouter');
-  const orKey2 = fs.existsSync(orKeyFile2) ? fs.readFileSync(orKeyFile2, 'utf8').trim() : (process.env.OPENROUTER_API_KEY || '');
+  const orKey2 = readCredentialFileSafe(orKeyFile2)?.trim() || (process.env.OPENROUTER_API_KEY || '');
   if (!orKey2) return json(res, 500, { error: 'OpenRouter API key not configured. Add key via /settoken openrouter <key>' });
   try {
     const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {

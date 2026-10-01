@@ -19,9 +19,11 @@
 // first, then one cheap LLM pass over whatever the regex did not flag.
 
 const https = require('https');
-const fs = require('fs');
 const path = require('path');
 const { tokensRoot } = require('./data-paths.js');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
+// `openrouter` key lives under agent-tokens.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 const GUARD_MODEL = 'google/gemini-2.5-flash';
 
@@ -122,10 +124,8 @@ function llmCall(apiKey, messages, { maxTokens = 900, temperature = 0 } = {}) {
 function getApiKey(username) {
   if (username) {
     const file = path.join(tokensRoot(), String(username), 'openrouter');
-    if (fs.existsSync(file)) {
-      const key = fs.readFileSync(file, 'utf8').trim();
-      if (key) return key;
-    }
+    const key = readCredentialFileSafe(file);
+    if (key !== null && key.trim()) return key.trim();
   }
   return process.env.OPENROUTER_API_KEY || null;
 }

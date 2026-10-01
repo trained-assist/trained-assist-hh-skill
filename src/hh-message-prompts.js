@@ -1,7 +1,11 @@
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader: the
+// per-recruiter override file lives under agent-tokens, so the migration
+// encrypts it — legacy plaintext transparent, v2 envelope decrypted, a base64
+// stub never returned, missing CRED_ENCRYPTION_KEY → default prompt with a warning.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 // Single source of truth for the candidate-message system prompt.
 //
@@ -22,10 +26,8 @@ const BASE_PROMPT_FILENAME = 'hh-message-base-prompt';
 function loadBaseOverride(tokensBase, username) {
   try {
     const file = path.join(tokensBase, String(username), BASE_PROMPT_FILENAME);
-    if (fs.existsSync(file)) {
-      const text = fs.readFileSync(file, 'utf8').trim();
-      if (text) return text;
-    }
+    const text = readCredentialFileSafe(file)?.trim();
+    if (text) return text;
   } catch { /* ignore */ }
   return null;
 }

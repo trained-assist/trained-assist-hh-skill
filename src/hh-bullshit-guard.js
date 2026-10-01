@@ -5,9 +5,11 @@ const { tokensRoot } = require('./data-paths.js');
 // Regex checks run first (free). LLM check is one cheap call covering the rest.
 
 const https = require('https');
-const fs = require('fs');
 const path = require('path');
 const os = require('os');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader —
+// the `openrouter` key lives under agent-tokens.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 const GUARD_MODEL = 'google/gemini-2.5-flash';
 
@@ -87,7 +89,10 @@ function getApiKey(username) {
   if (username) {
     const base = tokensRoot();
     const f = path.join(base, String(username), 'openrouter');
-    if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').trim();
+    // Credential store (trained-assist-agent#1939): plaintext passes through,
+    // an envelope is decrypted, an unreadable file falls back to the platform key.
+    const key = readCredentialFileSafe(f);
+    if (key !== null) return key.trim();
   }
   return process.env.OPENROUTER_API_KEY || null;
 }

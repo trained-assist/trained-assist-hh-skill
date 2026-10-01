@@ -22,6 +22,10 @@
 const fs = require('fs');
 const path = require('path');
 const { tokensRoot, dataRoot, usersRoot } = require('./data-paths');
+// Credential store (trained-assist-agent#1939) via hh-utils' safe reader: legacy
+// plaintext passes through, a v2 envelope is decrypted, a base64 stub is never
+// returned as a token, a missing CRED_ENCRYPTION_KEY → null with a warning.
+const { readCredentialFileSafe } = require('./hh-utils');
 
 /**
  * Build a capability object scoped to one profile. No method on the returned object
@@ -38,9 +42,11 @@ function createHhCapability({ userId, workDir }) {
   const candidateDir = path.join(dataRoot(), 'hh', userId, 'candidates');
 
   function readToken() {
+    const raw = readCredentialFileSafe(tokenFile);
+    if (raw === null) return null; // absent / undecryptable — never the base64 stub
     try {
-      const raw = fs.readFileSync(tokenFile, 'utf8').trim();
-      return raw.startsWith('{') ? JSON.parse(raw) : { access_token: raw };
+      const trimmed = raw.trim();
+      return trimmed.startsWith('{') ? JSON.parse(trimmed) : { access_token: trimmed };
     } catch {
       return null;
     }

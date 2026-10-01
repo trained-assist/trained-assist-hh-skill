@@ -76,7 +76,8 @@ function removeActiveVacancy(vacancyId) {
 
 // ── Token storage ──────────────────────────────────────────────────────────
 
-const { readHhToken: _readHhTokenUtil, hhTokenPath, hhFetch: hhGet, hhPost, hhPut, hhPostForm } = require('../../hh-utils');
+const { readHhToken: _readHhTokenUtil, readCredentialFileSafe, hhTokenPath, hhFetch: hhGet, hhPost, hhPut, hhPostForm } = require('../../hh-utils');
+const { writeCredentialFile } = require('../../credential-store');
 
 function tokenBase() {
   return tokensRoot();
@@ -122,19 +123,17 @@ function hhAuthAwareError(e, prefix = '') {
 
 function readOrKey(userId) {
   const file = orKeyPath(userId);
-  if (fs.existsSync(file)) {
-    const key = fs.readFileSync(file, 'utf8').trim();
-    if (key) return key;
-  }
+  // Credential store (trained-assist-agent#1939): plaintext passes through, an
+  // envelope is decrypted, an unreadable file falls back to the platform key.
+  const key = readCredentialFileSafe(file);
+  if (key !== null && key.trim()) return key.trim();
   return process.env.OPENROUTER_API_KEY || null;
 }
 
 function loadCommunicationStyle(userId) {
   const file = path.join(tokenBase(), String(userId || USER_ID), 'hh-message-style');
-  if (fs.existsSync(file)) {
-    const style = fs.readFileSync(file, 'utf8').trim();
-    if (style) return style;
-  }
+  const style = readCredentialFileSafe(file)?.trim();
+  if (style) return style;
   return null;
 }
 
@@ -153,17 +152,15 @@ const DEFAULT_REJECTION_TEMPLATE = 'Здравствуйте, {firstName}! Сп�
 
 function loadRejectionTemplate(userId) {
   const file = path.join(tokenBase(), String(userId || USER_ID), 'hh-rejection-template');
-  if (fs.existsSync(file)) {
-    const t = fs.readFileSync(file, 'utf8').trim();
-    if (t) return t;
-  }
+  const t = readCredentialFileSafe(file)?.trim();
+  if (t) return t;
   return DEFAULT_REJECTION_TEMPLATE;
 }
 
 function saveRejectionTemplate(userId, template) {
   const file = path.join(tokenBase(), String(userId || USER_ID), 'hh-rejection-template');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, template.trim(), { mode: 0o600 });
+  // Encrypted when CRED_ENCRYPTION_KEY is set, plaintext with a warning when not.
+  writeCredentialFile(file, template.trim());
 }
 
 
@@ -622,8 +619,9 @@ module.exports = {
         };
 
         const file = hhTokenPath(USER_ID);
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, JSON.stringify(data, null, 2), { mode: 0o600 });
+        // Encrypted when CRED_ENCRYPTION_KEY is set, plaintext with a warning when
+        // not (the store mkdir's the profile dir and keeps mode 0600 itself).
+        writeCredentialFile(file, JSON.stringify(data, null, 2));
 
         return {
           ok: true,

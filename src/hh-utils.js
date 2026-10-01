@@ -6,6 +6,11 @@ const { tokensRoot } = require('./data-paths.js');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+// Credential store (trained-assist-agent#1939): the `hh` token file passes
+// through it — legacy plaintext transparent, a v2 envelope decrypted, a base64
+// stub never returned as a token, a missing CRED_ENCRYPTION_KEY → plaintext
+// with a warning (never a hard failure).
+const { readCredentialFile, writeCredentialFile } = require('./credential-store');
 
 function hhApiBase() {
   return process.env.HH_API_BASE_URL || 'https://api.hh.ru';
@@ -21,10 +26,43 @@ function hhTokenPath(userId) {
 
 // Reads HH token from disk. Handles both JSON object and plain-string formats.
 function readHhToken(userId) {
+  const raw = readCredentialFileSafe(hhTokenPath(userId));
+  if (raw === null) return null; // absent / undecryptable — never the base64 stub
   try {
-    const raw = fs.readFileSync(hhTokenPath(userId), 'utf8').trim();
-    return raw.startsWith('{') ? JSON.parse(raw) : { access_token: raw };
+    const trimmed = raw.trim();
+    return trimmed.startsWith('{') ? JSON.parse(trimmed) : { access_token: trimmed };
   } catch { return null; }
+}
+
+/**
+ * Plaintext of a credential file, or null when it cannot be produced — the
+ * single safe reader for every credential file this skill touches:
+ *   - legacy plaintext passes through as-is;
+ *   - a v2 envelope is decrypted;
+ *   - an encrypted file with no CRED_ENCRYPTION_KEY warns and yields null
+ *     (never the base64 stub, never a thrown error inside a route handler);
+ *   - an absent file yields null quietly.
+ */
+function readCredentialFileSafe(filePath) {
+  try {
+    return readCredentialFile(filePath);
+  } catch (e) {
+    if (e && e.code !== 'ENOENT' && /CRED_ENCRYPTION_KEY/.test(String(e.message))) {
+      console.warn('[hh] %s: %s — treating the credential as absent', filePath, e.message);
+    }
+    return null;
+  }
+}
+
+/**
+ * Read the `hh` token FILE (already-built path) as JSON — the one chokepoint for
+ * the /hh/* routes, which all need the parsed token object.
+ * Returns null when the file is absent, unreadable or not JSON — never the stub.
+ */
+function readHhTokenFile(filePath) {
+  const raw = readCredentialFileSafe(filePath);
+  if (raw == null) return null;
+  try { return JSON.parse(raw); } catch { return null; }
 }
 
 // Context helpers — workDir is explicit (for runner) or null → the profile root (for MCP),
@@ -124,9 +162,8 @@ async function refreshHhToken(userId, secrets) {
   }
   const file = hhTokenPath(userId);
   if (!fs.existsSync(file)) return null;
-  let stored;
-  try { stored = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-  if (!stored.refresh_token) return null;
+  const stored = readHhTokenFile(file);
+  if (!stored || !stored.refresh_token) return null;
 
   try {
     const res = await fetch('https://hh.ru/oauth/token', {
@@ -151,7 +188,7 @@ async function refreshHhToken(userId, secrets) {
       refresh_token: data.refresh_token || stored.refresh_token,
       saved_at: new Date().toISOString(),
     };
-    fs.writeFileSync(file, JSON.stringify(updated, null, 2), { mode: 0o600 });
+    writeCredentialFile(file, JSON.stringify(updated, null, 2));
     console.log(`[hh-refresh] refreshed HH credentials for ${userId}`);
     return data.access_token;
   } catch (e) {
@@ -179,4 +216,4 @@ async function hhPostForm(apiPath, token, fields) {
   return data;
 }
 
-module.exports = { readHhToken, readHhContext, writeHhContext, readActiveVacancies, hhFetch, hhPost, hhPut, hhPostForm, hhTokenPath, refreshHhToken };
+module.exports = { readHhToken, readHhTokenFile, readCredentialFileSafe, readHhContext, writeHhContext, readActiveVacancies, hhFetch, hhPost, hhPut, hhPostForm, hhTokenPath, refreshHhToken };

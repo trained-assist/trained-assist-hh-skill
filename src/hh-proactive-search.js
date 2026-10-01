@@ -4,7 +4,7 @@ const { dataRoot, tokensRoot, usersRoot } = require('./data-paths.js');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { readHhToken } = require('./hh-utils');
+const { readHhToken, readCredentialFileSafe } = require('./hh-utils');
 
 const { resolveSearchAreas, searchResumes } = require('./hh-cold-search-transport');
 const { ladderChat, ladderToken } = require('./llm-ladder');
@@ -933,7 +933,10 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   // Read OpenRouter key for AI enrichment + query generation
   const tokensBase = tokensRoot();
   const orKeyFile = path.join(tokensBase, String(username), 'openrouter');
-  const orKey = fs.existsSync(orKeyFile) ? fs.readFileSync(orKeyFile, 'utf8').trim() : (process.env.OPENROUTER_API_KEY || '');
+  // Credential store (trained-assist-agent#1939): plaintext passes through, an
+  // envelope is decrypted, an unreadable file falls back to the platform key.
+  const rawOrKey = readCredentialFileSafe(orKeyFile);
+  const orKey = rawOrKey !== null ? rawOrKey.trim() : (process.env.OPENROUTER_API_KEY || '');
 
   // Search queries are generated per-vacancy and cached in a per-vacancy file keyed by
   // vacancyKey. They are reused as long as the ATS config fields that influence query

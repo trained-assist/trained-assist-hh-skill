@@ -18,6 +18,10 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+// Credential store (trained-assist-agent#1939): the criteria file lives under
+// agent-tokens/<user>/interviews/, so it goes through the store's safe reader.
+const { readCredentialFileSafe } = require('../../hh-utils');
+const { writeCredentialFile } = require('../../credential-store');
 
 const USER_ID = process.env.USER_ID || '';
 
@@ -75,7 +79,10 @@ function sessionDir(outDir) {
 const CRITERIA_FILE = () => path.join(interviewDir(), 'criteria.md');
 
 function loadCriteria() {
-  try { return fs.readFileSync(CRITERIA_FILE(), 'utf-8'); } catch { return ''; }
+  // Credential store (trained-assist-agent#1939): this file lives under
+  // agent-tokens, so the migration encrypts it — plaintext passes through, an
+  // envelope is decrypted, an unreadable file reads as "no criteria" (never the stub).
+  return readCredentialFileSafe(CRITERIA_FILE()) ?? '';
 }
 
 function slugName(name) {
@@ -217,7 +224,8 @@ module.exports = {
       },
       handler: async ({ criteria }) => {
         if (!criteria || !criteria.trim()) throw new Error('criteria пустой');
-        fs.writeFileSync(CRITERIA_FILE(), criteria.trim() + '\n', 'utf-8');
+        // Encrypted when CRED_ENCRYPTION_KEY is set, plaintext with a warning when not.
+        writeCredentialFile(CRITERIA_FILE(), criteria.trim() + '\n');
         return {
           saved: true,
           path: CRITERIA_FILE(),
