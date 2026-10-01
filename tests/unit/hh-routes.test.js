@@ -207,3 +207,116 @@ describe('hh portrait routes (#85)', () => {
     expect(JSON.parse(res.body).error).toMatch(/не поддерживается/);
   });
 });
+
+describe('candidate-new routes (#87)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+
+  it('GET /hh/candidate-new requires the profile token', async () => {
+    const u = new URL('http://x/hh/candidate-new?username=alice&token=wrong'); const res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.body).toMatch(/<h2>/);
+    expect(res.body).not.toContain('btn-files');
+  });
+
+  it('GET /hh/candidate-new serves the upload window', async () => {
+    const u = new URL(`http://x/hh/candidate-new?username=alice&token=${tok()}`); const res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('Новый кандидат');
+    expect(res.body).toContain('Имя кандидата');
+    expect(res.body).toContain('btn-files');
+  });
+
+  it('POST /hh/candidate-doc stores a file, classifies it, returns candidate_id', async () => {
+    const u = new URL('http://x/hh/candidate-doc'); const res = fakeRes();
+    const text = 'Опыт работы\n2023 – 2025 ООО «Пример», маркетолог\nНавыки: Excel';
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Иванов Пётр',
+      filename: 'cv.txt', data_base64: Buffer.from(text, 'utf8').toString('base64'),
+    }), u, res, ctx());
+    expect(res.status).toBe(200);
+    const out = JSON.parse(res.body);
+    expect(out.ok).toBe(true);
+    expect(out.candidate_id).toMatch(/^ivanov-petr-/);
+    expect(out.doc.type).toBe('resume');
+    expect(out.doc.detected_by).toBe('rules');
+  });
+
+  it('POST /hh/candidate-doc accepts a Drive link with a manual type', async () => {
+    const u = new URL('http://x/hh/candidate-doc'); const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_id: 'ivanov-pyotr-x',
+      filename: 'https://drive.google.com/file/d/abc/view',
+      source_url: 'https://drive.google.com/file/d/abc/view',
+      type: 'interview',
+    }), u, res, ctx());
+    expect(res.status).toBe(200);
+    const out = JSON.parse(res.body);
+    expect(out.doc.type).toBe('interview');
+    expect(out.doc.detected_by).toBe('manual');
+  });
+
+  it('POST /hh/candidate-doc rejects unknown types and missing files', async () => {
+    let u = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'c', filename: 'x', type: 'unicorn' }), u, res, ctx());
+    expect(res.status).toBe(400);
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'c' }), u, res, ctx());
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /hh/candidate-docs set_type overrides the detected type', async () => {
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Анна Сергеева',
+      filename: 'letter.txt', data_base64: Buffer.from('Добрый день! Пишу по поводу вакансии.', 'utf8').toString('base64'),
+    }), up, res, ctx());
+    const { candidate_id, doc } = JSON.parse(res.body);
+
+    const u = new URL('http://x/hh/candidate-docs'); res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_id, action: 'set_type', doc_id: doc.id, type: 'cover_letter',
+    }), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).doc.detected_by).toBe('manual');
+  });
+
+  it('POST /hh/candidate-docs extract_profile fails cleanly without an LLM ladder token', async () => {
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Ольга',
+      filename: 'cv.txt', data_base64: Buffer.from('Опыт работы\n2020 – 2024', 'utf8').toString('base64'),
+    }), up, res, ctx());
+    const { candidate_id } = JSON.parse(res.body);
+
+    const saved = process.env.LLM_LADDER_TOKEN;
+    delete process.env.LLM_LADDER_TOKEN;
+    const u = new URL('http://x/hh/candidate-docs'); res = fakeRes();
+    try {
+      await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, action: 'extract_profile' }), u, res, ctx());
+    } finally {
+      if (saved !== undefined) process.env.LLM_LADDER_TOKEN = saved;
+    }
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body).error).toMatch(/ladder/i);
+  });
+
+  it('GET /hh/candidate-new renders the manifest for a candidate', async () => {
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Сергей',
+      filename: 'cv.txt', data_base64: Buffer.from('Опыт работы\n2022 – 2025', 'utf8').toString('base64'),
+    }), up, res, ctx());
+    const { candidate_id } = JSON.parse(res.body);
+
+    const u = new URL(`http://x/hh/candidate-new?username=alice&token=${tok()}&candidate_id=${candidate_id}`); res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('cv.txt');
+    expect(res.body).toContain('btn-profile');
+    expect(res.body).not.toContain('Имя кандидата');
+  });
+});

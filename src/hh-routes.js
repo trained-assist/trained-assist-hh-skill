@@ -62,6 +62,9 @@ const { vacanciesPageHtml, planPageHtml } = require('./hh-hub-html');
 const { vacancyNewPageHtml } = require('./hh-vacancy-new-html');
 const { extractTextFromBuffer } = require('./hh-doc-text');
 const hhPortrait = require('./hh-portrait');
+const { candidateNewPageHtml } = require('./hh-candidate-new-html');
+const hhCandidateDocs = require('./hh-candidate-docs');
+const { TYPES: CANDIDATE_DOC_TYPES } = require('./hh-doc-classify');
 
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -1384,6 +1387,97 @@ if (req.method === 'POST' && url.pathname === '/hh/portrait-file') {
   const out = extractTextFromBuffer(Buffer.from(data_base64, 'base64'), filename);
   if (!out.ok) return json(res, 422, { error: out.error });
   return json(res, 200, { ok: true, text: out.text });
+}
+
+// ── Новый кандидат (#87): окно загрузки материалов, классификация типов, профиль.
+if (req.method === 'GET' && url.pathname === '/hh/candidate-new') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  const errPage = (msg) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Новый кандидат</title>
+<style>body{font-family:system-ui;padding:48px;text-align:center;background:#f1f5f9;color:#1e293b}</style>
+</head><body><h2>${msg}</h2></body></html>`);
+  };
+  if (!hhHub.SAFE_ID.test(username)) return errPage('Не указан пользователь.');
+  if (candidateId && !hhHub.SAFE_ID.test(candidateId)) return errPage('Не указан кандидат.');
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return errPage('Ссылка недействительна. Запроси новую у бота.');
+  let manifest = null;
+  let error = null;
+  if (candidateId) {
+    manifest = hhCandidateDocs.readManifest(username, candidateId);
+    if (!manifest) error = `Кандидат «${candidateId}» не найден.`;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(candidateNewPageHtml({ username, token: given, candidateId, manifest, error }));
+}
+
+if (req.method === 'POST' && url.pathname === '/hh/candidate-doc') {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 45 * 1024 * 1024));
+  } catch (e) {
+    const tooLarge = e && e.message === 'body too large';
+    return json(res, tooLarge ? 413 : 400, { error: tooLarge ? 'Файл слишком большой — добавь ссылкой.' : 'bad json' });
+  }
+  const { username, token, candidate_id: candId, candidate_name: candName, filename, data_base64, source_url: srcUrl, type } = body || {};
+  if (!hhHub.SAFE_ID.test(String(username || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (candId && !hhHub.SAFE_ID.test(String(candId))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  if (type && !CANDIDATE_DOC_TYPES.includes(type)) return json(res, 400, { error: 'Неизвестный тип документа.' });
+  let buffer = Buffer.alloc(0);
+  if (!srcUrl) {
+    if (typeof data_base64 !== 'string' || !data_base64) return json(res, 400, { error: 'Нет файла.' });
+    buffer = Buffer.from(data_base64, 'base64');
+    if (buffer.length > 30 * 1024 * 1024) return json(res, 413, { error: 'Файл больше 30 МБ — добавь ссылкой.' });
+  }
+  try {
+    const out = await hhCandidateDocs.addDocument({
+      username,
+      candidateId: candId || null,
+      candidateName: candName || null,
+      filename: String(filename || srcUrl || '').slice(0, 200) || 'файл',
+      buffer,
+      manualType: type || null,
+      sourceUrl: srcUrl || null,
+    });
+    if (out.doc && out.doc.type === 'other') {
+      try { await hhCandidateDocs.llmClassifyFallback({ username, candidateId: out.candidate_id, docId: out.doc.id }); } catch { /* best effort */ }
+    }
+    const fresh = hhCandidateDocs.readManifest(username, out.candidate_id);
+    const doc = fresh?.docs.find(d => d.id === out.doc.id) || out.doc;
+    return json(res, 200, { ok: true, candidate_id: out.candidate_id, doc });
+  } catch (e) {
+    console.error(`[hh/candidate-doc] user=${username}:`, e.message);
+    return json(res, 500, { error: e.message });
+  }
+}
+
+if (req.method === 'POST' && url.pathname === '/hh/candidate-docs') {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, token, candidate_id: candId, action, doc_id: docIdArg, type } = body || {};
+  if (!hhHub.SAFE_ID.test(String(username || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (!hhHub.SAFE_ID.test(String(candId || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  try {
+    if (action === 'set_type') {
+      if (!CANDIDATE_DOC_TYPES.includes(type)) return json(res, 400, { error: 'Неизвестный тип документа.' });
+      const out = hhCandidateDocs.setDocType({ username, candidateId: candId, docId: docIdArg, type });
+      if (out.error) return json(res, 404, out);
+      return json(res, 200, out);
+    }
+    if (action === 'extract_profile') {
+      const out = await hhCandidateDocs.extractProfile({ username, candidateId: candId });
+      if (out.error) return json(res, 422, out);
+      return json(res, 200, { ok: true, profile: out.profile });
+    }
+    return json(res, 400, { error: 'Unknown action' });
+  } catch (e) {
+    console.error(`[hh/candidate-docs] user=${username} action=${action}:`, e.message);
+    return json(res, 500, { error: e.message });
+  }
 }
 
 if (req.method === 'GET' && url.pathname === '/api/hh/proactive/candidates') {

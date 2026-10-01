@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { path: '/hh/vacancies', label: 'Вакансии' },
 { path: '/hh/vacancy-new', label: 'Портрет' },
   { path: '/hh/review', label: 'Кандидаты' },
+{ path: '/hh/candidate-new', label: '+ Кандидат' },
   { path: '/hh/proactive', label: 'Холодный поиск' },
   { path: '/hh/ats-editor', label: 'ATS воронка' },
   { path: '/hh/style', label: 'Стиль' },
