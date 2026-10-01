@@ -65,6 +65,8 @@ const hhPortrait = require('./hh-portrait');
 const { candidateNewPageHtml } = require('./hh-candidate-new-html');
 const hhCandidateDocs = require('./hh-candidate-docs');
 const { TYPES: CANDIDATE_DOC_TYPES } = require('./hh-doc-classify');
+const evalDocs = require('./hh-candidate-eval-docs');
+const reportPdf = require('./hh-report-pdf');
 
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -1476,6 +1478,99 @@ if (req.method === 'POST' && url.pathname === '/hh/candidate-docs') {
     return json(res, 400, { error: 'Unknown action' });
   } catch (e) {
     console.error(`[hh/candidate-docs] user=${username} action=${action}:`, e.message);
+    return json(res, 500, { error: e.message });
+  }
+}
+
+// ── Два документа кандидата (#91): HTML-просмотр, скачивание MD и PDF по кнопке.
+if (req.method === 'GET' && url.pathname === '/hh/candidate-report') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  const which = url.searchParams.get('which') || 'profile';
+  const format = url.searchParams.get('format') || 'html';
+  const fail = (status, msg) => json(res, status, { error: msg });
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(candidateId)) return fail(400, 'Invalid scope');
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return fail(403, 'Invalid token');
+  const data = evalDocs.buildReportData({ username, candidateId, vacancyId: url.searchParams.get('vacancy_id') || null, evalSlug: url.searchParams.get('eval_slug') || null, negId: url.searchParams.get('neg_id') || null });
+  if (data.error) return fail(404, data.error);
+  const md = which === 'eval' ? evalDocs.renderCleanEvalMd(data) : evalDocs.renderProfileMd(data);
+  if (format === 'md') {
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="${which}-${candidateId}.md"` });
+    return res.end(md);
+  }
+  const toolbar = `<div class="no-print" style="margin:0 0 14px;display:flex;gap:8px;font-family:system-ui;font-size:13px">
+<a href="candidate-report?username=${encodeURIComponent(username)}&token=${given}&candidate_id=${encodeURIComponent(candidateId)}&which=${which}&format=md">⬇ Скачать MD</a>
+<a href="candidate-report.pdf?username=${encodeURIComponent(username)}&token=${given}&candidate_id=${encodeURIComponent(candidateId)}&which=${which}">⬇ Скачать PDF</a>
+<a href="candidate-new?username=${encodeURIComponent(username)}&token=${given}&candidate_id=${encodeURIComponent(candidateId)}">← К кандидату</a>
+</div>`;
+  const html = evalDocs.wrapHtml(`${which === 'eval' ? 'Оценка' : 'Профиль'} — ${data.candidate.name}`, toolbar + evalDocs.mdToHtml(md), { photoDataUri: which === 'profile' ? evalDocs.photoDataUri(username, candidateId) : null });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(html);
+}
+
+if (req.method === 'GET' && url.pathname === '/hh/candidate-report.pdf') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  const which = url.searchParams.get('which') || 'profile';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(candidateId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const data = evalDocs.buildReportData({ username, candidateId, vacancyId: url.searchParams.get('vacancy_id') || null, evalSlug: url.searchParams.get('eval_slug') || null, negId: url.searchParams.get('neg_id') || null });
+  if (data.error) return json(res, 404, data.error);
+  const md = which === 'eval' ? evalDocs.renderCleanEvalMd(data) : evalDocs.renderProfileMd(data);
+  const html = evalDocs.wrapHtml(`${which === 'eval' ? 'Оценка' : 'Профиль'} — ${data.candidate.name}`, evalDocs.mdToHtml(md), { photoDataUri: which === 'profile' ? evalDocs.photoDataUri(username, candidateId) : null });
+  const out = reportPdf.htmlToPdf(html);
+  if (!out.ok) return json(res, 422, { error: out.error, hint: 'Открой HTML-версию и используй печать браузера — колонтитулов не будет.' });
+  res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${which}-${candidateId}.pdf"` });
+  return res.end(out.pdf);
+}
+
+// ── Фото кандидата (#91): загрузка в манифест + отдача для страницы/PDF ────────
+if (req.method === 'POST' && url.pathname === '/hh/candidate-photo') {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 8 * 1024 * 1024));
+  } catch (e) {
+    const tooLarge = e && e.message === 'body too large';
+    return json(res, tooLarge ? 413 : 400, { error: tooLarge ? 'Фото больше 5 МБ.' : 'bad json' });
+  }
+  const { username, token, candidate_id: candId, data_base64, mime } = body || {};
+  if (!hhHub.SAFE_ID.test(String(username || '')) || !hhHub.SAFE_ID.test(String(candId || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  if (typeof data_base64 !== 'string' || !data_base64) return json(res, 400, { error: 'Нет файла.' });
+  const buf = Buffer.from(data_base64, 'base64');
+  if (buf.length > 5 * 1024 * 1024) return json(res, 413, { error: 'Фото больше 5 МБ.' });
+  const ext = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' }[mime] || '.jpg';
+  try {
+    const manifest = hhCandidateDocs.ensureCandidate(username, candId, null);
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const root = hhCandidateDocs.candRoot(username, manifest.candidate_id);
+    fs2.mkdirSync(root, { recursive: true });
+    fs2.writeFileSync(path2.join(root, `photo${ext}`), buf);
+    manifest.photo = { file: `photo${ext}`, mime: mime || 'image/jpeg', size: buf.length, added_at: new Date().toISOString() };
+    hhCandidateDocs.writeManifest(username, manifest.candidate_id, manifest);
+    return json(res, 200, { ok: true, candidate_id: manifest.candidate_id });
+  } catch (e) {
+    return json(res, 500, { error: e.message });
+  }
+}
+
+if (req.method === 'GET' && url.pathname === '/hh/candidate-photo') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(candidateId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  try {
+    const manifest = hhCandidateDocs.readManifest(username, candidateId);
+    if (!manifest?.photo?.file) return json(res, 404, { error: 'Фото не загружено.' });
+    const f = require('path').join(hhCandidateDocs.candRoot(username, candidateId), manifest.photo.file);
+    const buf = require('fs').readFileSync(f);
+    res.writeHead(200, { 'Content-Type': manifest.photo.mime || 'image/jpeg', 'Cache-Control': 'private, max-age=300' });
+    return res.end(buf);
+  } catch (e) {
     return json(res, 500, { error: e.message });
   }
 }

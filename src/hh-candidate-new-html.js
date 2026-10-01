@@ -82,9 +82,29 @@ function candidateNewPageHtml({ username, token, candidateId = '', manifest = nu
   const qs = new URLSearchParams({ username, token: token || '' });
   if (candidateId) qs.set('candidate_id', candidateId);
 
+  const photoHtml = manifest?.photo?.file
+    ? `<img src="candidate-photo?${qs.toString()}" alt="" style="width:96px;height:96px;object-fit:cover;border-radius:8px;float:right;margin-left:12px">`
+    : '';
   const manifestCard = manifest ? `<div class="card">
 <h3>Документы — ${escHtml(manifest.name || manifest.candidate_id)} <span class="reason">(${manifest.docs.length})</span></h3>
+${photoHtml}
 ${manifest.docs.length ? docsTableHtml(manifest) : '<p class="hint">Документов пока нет.</p>'}
+<div style="clear:both;padding-top:10px">
+<label for="photo-file">Фото кандидата</label>
+<input type="file" id="photo-file" accept="image/png,image/jpeg,image/webp,image/gif" style="font-size:12px">
+</div>
+</div>
+<div class="card">
+<h3>Документы кандидата</h3>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<a class="btn" href="candidate-report?${escHtml(qs.toString())}&which=profile">📄 Профиль (просмотр)</a>
+<a class="btn" href="candidate-report?${escHtml(qs.toString())}&which=profile&format=md">⬇ MD</a>
+<a class="btn" href="candidate-report.pdf?${escHtml(qs.toString())}&which=profile">⬇ PDF</a>
+<a class="btn" href="candidate-report?${escHtml(qs.toString())}&which=eval">📊 Чистая оценка (просмотр)</a>
+<a class="btn" href="candidate-report?${escHtml(qs.toString())}&which=eval&format=md">⬇ MD</a>
+<a class="btn" href="candidate-report.pdf?${escHtml(qs.toString())}&which=eval">⬇ PDF</a>
+</div>
+<p class="hint">PDF генерируется по кнопке; если на сервере нет Chrome — откроется подсказка печать из HTML (A4 без колонтитулов).</p>
 </div>` : '';
 
   const profileCard = manifest && manifest.profile ? profileHtml(manifest.profile) : '';
@@ -196,6 +216,19 @@ ${profileCard}
         .then(function () { location.reload(); })
         .catch(function (e) { overlay(false); toast(e.message); });
     });
+  });
+
+  var photoInput = $('photo-file');
+  if (photoInput) photoInput.addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1048576) { toast('Фото больше 5 МБ'); this.value = ''; return; }
+    f.arrayBuffer().then(function (buf) {
+      return post('candidate-photo', { candidate_id: CAND, data_base64: b64(buf), mime: f.type || 'image/jpeg' });
+    }).then(function (x) {
+      if (!x.ok || x.d.error) { toast(x.d.error || 'Не удалось загрузить фото'); return; }
+      location.reload();
+    }).catch(function (e) { toast(e.message); });
   });
 
   var profBtn = $('btn-profile');
