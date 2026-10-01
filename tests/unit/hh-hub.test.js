@@ -95,7 +95,7 @@ describe('hh-nav', () => {
     }
     expect(html).toMatch(/href="review\?[^"]*" class="active"/);
     expect(html.match(/class="active"/g)).toHaveLength(1);
-    expect(NAV_ITEMS.map(i => i.label)).toEqual(['Вакансии', 'Кандидаты', 'Холодный поиск', 'ATS воронка', 'Стиль', 'Синхронизация']);
+    expect(NAV_ITEMS.map(i => i.label)).toEqual(['Вакансии', 'Портрет', 'Кандидаты', 'Холодный поиск', 'ATS воронка', 'Стиль', 'Синхронизация']);
   });
 
   it('does not touch JSON responses or non-GET requests', () => {

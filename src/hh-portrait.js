@@ -381,6 +381,7 @@ function writePortrait(workDir, vacancyId, portrait) {
 module.exports = {
   SECTIONS,
   BLOCK_FIELDS,
+  ARRAY_FIELDS,
   PORTRAIT_SYSTEM,
   PORTRAIT_VERSION,
   emptyPortrait,
