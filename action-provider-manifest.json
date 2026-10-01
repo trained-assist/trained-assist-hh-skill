@@ -940,6 +940,169 @@
       "retrySafety": "unsafe"
     },
     {
+      "name": "hh_portrait_extract",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Vacancy the portrait belongs to. Defaults to the active vacancy."
+          },
+          "sources": {
+            "type": "array",
+            "description": "Input materials in order. Each item: {type: vacancy|correspondence|file|message, text}.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "vacancy",
+                    "correspondence",
+                    "file",
+                    "message",
+                    "text"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "vacancy_text": {
+            "type": "string",
+            "description": "Shortcut: a single source passed as plain text."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Rebuild even if a portrait already exists (default: return the existing one)."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_portrait_get",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "hh_portrait_update",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          },
+          "patch": {
+            "type": "object",
+            "description": "Partial portrait: {company?: {...}, vacancy?: {...}, requirements?: {...}}. Arrays replace the stored list; null clears a scalar.",
+            "properties": {
+              "company": {
+                "type": "object"
+              },
+              "vacancy": {
+                "type": "object"
+              },
+              "requirements": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "required": [
+          "patch"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_portrait_completeness",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "hh_portrait_to_ats",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          },
+          "save": {
+            "type": "boolean",
+            "description": "Persist the config for the ATS editor (default true)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live"
+            ],
+            "description": "draft (default) → ats_config_draft:{id}, reviewed in /hh/ats-editor; live → ats_config:{id}, background scoring picks it up immediately."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
       "name": "hh_discover",
       "inputSchema": {
         "type": "object",
