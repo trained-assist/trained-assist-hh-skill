@@ -476,7 +476,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         // so a candidate who had already been written to and answered got a second
         // intro on the review page — re-introducing the recruiter and re-asking
         // questions he had just been asked.
-        const messageType = detectMessageType({ history: { messages: thread } });
+        const messageType = detectMessageType({ history: thread });
 
         const systemPrompt = baseSystem;
 

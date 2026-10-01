@@ -73,6 +73,15 @@ describe('detectMessageType — one rule for all draft call sites', () => {
   it('an explicit rejection request still wins', () => {
     expect(detectMessageType({ history: BAKHTADZE_HISTORY, forceType: 'rejection' })).toBe('rejection');
   });
+
+  it('accepts a whole history object as well as a bare array', () => {
+    // The background path passes the candidate record, the review page passes the
+    // array. A wrapped array once threw "(history || []).filter is not a function"
+    // and silently killed every auto-draft on prod.
+    expect(detectMessageType({ history: { messages: BAKHTADZE_HISTORY } })).toBe('reply');
+    expect(detectMessageType({ history: { messages: [] } })).toBe('initial');
+    expect(detectMessageType({ history: null })).toBe('initial');
+  });
 });
 
 describe('buildDraftUserMessage — the model sees the dialogue and the branch it is in', () => {

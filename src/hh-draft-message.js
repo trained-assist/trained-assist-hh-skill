@@ -31,7 +31,11 @@ const HISTORY_WINDOW = 8;
 function detectMessageType({ history = [], forceType = null } = {}) {
   if (forceType === 'rejection') return 'rejection';
   if (forceType === 'invite_call') return 'invite_call';
-  const msgs = (history || []).filter(m => m && String(m.text || '').trim());
+  // Accept a whole history object as well as a bare array: the call sites pass both
+  // shapes, and a silently-wrapped array once made every background draft throw
+  // "(history || []).filter is not a function" instead of drafting.
+  const list = Array.isArray(history) ? history : (history?.messages || []);
+  const msgs = list.filter(m => m && String(m.text || '').trim());
   if (!msgs.length) return 'initial';
   const last = msgs[msgs.length - 1];
   // We spoke last and got nothing back → nudge. Never re-introduce, never re-ask.
