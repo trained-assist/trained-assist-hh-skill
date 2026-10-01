@@ -47,23 +47,27 @@ function classifyDoc({ filename = '', text = '', ext = '' } = {}) {
   }
   if (!body.trim()) return { type: 'other', detected_by: 'rules', reason: 'текст не извлечён' };
 
-  // Интервью: заголовок, таймкоды или явная диалоговая структура
+  // Интервью с явными признаками: заголовок или таймкоды — до всего остального
   if (INTERVIEW_HEADER.test(body)) return { type: 'interview', detected_by: 'rules', reason: 'заголовок «Интервью:»' };
   if (TIMESTAMPS.test(body)) return { type: 'interview', detected_by: 'rules', reason: 'таймкоды [м:сс]' };
-  const turns = countMatches(SPEAKER_TURN, body);
-  if (turns >= 3 && (countMatches(/\?/g, body) >= 2 || turns >= 5)) {
-    return { type: 'interview', detected_by: 'rules', reason: 'диалоговая структура (реплики спикеров)' };
-  }
+
+  // Резюме проверяем ДО эвристики «диалога»: форма резюме богата строками
+  // «Метка: значение» и вопросами — раньше это путалось с репликами спикеров.
+  // Резюме: истории дат + секции резюме (или ≥2 диапазонов дат сами по себе)
+  const ranges = countMatches(DATE_RANGE, body);
+  if (RESUME_SECTIONS.test(body) && ranges >= 1) return { type: 'resume', detected_by: 'rules', reason: 'секции резюме + даты опыта' };
+  if (ranges >= 2) return { type: 'resume', detected_by: 'rules', reason: 'диапазоны дат опыта' };
 
   // Переписка: короткие реплики с отметками времени/дат/«[Сообщение»
   if (THREAD_MARKERS.test(body) && countMatches(THREAD_MARKERS, body) >= 2) {
     return { type: 'correspondence', detected_by: 'rules', reason: 'следы ленты сообщений' };
   }
 
-  // Резюме: истории дат + секции резюме (или ≥2 диапазонов дат сами по себе)
-  const ranges = countMatches(DATE_RANGE, body);
-  if (RESUME_SECTIONS.test(body) && ranges >= 1) return { type: 'resume', detected_by: 'rules', reason: 'секции резюме + даты опыта' };
-  if (ranges >= 2) return { type: 'resume', detected_by: 'rules', reason: 'диапазоны дат опыта' };
+  // Диалог без дат опыта — последним (частые ложные срабатывания на формах)
+  const turns = countMatches(SPEAKER_TURN, body);
+  if (turns >= 3 && (countMatches(/\?/g, body) >= 2 || turns >= 5)) {
+    return { type: 'interview', detected_by: 'rules', reason: 'диалоговая структура (реплики спикеров)' };
+  }
 
   // Истории нет → «о себе» / письмо (правило клиента); переписку уже поймали выше
   if (GREETING.test(body) || body.length < 2500) {
