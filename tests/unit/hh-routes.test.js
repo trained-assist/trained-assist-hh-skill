@@ -320,3 +320,86 @@ describe('candidate-new routes (#87)', () => {
     expect(res.body).not.toContain('Имя кандидата');
   });
 });
+
+describe('candidate report & photo routes (#91)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+  async function makeCandidate() {
+    const u = new URL('http://x/hh/candidate-doc'); const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Иванова Мария',
+      filename: 'cv.txt', data_base64: Buffer.from('Опыт работы\n2021 – 2024', 'utf8').toString('base64'),
+    }), u, res, ctx());
+    return JSON.parse(res.body).candidate_id;
+  }
+
+  it('GET /hh/candidate-report requires token and renders HTML by default', async () => {
+    const candidateId = await makeCandidate();
+    let u = new URL(`http://x/hh/candidate-report?username=alice&token=bad&candidate_id=${candidateId}`); let res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(403);
+
+    u = new URL(`http://x/hh/candidate-report?username=alice&token=${tok()}&candidate_id=${candidateId}&which=profile`); res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(res.headers['Content-Type']).toContain('text/html');
+    expect(res.body).toContain('Скачать MD');
+    expect(res.body).toContain('Скачать PDF');
+    expect(res.body).toContain('Соответствие вакансии');
+  });
+
+  it('GET /hh/candidate-report?format=md downloads markdown', async () => {
+    const candidateId = await makeCandidate();
+    const u = new URL(`http://x/hh/candidate-report?username=alice&token=${tok()}&candidate_id=${candidateId}&which=eval&format=md`); const res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.headers['Content-Type']).toContain('text/markdown');
+    expect(res.headers['Content-Disposition']).toContain('.md');
+    expect(res.body).toContain('# Оценка кандидата — Иванова Мария');
+    expect(res.body).toContain('## Ограничения');
+  });
+
+  it('GET /hh/candidate-report.pdf returns 422 with a hint when the engine is off', async () => {
+    const candidateId = await makeCandidate();
+    const saved = process.env.HH_PDF_ENGINE;
+    process.env.HH_PDF_ENGINE = 'off';
+    const u = new URL(`http://x/hh/candidate-report.pdf?username=alice&token=${tok()}&candidate_id=${candidateId}&which=eval`); const res = fakeRes();
+    try {
+      await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    } finally {
+      if (saved === undefined) delete process.env.HH_PDF_ENGINE; else process.env.HH_PDF_ENGINE = saved;
+    }
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body).error).toMatch(/отключён|Chrome/i);
+  });
+
+  it('photo upload and fetch round-trip', async () => {
+    const candidateId = await makeCandidate();
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    let u = new URL('http://x/hh/candidate-photo'); let res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_id: candidateId,
+      data_base64: jpeg.toString('base64'), mime: 'image/jpeg',
+    }), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).ok).toBe(true);
+
+    u = new URL(`http://x/hh/candidate-photo?username=alice&token=${tok()}&candidate_id=${candidateId}`); res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(res.headers['Content-Type']).toBe('image/jpeg');
+    expect(res.body.length).toBeGreaterThan(0);
+  });
+
+  it('rejects oversized photos', async () => {
+    const candidateId = await makeCandidate();
+    const big = Buffer.alloc(6 * 1024 * 1024, 1);
+    const u = new URL('http://x/hh/candidate-photo'); const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_id: candidateId,
+      data_base64: big.toString('base64'), mime: 'image/jpeg',
+    }), u, res, ctx());
+    expect(res.status).toBe(413);
+  });
+});
