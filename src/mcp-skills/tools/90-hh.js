@@ -7,6 +7,7 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('../../hh-message-prompts');
+const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-message');
 const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
 
 const USER_ID = process.env.USER_ID || '';
@@ -2017,7 +2018,6 @@ async function evaluateCandidate(candidateText, atsConfig, apiKey) {
 
 async function generateMessage(candidateContext, atsResult, name, apiKey, messageType = 'initial', history = [], userId = null, atsConfig = null) {
   const firstName = name.split(' ')[0];
-  const gaps = (atsResult.gaps || []).slice(0, 2).join(', ') || 'нет критических пробелов';
 
   const commStyle = loadCommunicationStyle(userId || USER_ID);
   const baseOverride = loadBaseOverride(tokenBase(), userId || USER_ID);
@@ -2025,8 +2025,20 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
   const systemPrompt = buildMessageSystemPrompt({ recruiterCtx, commStyle, baseOverride });
   const availabilityBlock = buildAvailabilityBlock(atsConfig?.interview_config);
 
-  const historyLines = history.map(m => `${m.role === 'employer' ? 'Рекрутер' : 'Кандидат'}: ${m.text}`).join('\n');
-  const userMsg = `Кандидат: ${firstName}\n\nКонтекст:\n${candidateContext}\n\nATS-оценка: ${atsResult.score ?? 'n/a'}/10, вердикт: ${atsResult.verdict || 'n/a'}. Совпадения: ${(atsResult.matched || []).slice(0, 3).join(', ') || 'нет'}. Уточнить: ${gaps}.\n\nИстория переписки:\n${historyLines || '(переписки ещё не было — это первое сообщение)'}${availabilityBlock}\n\nНапиши следующее сообщение кандидату.`;
+  // messageType used to be accepted and then dropped on the floor — the prompt always
+  // said "напиши следующее сообщение" and the model guessed. Derive it from the thread
+  // unless the caller explicitly asked for something else (rejection, invite_call).
+  const explicit = ['rejection', 'invite_call'].includes(messageType) ? messageType : null;
+  const type = detectMessageType({ history, forceType: explicit });
+
+  const userMsg = buildDraftUserMessage({
+    messageType: type,
+    firstName,
+    atsResult,
+    history,
+    availabilityBlock,
+    candidateContext,
+  });
 
   return llmCall(apiKey, SMART_MODEL, [
     { role: 'system', content: systemPrompt },

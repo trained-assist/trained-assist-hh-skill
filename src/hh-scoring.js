@@ -11,6 +11,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('./hh-message-prompts');
+const { detectMessageType, buildDraftUserMessage, historySignature, isDraftStale, interviewConfigAllowsTime } = require('./hh-draft-message');
+const { bullshitGuard } = require('./hh-bullshit-guard');
 
 const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 
@@ -445,7 +447,12 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     // LLM draft. Generated "rejections" produced invitations, "[Имя]" placeholders
     // and wrong-name greetings that a single click could send to a candidate.
     if (h.ats_result?.verdict === 'ОТКЛОНИТЬ') return false;
-    return h.ats_result?.score != null && !h.ats_result?.draft_message;
+    if (h.ats_result?.score == null) return false;
+    // A draft written against an older thread is worse than no draft: /hh/review shows
+    // it as-is and the recruiter can send one click away. Regenerate whenever the
+    // candidate said something new (live case: neg 5610867713, drafted at 12:15 against
+    // a thread that had already changed at 12:03 and was cached from then on).
+    return isDraftStale(h);
   });
 
   if (!needDraft.length) return 0;
@@ -459,14 +466,29 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     await Promise.all(batch.map(async (neg) => {
       try {
         const history = readCandidateHistory(username, neg.id);
+        const thread = history.messages || [];
 
         const r = neg.resume || {};
         const firstName = r.first_name || r.last_name || 'Кандидат';
 
+        // The thread decides the shape of the message (see src/hh-draft-message.js).
+        // This used to be hardcoded to "Напиши первое сообщение" with the resume only,
+        // so a candidate who had already been written to and answered got a second
+        // intro on the review page — re-introducing the recruiter and re-asking
+        // questions he had just been asked.
+        const messageType = detectMessageType({ history: { messages: thread } });
+
         const systemPrompt = baseSystem;
 
         const resumeText = buildResumeText(neg);
-        const userMsg = `Напиши первое сообщение кандидату ${firstName}.\n\nРезюме:\n${resumeText}${availabilityBlock}`;
+        const userMsg = buildDraftUserMessage({
+          messageType,
+          firstName,
+          resumeText,
+          atsResult: history.ats_result,
+          history: thread,
+          availabilityBlock,
+        });
 
         const messages = [
           { role: 'system', content: systemPrompt },
@@ -495,8 +517,43 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         }
 
         if (!message) throw new Error('No LLM credentials produced a result');
+        message = message.trim();
 
-        history.ats_result.draft_message = message.trim();
+        // An auto-draft reaches the recruiter pre-filled and one click from being sent,
+        // so it gets the same guard as a manually generated one — including one retry
+        // that tells the model what was wrong. Without it, a repeated intro landed on
+        // the review page undetected (this path never ran the guard at all).
+        const allowSpecificTime = interviewConfigAllowsTime(username);
+        let guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
+        if (!guard.ok) {
+          console.warn(`[hh-drafts] neg=${neg.id} failed guard (${guard.reason}), regenerating once`);
+          const retryMessages = [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: `${userMsg}\n\n(Предыдущая попытка была отклонена автопроверкой: "${guard.reason}". `
+                + 'Не повторяй эту ошибку — напиши новый вариант без неё.)',
+            },
+          ];
+          let retried = null;
+          if (gigachatKey) {
+            try { retried = await gcCall(gigachatKey, retryMessages, 600, 0.7); } catch { retried = null; }
+          }
+          if ((!retried || hasGarbage(retried)) && apiKey) {
+            retried = await llmCall(apiKey, FALLBACK_MODEL, retryMessages, 600, 0.7);
+          }
+          if (retried && !hasGarbage(retried)) {
+            message = retried.trim();
+            guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
+          }
+        }
+
+        history.ats_result.draft_message = message;
+        // Stamp the thread this draft was written against — without it the next scoring
+        // pass cannot tell a fresh draft from one that predates the candidate's answer.
+        history.ats_result.draft_history_sig = historySignature(thread);
+        if (!guard.ok) history.ats_result.draft_warning = guard.reason;
+        else delete history.ats_result.draft_warning;
         saveCandidateHistory(username, neg.id, history);
         generated++;
       } catch (e) {

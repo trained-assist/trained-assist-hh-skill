@@ -17,6 +17,7 @@ const { hydrateResume, buildResumeText, resumeNotice } = require('./hh-resume');
 const { hhFetch, hhPut, hhPostForm, readHhToken, refreshHhToken, readActiveVacancies } = require('./hh-utils');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, DEFAULT_MESSAGE_BASE, BASE_PROMPT_FILENAME } = require('./hh-message-prompts');
+const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
 
@@ -856,18 +857,17 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     : buildMessageSystemPrompt({ vacancyContext, recruiterCtx, commStyle, baseOverride });
 
   const firstName = (candidate_name || 'Кандидат').split(' ')[0];
-  const convoCtx = msgs.slice(-8).map(m => {
-    const who = m.role === 'employer' ? 'Рекрутер' : 'Кандидат';
-    return `${who}: ${(m.text || '').slice(0, 500)}`;
-  }).join('\n');
   const ats = history.ats_result || {};
-  const gaps = (ats.gaps || []).slice(0, 2).join(', ') || 'нет критических пробелов';
-  const atsLine = ats.score != null
-    ? `ATS-оценка: ${ats.score}/10, вердикт: ${ats.verdict || 'n/a'}. Совпадения: ${(ats.matched || []).slice(0, 3).join(', ') || 'нет'}. Уточнить: ${gaps}.\n\n`
-    : '';
   const userMsg = msgType === 'rejection'
     ? `Напиши вежливый отказ кандидату ${firstName}.`
-    : `Кандидат: ${firstName}\n\n${msgType === 'initial' ? `Резюме:\n${fullResumeText || '(резюме недоступно — напиши общее приглашение)'}\n\n` : ''}${atsLine}История переписки:\n${convoCtx || '(переписки ещё не было — это первое сообщение)'}${msgType === 'followup' ? '\n\n(кандидат не ответил на наше последнее сообщение)' : ''}${availabilityBlock}\n\nНапиши следующее сообщение кандидату.`;
+    : buildDraftUserMessage({
+      messageType: msgType,
+      firstName,
+      resumeText: fullResumeText,
+      atsResult: ats,
+      history: msgs,
+      availabilityBlock,
+    });
 
   function callLlm(userContent) {
     return new Promise((resolve, reject) => {
@@ -917,6 +917,11 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
 
     if (!history.ats_result) history.ats_result = {};
     history.ats_result.draft_message = message;
+    // Stamp the thread this draft answers, so the background auto-draft knows it is
+    // still current and does not overwrite a manual draft with a stale-looking one.
+    history.ats_result.draft_history_sig = historySignature(msgs);
+    if (!guard.ok) history.ats_result.draft_warning = guard.reason;
+    else delete history.ats_result.draft_warning;
     fs.mkdirSync(candDir, { recursive: true });
     fs.writeFileSync(histFile, JSON.stringify(history, null, 2), { mode: 0o600 });
     const resp = { ok: true, message };
