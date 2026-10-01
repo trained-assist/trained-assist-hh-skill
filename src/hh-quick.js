@@ -164,6 +164,15 @@ function hhAtsEditor(userId) {
   return `🎯 Candidate Funnel Editor:\n${hhBase()}/hh/ats-editor?username=${encodeURIComponent(userId)}${tokenParam}`;
 }
 
+// "открой портрет вакансии" — no API call
+function hhVacancyNew(userId, vacancyId) {
+  const token = hhReviewToken(userId);
+  const q = new URLSearchParams({ username: String(userId) });
+  if (token) q.set('token', token);
+  if (vacancyId && vacancyId !== 'draft') q.set('vacancy_id', vacancyId);
+  return `${hhBase()}/hh/vacancy-new?${q.toString()}`;
+}
+
 // Bare /hh/review URL, optionally scoped to a vacancy (step 3's tab switcher handles
 // the rest when a profile tracks more than one). Shared by hhReviewPage() and
 // hhNewResponses() so both point at the same link-building logic.
@@ -220,6 +229,33 @@ function hhStylePage(userId) {
   const token = hhReviewToken(userId);
   const tokenParam = token ? `&token=${token}` : '';
   return `✍️ Страница обновления стиля общения:\n${hhBase()}/hh/style?username=${encodeURIComponent(userId)}${tokenParam}\n\nОткрой ссылку и вставь примеры своих сообщений кандидатам — извлеку правила стиля и сохраню.`;
+}
+
+// "покажи портрет" / "полнота вакансии" / "чего не хватает" — локально, без HH API.
+// Портрета нет → null (fall through): полная сессия разберётся, есть ли что показывать.
+function hhPortraitGauge(userId, workDir) {
+  const vacancy = _readActiveVacancy(workDir);
+  const vid = vacancy?.id || 'draft';
+  let portrait = null;
+  try { portrait = require('./hh-portrait').readPortrait(workDir, vid); } catch { portrait = null; }
+  if (!portrait) return null;
+
+  const c = require('./hh-portrait').computeCompleteness(portrait);
+  const title = portrait.vacancy?.title || vacancy?.title || 'Вакансия';
+  const rows = c.sections.map(s => `  ${String(s.percent).padStart(3)}% · ${s.filled}/${s.total} — ${s.label}`);
+  const missing = c.missing_flat.slice(0, 12);
+  const tail = missing.length
+    ? `Чего не хватает (${c.missing_flat.length}):\n${missing.map(m => `  · ${m}`).join('\n')}`
+    : '✅ Разрезы заполнены полностью.';
+  return [
+    `📋 Портрет вакансии «${title}» — ${c.percent}%`,
+    '',
+    ...rows,
+    '',
+    tail,
+    '',
+    `Правка и «Сгенерировать АТС»: ${hhVacancyNew(userId, vid)}`,
+  ].join('\n');
 }
 
 // HH OAuth policy: access_token TTL is 14 days. refresh_token rotates and lasts longer.
@@ -530,6 +566,7 @@ async function hhManualScan(userId, workDir) { return null; }
 module.exports = {
   hhMyVacancies, hhFunnelStats, hhNewResponses, hhAtsEditor, hhReviewPage, hhReviewUrl,
   hhWherePrompt, hhShowAtsConfig, hhStylePage, hhStatus,
+  hhPortraitGauge, hhVacancyNew,
   hhSendPreview, hhSendConfirm, hhSendCancel,
   hhRejectDryRun, hhRejectConfirm, hhRejectCancel,
   hhBatchEvaluate, hhManualScan,

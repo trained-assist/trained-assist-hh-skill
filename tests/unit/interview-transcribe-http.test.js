@@ -28,7 +28,7 @@ const SEPARATOR = '='.repeat(60);
 const transcribe = (args) => interview.tools.hh_interview_transcribe.handler(args, { userId: USER });
 const structure = (args) => interview.tools.hh_interview_structure.handler(args, { userId: USER });
 
-const ENV_KEYS = ['DEEPGRAM_API_KEY', 'AGENT_DATA_DIR', 'AGENT_TOKENS_DIR'];
+const ENV_KEYS = ['DEEPGRAM_API_KEY', 'AGENT_DATA_DIR', 'AGENT_TOKENS_DIR', 'USER_ID'];
 const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 let dataDir;
@@ -85,6 +85,7 @@ beforeEach(() => {
   process.env.AGENT_DATA_DIR = dataDir;
   process.env.AGENT_TOKENS_DIR = tokensDir;
   process.env.DEEPGRAM_API_KEY = KEY;
+  process.env.USER_ID = USER; // #89 читает structure.json через env — тот же юзер
   nock.cleanAll();
 });
 
@@ -243,6 +244,10 @@ describe('hh_interview_structure — Q&A-ходы без LLM', () => {
       { speaker: 'Иван Иванов', role: 'candidate', text: 'Пять лет на Node.js.', t: 5 },
     ]);
     expect(existsSync(res.structure_path)).toBe(true);
+    // Контракт с #89 (смержен в main): hh_interview_evaluate читает structure.json
+    // из той же папки — оба имени обязаны существовать и совпадать байт в байт.
+    expect(existsSync(res.portrait_structure_path)).toBe(true);
+    expect(read(res.portrait_structure_path)).toBe(read(res.structure_path));
 
     const again = await structure({ slug: 'ivanov' });
     expect(again.cached).toBe(true);

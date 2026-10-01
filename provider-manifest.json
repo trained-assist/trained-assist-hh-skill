@@ -968,6 +968,174 @@
       "retrySafety": "unsafe"
     },
     {
+      "name": "hh_portrait_extract",
+      "description": "Build the candidate portrait (structured vacancy requirements) from raw input — vacancy text, client correspondence, brief excerpts. Returns the portrait plus a completeness gauge (per-section percent and what is missing). Use for any message that describes a vacancy or client requirements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Vacancy the portrait belongs to. Defaults to the active vacancy."
+          },
+          "sources": {
+            "type": "array",
+            "description": "Input materials in order. Each item: {type: vacancy|correspondence|file|message, text}.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "vacancy",
+                    "correspondence",
+                    "file",
+                    "message",
+                    "text"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "vacancy_text": {
+            "type": "string",
+            "description": "Shortcut: a single source passed as plain text."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Rebuild even if a portrait already exists (default: return the existing one)."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_portrait_get",
+      "description": "Read the stored candidate portrait for a vacancy with its completeness gauge. Use when recruiter asks what is already collected about the vacancy requirements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "hh_portrait_update",
+      "description": "Patch specific fields of the stored candidate portrait (company/vacancy/requirements blocks). Only fields present in the patch are changed; unknown fields are ignored. Recomputes completeness.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          },
+          "patch": {
+            "type": "object",
+            "description": "Partial portrait: {company?: {...}, vacancy?: {...}, requirements?: {...}}. Arrays replace the stored list; null clears a scalar.",
+            "properties": {
+              "company": {
+                "type": "object"
+              },
+              "vacancy": {
+                "type": "object"
+              },
+              "requirements": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "required": [
+          "patch"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_portrait_completeness",
+      "description": "Completeness gauge of the candidate portrait only: per-section percent (donut) plus flat list of what is missing. Cheap — no LLM.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
+    },
+    {
+      "name": "hh_portrait_to_ats",
+      "description": "Derive the ATS evaluation config from the candidate portrait: required (must-have, weight 2) from hard skills, preferred (nice-to-have, weight 1) from soft skills, experience/location/salary filters, thresholds. save=true stores it for review in /hh/ats-editor (draft by default — live scoring starts only after a human saves it there, per issue #74).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vacancy_id": {
+            "type": "string",
+            "description": "Defaults to the active vacancy."
+          },
+          "save": {
+            "type": "boolean",
+            "description": "Persist the config for the ATS editor (default true)."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live"
+            ],
+            "description": "draft (default) → ats_config_draft:{id}, reviewed in /hh/ats-editor; live → ats_config:{id}, background scoring picks it up immediately."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
       "name": "hh_discover",
       "description": "Discover HH API capabilities. Use when user asks for HH operations not covered by other hh_* tools — e.g. creating vacancies, fetching dictionaries, changing negotiation status. Returns relevant API endpoints with notes. Pass call_endpoint to also fetch live data from HH.",
       "inputSchema": {
@@ -1968,7 +2136,7 @@
     },
     {
       "name": "hh_interview_structure",
-      "description": "Разбить готовый транскрипт интервью на Q&A-ходы БЕЗ LLM: по Q&A-паттерну (кто задаёт вопросы — рекрутер, кто отвечает — кандидат) и по заголовку «Интервью: … (рекрутер) — …», если транскрипт уже подписан. Читает agent-data/hh/<user>/interviews/<slug>/ (сырой deepgram.json, иначе <slug>-transcript.txt), пишет <slug>.structure.json: {speakers_detected, turns: [{speaker, role, text, t}]}. Один голос или нечитаемое чередование → speakers_detected: false и роли не подписаны — не выдумывай их. Идемпотентно: повтор возвращает кэш, force пересчитывает.",
+      "description": "Разбить готовый транскрипт интервью на Q&A-ходы БЕЗ LLM: по Q&A-паттерну (кто задаёт вопросы — рекрутер, кто отвечает — кандидат) и по заголовку «Интервью: … (рекрутер) — …», если транскрипт уже подписан. Читает agent-data/hh/<user>/interviews/<slug>/ (сырой deepgram.json, иначе <slug>-transcript.txt), пишет структуру в оба имени контракта — <slug>.structure.json и structure.json (его читает hh_interview_evaluate): {speakers_detected, turns: [{speaker, role, text, t}]}. Один голос или нечитаемое чередование → speakers_detected: false и роли не подписаны — не выдумывай их. Идемпотентно: повтор возвращает кэш, force пересчитывает.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2069,6 +2237,66 @@
       "effect": "write",
       "requiresApproval": false,
       "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_evaluate",
+      "description": "Оценить интервью по ТРЕБОВАНИЯМ ПОРТРЕТА вакансии: для каждого hard/soft skill, опыта и ключевых полей — связанные вопросы-ответы и балл 0–5 с обязательной цитатой (evidence), покрытие (что прозвучало / что нет) и отдельный блок коммуникативного стиля, который в итоговый скор не входит. Итог Σ(s×w)/Σ(5×w) → percent + 0–10, veto must-have ≤1 → ОТКЛОНИТЬ. Вход: interviews/<slug>/structure.json (issue #88) + portrait:{vacancy_id}. Идемпотентно по слагу — force пересчитывает.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Слаг интервью: папка interviews/<slug> со structure.json."
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Вакансия (portrait:{id} + ats_config:{id}). По умолчанию — активная вакансия."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если оценка уже есть (по умолчанию возвращается кэш)."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_coverage",
+      "description": "Покрытие интервью по требованиям портрета: какие требования прозвучали, какие нет («не прозвучало» — список вопросов на следующий этап). Дешёвый чтение результата hh_interview_evaluate, без LLM.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Слаг интервью: папка interviews/<slug>."
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Вакансия. По умолчанию — активная вакансия."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
     }
   ]
 }

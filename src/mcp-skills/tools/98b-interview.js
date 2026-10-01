@@ -382,6 +382,7 @@ function resultPayload(meta, dir, slug, cached) {
     transcript_path: transcriptPath,
     deepgram_path: fs.existsSync(deepgramPath) ? deepgramPath : null,
     structure_path: path.join(dir, `${slug}.structure.json`),
+    portrait_structure_path: path.join(dir, 'structure.json'),
   };
 }
 
@@ -501,7 +502,8 @@ module.exports = {
         'Разбить готовый транскрипт интервью на Q&A-ходы БЕЗ LLM: по Q&A-паттерну (кто задаёт вопросы — ' +
         'рекрутер, кто отвечает — кандидат) и по заголовку «Интервью: … (рекрутер) — …», если транскрипт ' +
         'уже подписан. Читает agent-data/hh/<user>/interviews/<slug>/ (сырой deepgram.json, иначе ' +
-        '<slug>-transcript.txt), пишет <slug>.structure.json: {speakers_detected, turns: [{speaker, role, ' +
+        '<slug>-transcript.txt), пишет структуру в оба имени контракта — <slug>.structure.json и ' +
+        'structure.json (его читает hh_interview_evaluate): {speakers_detected, turns: [{speaker, role, ' +
         'text, t}]}. Один голос или нечитаемое чередование → speakers_detected: false и роли не подписаны — ' +
         'не выдумывай их. Идемпотентно: повтор возвращает кэш, force пересчитывает.',
       inputSchema: {
@@ -521,15 +523,24 @@ module.exports = {
         if (!fs.existsSync(dir)) {
           throw new Error(`Интервью «${slug}» не найдено (${path.relative(process.cwd(), dir) || dir}) — сначала hh_interview_transcribe.`);
         }
+        // Два имени одного файла, пока контракт не унифицирован: спека #88 обещает
+        // <slug>.structure.json, а смёрдженный в main #89 (99b-interview-portrait.js)
+        // читает structure.json из той же папки и называет это «контрактом #88» —
+        // пишем оба, иначе эпик #83 рвётся на стыке #88→#89.
         const structurePath = path.join(dir, `${slug}.structure.json`);
+        const sharedStructurePath = path.join(dir, 'structure.json');
+        const structurePaths = [structurePath, sharedStructurePath];
         const transcriptPath = path.join(dir, `${slug}-transcript.txt`);
         const deepgramPath = path.join(dir, 'deepgram.json');
 
         let payload = null;
         let cached = false;
-        if (!args.force && fs.existsSync(structurePath)) {
-          try { payload = JSON.parse(fs.readFileSync(structurePath, 'utf-8')); cached = true; }
-          catch { payload = null; /* битый файл — читаем заново */ }
+        if (!args.force) {
+          for (const candidate of structurePaths) {
+            if (!fs.existsSync(candidate)) continue;
+            try { payload = JSON.parse(fs.readFileSync(candidate, 'utf-8')); cached = true; break; }
+            catch { payload = null; /* битый файл — смотрим следующий */ }
+          }
         }
 
         if (!payload) {
@@ -567,8 +578,10 @@ module.exports = {
             })),
             source_path: sourcePath,
           };
-          fs.writeFileSync(structurePath, JSON.stringify(payload, null, 2), 'utf-8');
         }
+
+        const serialized = JSON.stringify(payload, null, 2);
+        for (const candidate of structurePaths) fs.writeFileSync(candidate, serialized, 'utf-8');
 
         return {
           cached,
@@ -576,6 +589,7 @@ module.exports = {
           ...payload,
           turns_count: payload.turns.length,
           structure_path: structurePath,
+          portrait_structure_path: sharedStructurePath,
           ...(payload.speakers_detected ? {} : {
             hint: 'Спикеры не разделены (один голос или нечитаемое чередование) — роли не подписаны, не приписывай их сам.',
           }),

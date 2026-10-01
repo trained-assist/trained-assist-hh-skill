@@ -64,6 +64,11 @@
     { "name": "hh_vacancy_update_draft", "validArgs": { "name": "Инженер Node.js" } },
     { "name": "hh_vacancy_create_draft", "validArgs": { "name": "Инженер Node.js", "description_md": "Ищем backend-разработчика" } },
     { "name": "hh_vacancy_publish_page", "validArgs": {} },
+    { "name": "hh_portrait_extract", "validArgs": { "sources": [{ "type": "vacancy", "text": "Ищем маркетолога, удалёнка, оклад 100000 ₽" }] }, "expect": { "ok": true } },
+    { "name": "hh_portrait_get", "validArgs": {}, "expect": { "ok": true } },
+    { "name": "hh_portrait_completeness", "validArgs": {}, "expect": { "ok": true } },
+    { "name": "hh_portrait_update", "validArgs": { "patch": { "requirements": { "hard_skills": ["SEO карточек"] } } }, "expect": { "ok": true } },
+    { "name": "hh_portrait_to_ats", "validArgs": { "save": false }, "expect": { "ok": true } },
     { "name": "hh_discover", "validArgs": { "query": "get me" } },
     { "name": "hh_api_call", "validArgs": { "method": "GET", "path": "/me" } },
     { "name": "cold_message_generate", "validArgs": { "vacancy_description": "Ищем Node.js разработчика" } },
@@ -100,6 +105,8 @@
     { "name": "interview_analyze", "validArgs": { "transcript": "Интервьюер: расскажите об опыте. Кандидат: 5 лет Node.js." } },
     { "name": "hh_interview_transcribe", "validArgs": { "source_url": "https://drive.google.com/uc?export=download&id=fixture-video" } },
     { "name": "hh_interview_transcribe", "validArgs": { "slug": "fixture-interview", "candidate_name": "Fixture Candidate", "text": "Интервью: Владимир (рекрутер) — Fixture Candidate\nДата: 01.10.2026\nДлительность: 1.0 мин\n============================================================\n\n[0:00] Владимир (рекрутер): Здравствуйте! Расскажите о своём опыте?\n\n[0:10] Fixture Candidate: Здравствуйте! Пять лет разрабатываю на Node.js.\n" }, "expect": { "cached": false, "speakers_detected": true } },
-    { "name": "hh_interview_structure", "validArgs": { "slug": "fixture-interview" }, "expect": { "speakers_detected": true } }
+    { "name": "hh_interview_structure", "validArgs": { "slug": "fixture-interview" }, "expect": { "speakers_detected": true } },
+    { "name": "hh_interview_evaluate", "validArgs": { "slug": "video-interveu-primer-2", "vacancy_id": "vac-001" }, "expect": { "ok": true, "vacancy_id": "vac-001" } },
+    { "name": "hh_interview_coverage", "validArgs": { "slug": "video-interveu-primer-2", "vacancy_id": "vac-001" }, "expect": { "ok": true, "vacancy_id": "vac-001" } }
   ]
 }

@@ -88,6 +88,10 @@ const POLICY = {
   // sha256 cache, so both are idempotent and user-triggered only.
   hh_interview_transcribe: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
   hh_interview_structure:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  // Interview → portrait requirements (#89): reads structure.json + the stored portrait,
+  // writes the evaluation cache locally (LLM, no HH effect). Coverage reads that cache.
+  hh_interview_evaluate: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+  hh_interview_coverage: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   // ── Read-only actions ──────────────────────────────────────────────────────
   hh_list_vacancies:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_list_responses:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
@@ -109,6 +113,13 @@ const POLICY = {
   hh_open_ats_editor:       { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_vacancy_update_draft:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_vacancy_create_draft:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+
+  // ── Candidate portrait (#83) — local context reads/writes, no outbound HH effect ──
+  hh_portrait_extract:     { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+  hh_portrait_get:         { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
+  hh_portrait_update:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+  hh_portrait_completeness:{ effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
+  hh_portrait_to_ats:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   cold_message_generate:    { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   rejection_with_feedback:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   // Schedulable (agent#1489 S7.1): hh_proactive_schedule is a wrapper creating one core
