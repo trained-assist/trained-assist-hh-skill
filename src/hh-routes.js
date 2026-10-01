@@ -18,6 +18,7 @@ const { hhFetch, hhPut, hhPostForm, readHhToken, refreshHhToken, readActiveVacan
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, DEFAULT_MESSAGE_BASE, BASE_PROMPT_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
+const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
 
@@ -837,18 +838,19 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     } catch { /* ignore — generate without vacancy context */ }
   }
 
-  // interview_config (set via the ATS editor) — only proposes a concrete call
-  // slot when it has real availability, otherwise asks the candidate instead
-  // of inventing a time (see hh-message-prompts.js / commit 3ff4e11 / #606).
-  let interviewConfig = null;
-  try {
-    const atsConfigFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'ats_config.json');
-    if (fs.existsSync(atsConfigFile)) {
-      let val = JSON.parse(fs.readFileSync(atsConfigFile, 'utf8'))?.value;
-      if (typeof val === 'string') val = JSON.parse(val);
-      interviewConfig = val?.interview_config || null;
-    }
-  } catch { /* ignore */ }
+  // Read the ATS config the way the rest of the pipeline does: per-vacancy first
+  // (ats_config:{id}), legacy singleton as fallback. This route used to read ONLY
+  // the singleton, so on a multi-vacancy profile the button generated a letter with
+  // another vacancy's availability block and no test task at all.
+  const vacancyId = (body?.vacancy_id || '') || null;
+  const vacancyCtxFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json');
+  let effectiveVacancyId = vacancyId;
+  if (!effectiveVacancyId && fs.existsSync(vacancyCtxFile)) {
+    try { effectiveVacancyId = JSON.parse(fs.readFileSync(vacancyCtxFile, 'utf8'))?.value?.id || null; } catch { /* ignore */ }
+  }
+  const { readAtsConfig } = require('./hh-scoring');
+  const atsConfig = readAtsConfig(BASE_USERS_DIR ? path.join(BASE_USERS_DIR, String(username)) : process.cwd(), effectiveVacancyId);
+  const interviewConfig = atsConfig?.interview_config || null;
   const availabilityBlock = buildAvailabilityBlock(interviewConfig);
 
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
@@ -858,6 +860,21 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
 
   const firstName = (candidate_name || 'Кандидат').split(' ')[0];
   const ats = history.ats_result || {};
+
+  // Funnel decides the step, the writer only renders it (01.10.2026). A rejection
+  // the recruiter explicitly asked for bypasses the planner.
+  let plan = null;
+  if (msgType !== 'rejection') {
+    plan = await planNextStep({
+      history: msgs,
+      atsResult: ats,
+      atsConfig: atsConfig || {},
+      resumeText: fullResumeText,
+      username,
+      apiKey,
+    });
+  }
+
   const userMsg = msgType === 'rejection'
     ? `Напиши вежливый отказ кандидату ${firstName}.`
     : buildDraftUserMessage({
@@ -867,6 +884,9 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       atsResult: ats,
       history: msgs,
       availabilityBlock,
+      action: plan ? plan.action : null,
+      missingSkills: plan?.missing_skills || [],
+      testTask: atsConfig?.test_task || '',
     });
 
   function callLlm(userContent) {
@@ -906,7 +926,11 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     // what was wrong. Only a still-failing second attempt reaches the recruiter as a
     // visible warning — invented_time is informational-only so it never triggers this.
     const allowSpecificTime = hhInterviewConfigAllowsTime(username);
-    let message = await callLlm(userMsg);
+    // The test task is the one letter that must NOT be written by a model: the
+    // vacancy promises it goes out word-for-word.
+    let message = plan?.action === 'send_test'
+      ? (buildTestTaskMessage(atsConfig?.test_task) || await callLlm(userMsg))
+      : await callLlm(userMsg);
     let guard = await bullshitGuard(message, msgs, { username, allowSpecificTime });
     if (!guard.ok) {
       console.warn(`[hh/generate-message] draft failed guard, regenerating: user=${username} neg=${negotiation_id} reason="${guard.reason}"`);
@@ -925,6 +949,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     fs.mkdirSync(candDir, { recursive: true });
     fs.writeFileSync(histFile, JSON.stringify(history, null, 2), { mode: 0o600 });
     const resp = { ok: true, message };
+    if (plan) { resp.funnel_action = plan.action; resp.funnel_reason = plan.reason; }
     if (!guard.ok) resp.guard_warning = guard.reason;
     return json(res, 200, resp);
   } catch (e) {

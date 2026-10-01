@@ -222,6 +222,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
              <label class="msg-label">${msgLabel}</label>
              <button class="btn btn-gen" id="gen-${i}" data-idx="${i}" data-negid="${esc(c.negotiation_id)}" data-name="${esc(c.name)}" data-sent="${c.already_sent ? '1' : '0'}" onclick="generateOne(${i},'${esc(c.negotiation_id)}','${esc(c.name)}',${!!c.already_sent})" title="Сгенерировать черновик">✦ Сгенерировать</button>
            </div>
+           <div class="funnel-step" style="font-size:11px;color:var(--muted);margin:-4px 0 6px"></div>
            <textarea class="msg-area" id="msg-${i}" rows="5">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
              <button class="btn btn-send" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}')">✓ Отправить</button>
@@ -668,8 +669,15 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       candidate_name: candidateName,
       resume_text: resumeText,
       already_sent: alreadySent,
+      // Without this the route falls back to the legacy singleton config — on a
+      // multi-vacancy profile that is another vacancy's criteria and no test task.
+      vacancy_id: HH_VACANCY_ID || null,
     });
     if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; }
+    const step = document.querySelector('#card-'+i+' .funnel-step');
+    if (step) step.textContent = data.funnel_action
+      ? 'Шаг воронки: ' + data.funnel_action + (data.funnel_reason ? ' — ' + data.funnel_reason : '')
+      : '';
     if (btn) { btn.disabled = false; btn.textContent = '✦ Переписать'; }
     if (data.guard_warning) showToast('⚠️ Черновик после перегенерации всё ещё под вопросом: ' + data.guard_warning, true);
   } catch(e) {

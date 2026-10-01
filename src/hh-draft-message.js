@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { usersRoot } = require('./data-paths');
 const { hasRealAvailability } = require('./hh-message-prompts');
+const { FUNNEL_LOGIC_VERSION, buildActionInstruction, ACTION_INSTRUCTION } = require('./hh-funnel');
 
 const HISTORY_WINDOW = 8;
 
@@ -106,6 +107,12 @@ function buildDraftUserMessage({
   history = [],
   availabilityBlock = '',
   candidateContext = '',
+  // Funnel step decided by src/hh-funnel.js. When present it REPLACES the legacy
+  // TYPE_INSTRUCTION: deciding and writing are separate steps, and the writer must
+  // not re-derive the state from prose.
+  action = null,
+  missingSkills = [],
+  testTask = '',
 } = {}) {
   const parts = [`Кандидат: ${firstName}`, ''];
   const intro = messageType === 'initial';
@@ -114,7 +121,10 @@ function buildDraftUserMessage({
   const atsLine = buildAtsLine(atsResult);
   if (atsLine) parts.push(atsLine);
   parts.push(`История переписки:\n${renderHistory(history) || '(переписки ещё не было — это первое сообщение)'}`);
-  parts.push(`\n\n${TYPE_INSTRUCTION[messageType] || TYPE_INSTRUCTION.reply}`);
+  const instruction = action
+    ? buildActionInstruction(action, { missingSkills, testTask })
+    : (TYPE_INSTRUCTION[messageType] || TYPE_INSTRUCTION.reply);
+  if (instruction) parts.push(`\n\n${instruction}`);
   if (messageType !== 'rejection') {
     parts.push('\n\nЕсли предлагаешь созвон — называй дату И время («в четверг в 15:00»). '
       + 'Дата без времени предложением не считается: кандидат не поймёт, во сколько звонить. '
@@ -128,18 +138,31 @@ function buildDraftUserMessage({
 // The draft lives in ats_result and is reused as-is by /hh/review. Without a signature
 // of the thread it was written against, a candidate answering afterwards kept seeing a
 // draft composed for a conversation that had not happened yet.
+// The version prefix is the fix for issue #71: the signature used to describe the
+// THREAD only, so a draft written by a broken prompt stayed cached forever — the
+// thread had not changed, therefore nothing looked stale. Now a change to the
+// funnel logic invalidates every draft it produced, on the next background pass.
 function historySignature(history = []) {
   const msgs = (history || []).filter(m => m && String(m.text || '').trim());
   const last = msgs[msgs.length - 1];
-  if (!last) return 'empty';
-  return `${msgs.length}:${last.hh_id || last.timestamp || ''}`;
+  if (!last) return `${FUNNEL_LOGIC_VERSION}:empty`;
+  return `${FUNNEL_LOGIC_VERSION}:${msgs.length}:${last.hh_id || last.timestamp || ''}`;
 }
+
+// Actions that legitimately produce NO letter. Without the skip signature the
+// background loop would re-plan (and pay for a planner call) every cycle for every
+// silent candidate — 'no draft' is a decision, not missing work.
+const NO_LETTER_ACTIONS = ['wait', 'reject'];
 
 function isDraftStale(history = {}) {
   const ats = history?.ats_result || {};
+  const sig = historySignature(history.messages || []);
+  if (NO_LETTER_ACTIONS.includes(ats.funnel_action)) {
+    return ats.draft_skip_sig !== sig;
+  }
   if (!ats.draft_message) return true;
   if (!ats.draft_history_sig) return true;
-  return ats.draft_history_sig !== historySignature(history.messages || []);
+  return ats.draft_history_sig !== sig;
 }
 
 // draftMeta() used to live here and was never called by any call site — draft_history_sig is
@@ -163,6 +186,9 @@ function interviewConfigAllowsTime(username) {
 module.exports = {
   HISTORY_WINDOW,
   TYPE_INSTRUCTION,
+  ACTION_INSTRUCTION,
+  NO_LETTER_ACTIONS,
+  FUNNEL_LOGIC_VERSION,
   detectMessageType,
   buildDraftUserMessage,
   buildAtsLine,

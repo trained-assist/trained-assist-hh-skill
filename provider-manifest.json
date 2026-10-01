@@ -371,7 +371,7 @@
     },
     {
       "name": "hh_extract_ats_config",
-      "description": "Generate ATS evaluation config from vacancy text using LLM. Returns knockout criteria, required/preferred skills with weights, and score thresholds. Recruiter reviews and adjusts before using.",
+      "description": "Generate ATS evaluation config from vacancy text using LLM. Returns required/preferred MEASURABLE criteria with weights and score thresholds (no knockout list). Criteria that cannot be confirmed from a resume are dropped automatically. Recruiter reviews and adjusts before using.",
       "inputSchema": {
         "type": "object",
         "properties": {
