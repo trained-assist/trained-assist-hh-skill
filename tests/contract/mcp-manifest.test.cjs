@@ -63,26 +63,14 @@ test('manifest identity is internally consistent', () => {
   new ActionProviderRegistry().register(source.approvedManifest);
 });
 
-// Two tools predate the hh_ namespacing and are pinned in core's approved
-// action snapshot (contracts/action-v1/hh-tools.snapshot.json). Renaming them
-// would break core consumers, so they are an explicit, frozen allowlist.
-// Recruiting tools moved from core keep their established names (agent#1470) —
-// core quick answers and user habits refer to them.
-const LEGACY_NAMES = new Set(['cold_message_generate', 'rejection_with_feedback',
-  'calltips_get_login', 'calltips_prepare', 'calltips_list_candidates',
-  'boolean_search', 'jd_generate', 'interview_questions_bank', 'salary_benchmark', 'sourcing_checklist',
-  'applylink_create_vacancy', 'applylink_list_vacancies', 'applylink_get_candidates',
-  'demo_activate', 'demo_status', 'demo_candidates', 'demo_next_wave', 'demo_candidate_profile', 'demo_reply', 'demo_deactivate',
-  'candidate_report_context', 'candidate_report_add_note', 'candidate_report_render',
-  'interview_set_criteria', 'interview_get_criteria', 'interview_analyze']);
-
-test('manifest actions are namespaced and policy-valid', () => {
+// Public tool names are stable API. The core registry rejects duplicate action
+// names across providers; this suite verifies syntax, local uniqueness and policy.
+test('manifest actions are well-formed, unique and policy-valid', () => {
   const [source] = manifest.sources;
   const names = source.approvedManifest.actions.map((a) => a.name);
   assert.equal(new Set(names).size, names.length, 'duplicate action names');
   for (const action of source.approvedManifest.actions) {
-    assert.ok(/^hh_[a-z0-9_]*$/.test(action.name) || LEGACY_NAMES.has(action.name),
-      `${action.name} must be namespaced hh_* (or a frozen legacy name)`);
+    assert.match(action.name, /^[a-z][a-z0-9_]*$/, `${action.name} must be snake_case`);
     assert.equal(action.inputSchema.type, 'object');
     if (action.effect === 'read') assert.equal(action.retrySafety, 'read_only');
     else assert.notEqual(action.retrySafety, 'read_only');
@@ -91,6 +79,15 @@ test('manifest actions are namespaced and policy-valid', () => {
   for (const reserved of ['playwright', 'trained-skills']) {
     assert.notEqual(source.mcpServerId, reserved, 'mcpServerId collides with a core server');
   }
+});
+
+test('core registry rejects action-name collisions across different providers', () => {
+  const approved = manifest.sources[0].approvedManifest;
+  const registry = new ActionProviderRegistry();
+  registry.register(approved);
+  const other = { ...structuredClone(approved), providerId: 'collision-fixture' };
+  assert.throws(() => registry.register(other), error =>
+    error.code === 'CONFLICT' && /Duplicate action:/.test(error.message));
 });
 
 test('tool-name parity: manifest actions == real server tools/list', async () => {
