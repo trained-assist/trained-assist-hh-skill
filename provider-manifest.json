@@ -2176,6 +2176,66 @@
       "effect": "write",
       "requiresApproval": false,
       "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_evaluate",
+      "description": "Оценить интервью по ТРЕБОВАНИЯМ ПОРТРЕТА вакансии: для каждого hard/soft skill, опыта и ключевых полей — связанные вопросы-ответы и балл 0–5 с обязательной цитатой (evidence), покрытие (что прозвучало / что нет) и отдельный блок коммуникативного стиля, который в итоговый скор не входит. Итог Σ(s×w)/Σ(5×w) → percent + 0–10, veto must-have ≤1 → ОТКЛОНИТЬ. Вход: interviews/<slug>/structure.json (issue #88) + portrait:{vacancy_id}. Идемпотентно по слагу — force пересчитывает.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Слаг интервью: папка interviews/<slug> со structure.json."
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Вакансия (portrait:{id} + ats_config:{id}). По умолчанию — активная вакансия."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если оценка уже есть (по умолчанию возвращается кэш)."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_coverage",
+      "description": "Покрытие интервью по требованиям портрета: какие требования прозвучали, какие нет («не прозвучало» — список вопросов на следующий этап). Дешёвый чтение результата hh_interview_evaluate, без LLM.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Слаг интервью: папка interviews/<slug>."
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Вакансия. По умолчанию — активная вакансия."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
     }
   ]
 }

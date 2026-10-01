@@ -2109,6 +2109,64 @@
       "effect": "write",
       "requiresApproval": false,
       "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_evaluate",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Слаг интервью: папка interviews/<slug> со structure.json."
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Вакансия (portrait:{id} + ats_config:{id}). По умолчанию — активная вакансия."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если оценка уже есть (по умолчанию возвращается кэш)."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_coverage",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Слаг интервью: папка interviews/<slug>."
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Вакансия. По умолчанию — активная вакансия."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user",
+        "cron",
+        "durable_task"
+      ],
+      "effect": "read",
+      "requiresApproval": false,
+      "retrySafety": "read_only"
     }
   ]
 }
