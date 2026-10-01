@@ -69,18 +69,26 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
       history_messages: history.messages || [],
       already_sent: (history.messages || []).some(m => m.role === 'employer'),
       needs_reply: (() => {
-        // Use HH API as source of truth — local history can be out of sync
-        // (messages written locally but not delivered via HH API)
+        // HH counters answer "is there something unread"; the local history answers
+        // "who spoke last". Local history is synced from HH on every page load and
+        // only stores messages HH confirmed (each carries its hh_id), so it is the
+        // exact source for the last sender.
         if (neg.counters?.unread_messages > 0) return true;
         if (neg.has_updates) return true;
-        // ≤1 message in HH means only the candidate's cover letter, no reply from us
-        if ((neg.counters?.messages || 0) <= 1) return true;
-        // HH shows 2+ messages — check local history for last sender
         const msgs = history.messages || [];
+        const hhMessages = neg.counters?.messages || 0;
         if (msgs.length > 0) {
+          // HH knows about more chat messages than we stored → our history is stale,
+          // the last sender is unknown, so let the recruiter look instead of guessing.
+          if (hhMessages > msgs.length) return true;
           return msgs[msgs.length - 1].role !== 'employer';
         }
-        return false;
+        // No local history at all. counters.messages counts real chat messages only —
+        // the candidate's cover letter is NOT counted (verified against the HH API:
+        // a response with our single message reports messages=1). 0 → nobody wrote in
+        // the chat yet, the response itself still needs an answer. Never `<= 1`: that
+        // misfiled every candidate we already answered as "Неотвеченные".
+        return hhMessages === 0;
       })(),
       alternate_url: r.alternate_url || null,
       salary: r.salary ? `${(r.salary.amount || '').toLocaleString?.() || r.salary.amount} ${r.salary.currency || ''}`.trim() : null,
