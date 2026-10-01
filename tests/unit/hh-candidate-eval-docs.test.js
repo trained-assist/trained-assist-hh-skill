@@ -140,6 +140,27 @@ describe('mdToHtml', () => {
   });
 });
 
+describe('findInterviewEval (#89 layout)', () => {
+  it('reads interviews/<slug>/<slug>.interview-eval.json and feeds coverage/communication into the report', async () => {
+    const candidateId = await makeCandidate();
+    const ivDir = join(dataDir, 'hh', 'u1', 'interviews', 'anna');
+    mkdirSync(ivDir, { recursive: true });
+    writeFileSync(join(ivDir, 'anna.interview-eval.json'), JSON.stringify({
+      candidate: 'Стогниенко Анна', percent: 60, score10: 6, verdict: 'УТОЧНИТЬ',
+      scoring: [{ criterion: 'Опыт B2B', weight: 2, score: 2, evidence: '«небольшой опыт»' }],
+      coverage: { covered: [{ topic: 'Опыт', quote: 'True Gamers' }], missing: ['Вебинары'] },
+      communication: { rows: [{ metric: 'Вежливость', score: 5, quote: 'ну да' }] },
+    }));
+    const data = docs.buildReportData({ username: 'u1', candidateId });
+    expect(data.interview_coverage).toBeTruthy();
+    expect(data.interview_coverage.missing).toContain('Вебинары');
+    expect(data.communication.rows[0].metric).toBe('Вежливость');
+    expect(data.scoring.rows[0].requirement).toBe('Опыт B2B');
+    const md = docs.renderCleanEvalMd(data);
+    expect(md).toContain('## Покрытие интервью');
+  });
+});
+
 describe('photoDataUri', () => {
   it('embeds the stored photo as a data URI', async () => {
     const candidateId = await makeCandidate();

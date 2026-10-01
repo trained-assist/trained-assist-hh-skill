@@ -24,21 +24,36 @@ function readJsonMaybe(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
-function findInterviewEval(username, candidateId, name) {
+function findInterviewEval(username, candidateId, name, evalSlug = null) {
   const dir = path.join(dataRoot(), 'hh', username, 'interviews');
+  const slug = evalSlug || candidateId;
+  // Фактический слейаут #89: interviews/<slug>/<slug>.interview-eval.json (+ .md рядом).
+  // Старые/альтернативные имена держим как фолбэк, чтобы ничего не потерять.
   const candidates = [
+    path.join(dir, slug, `${slug}.interview-eval.json`),
+    path.join(dir, slug, 'interview-eval.json'),
+    path.join(dir, `${slug}.interview-eval.json`),
     path.join(dir, `${candidateId}.interview-eval.json`),
-    path.join(dir, `${candidateId}`, 'interview-eval.json'),
   ];
   for (const f of candidates) {
     const j = readJsonMaybe(f);
     if (j) return j;
   }
-  // мягкий поиск по имени кандидата (один файл на пользователя — частый кейс)
+  // мягкий поиск: все папки и файлы оценок, по имени кандидата
   try {
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith('.interview-eval.json')) continue;
-      const j = readJsonMaybe(path.join(dir, f));
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const files = [];
+    for (const e of entries) {
+      if (e.isFile() && e.name.endsWith('.interview-eval.json')) files.push(path.join(dir, e.name));
+      if (e.isDirectory()) {
+        const inner = path.join(dir, e.name, `${e.name}.interview-eval.json`);
+        if (fs.existsSync(inner)) files.push(inner);
+        const flat = path.join(dir, e.name, 'interview-eval.json');
+        if (fs.existsSync(flat)) files.push(flat);
+      }
+    }
+    for (const f of files) {
+      const j = readJsonMaybe(f);
       if (j && name && String(j.candidate || '').toLowerCase().includes(String(name).split(' ')[0].toLowerCase())) return j;
     }
   } catch { /* нет директории */ }
@@ -68,9 +83,7 @@ function buildReportData({ username, candidateId, vacancyId = null, evalSlug = n
   let portrait = null;
   try { portrait = readPortrait(profileWorkDir, vacancyId || activeVacancyId(profileWorkDir) || 'draft'); } catch { portrait = null; }
 
-  const interviewEval = evalSlug
-    ? readJsonMaybe(path.join(dataRoot(), 'hh', username, 'interviews', `${evalSlug}.interview-eval.json`))
-    : findInterviewEval(username, candidateId, manifest.name);
+  const interviewEval = findInterviewEval(username, candidateId, manifest.name, evalSlug || null);
   const job = findEvalJob(username, candidateId);
   const ats = readAtsResult(username, negId);
 
