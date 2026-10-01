@@ -73,6 +73,42 @@ describe('detectMessageType — one rule for all draft call sites', () => {
   it('an explicit rejection request still wins', () => {
     expect(detectMessageType({ history: BAKHTADZE_HISTORY, forceType: 'rejection' })).toBe('rejection');
   });
+
+  it('a whole history object is accepted as well as a bare array', () => {
+    // Prod 01.10.2026: the background path passed the whole candidate record
+    // `{ messages: thread }`, so `(history || []).filter is not a function` threw on
+    // every cycle and no candidate got an auto-draft at all. Both shapes must resolve,
+    // and a wrong shape must degrade to 'initial' rather than kill the drafting loop.
+    expect(detectMessageType({ history: { messages: BAKHTADZE_HISTORY } })).toBe('reply');
+    expect(detectMessageType({ history: { messages: [] } })).toBe('initial');
+    expect(detectMessageType({ history: null })).toBe('initial');
+    expect(detectMessageType({ history: { messages: null } })).toBe('initial');
+    expect(detectMessageType({})).toBe('initial');
+  });
+
+  it('no call site may pass a non-array to detectMessageType', () => {
+    // The shape drift is the bug, not the crash. Pin the call sites so the background
+    // loop cannot wrap its history again — a wrong shape is now silently 'initial',
+    // which would re-introduce a candidate we already wrote to instead of erroring.
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.join(__dirname, '..', '..', 'src');
+    const files = fs.readdirSync(root, { recursive: true })
+      .filter(f => String(f).endsWith('.js'))
+      .map(f => path.join(root, String(f)));
+    const offenders = [];
+    for (const file of files) {
+      const src = fs.readFileSync(file, 'utf8');
+      src.split('\n').forEach((line, i) => {
+        if (!/detectMessageType\(\{/.test(line)) return;
+        const m = line.match(/history:\s*([^,}]+)/);
+        if (m && !/^\s*(history|thread|messages|arr|\w*History|\w*HISTORY)\s*$/.test(m[1])) {
+          offenders.push(`${path.relative(root, file)}:${i + 1} → ${m[1].trim()}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe('buildDraftUserMessage — the model sees the dialogue and the branch it is in', () => {
