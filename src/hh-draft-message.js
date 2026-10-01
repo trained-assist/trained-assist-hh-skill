@@ -48,14 +48,24 @@ const TYPE_INSTRUCTION = {
   followup:
     'Кандидат НЕ ответил на наше последнее сообщение. Короткий вежливый follow-up без давления, ' +
     '2-3 предложения. НЕ представляйся заново — мы уже представились. Не переспрашивай то, что уже спрашивали.',
+  // Step 2 used to be phrased as a description OF THE CANDIDATE — «спроси, к какому из
+  // вопросов он относится» — and the model copied that description straight into the letter
+  // instead of turning it into recruiter speech: "К какому из моих вопросов вы относитесь?"
+  // (prod, negotiation 5610867713, issue #68). Describing the INTENT and showing the phrasing
+  // in the recruiter's own voice is what fixes it: the model has a speakable line to adapt
+  // rather than a third-person stub to echo. Same wording in hh-message-prompts.js.
   reply:
     'Кандидат только что ответил — это ПРОДОЛЖЕНИЕ переписки, а не новое письмо.\n' +
     'НЕ представляйся заново (мы уже представились в первом сообщении) и не начинай с нуля.\n' +
     'НЕ повторяй вопросы, на которые в истории уже есть ответ.\n' +
-    'Если ответ кандидата НЕ ответил на наши вопросы или неоднозначен (например «да», «ок», ' +
-    '«хорошо», «согласен», «давайте», ответ не по теме, ответ на один вопрос вместо трёх): ' +
-    '1) коротко поблагодари за ответ, 2) спроси, к какому из вопросов он относится, ' +
-    '3) перечисли вопросы заново списком — каждый с новой строки. Обязательно все три шага.',
+    'Сначала пойми, сообщает ли последняя реплика кандидата что-то конкретное по нашим вопросам.\n' +
+    'Если конкретики нет («да», «ок», «хорошо», «согласен», «давайте», не по теме или ответ только ' +
+    'на один вопрос из трёх), выполни три шага:\n' +
+    '1) коротко поблагодари за ответ;\n' +
+    '2) спроси у кандидата, что именно он имел в виду, своими словами и как живой человек — ' +
+    'например: «Ваше «да» — это про все вопросы сразу или про какой-то один?»;\n' +
+    '3) перечисли вопросы заново списком — каждый с новой строки.\n' +
+    'Обязательно все три шага.',
   invite_call:
     'Кандидат ответил, и мы его зовём. Предложи короткий созвон следующим шагом. ' +
     'НЕ представляйся заново. Одно-два предложения о том, что обсудим, и вопрос об удобном времени.',
@@ -125,9 +135,8 @@ function isDraftStale(history = {}) {
   return ats.draft_history_sig !== historySignature(history.messages || []);
 }
 
-function draftMeta(history = {}, extra = {}) {
-  return { ...(history?.ats_result?.draft_meta || {}), ...extra, history_sig: historySignature(history?.messages || []) };
-}
+// draftMeta() used to live here and was never called by any call site — draft_history_sig is
+// written directly instead. Dead code, removed in #68 so nobody hunts for a use for it.
 
 // Whether the recruiter configured real call slots (ATS editor → interview_config).
 // Only then may a message name a specific time; the send guard uses it to stop
@@ -153,6 +162,5 @@ module.exports = {
   renderHistory,
   historySignature,
   isDraftStale,
-  draftMeta,
   interviewConfigAllowsTime,
 };
