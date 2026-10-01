@@ -67,6 +67,7 @@ const hhCandidateDocs = require('./hh-candidate-docs');
 const { TYPES: CANDIDATE_DOC_TYPES } = require('./hh-doc-classify');
 const evalDocs = require('./hh-candidate-eval-docs');
 const reportPdf = require('./hh-report-pdf');
+const evalJob = require('./hh-eval-job');
 
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -1573,6 +1574,31 @@ if (req.method === 'GET' && url.pathname === '/hh/candidate-photo') {
   } catch (e) {
     return json(res, 500, { error: e.message });
   }
+}
+
+// ── «Запустить оценку» (#90): async-джоб с прогрессом, не блокирует HTTP ──────
+if (req.method === 'POST' && url.pathname === '/hh/eval-run') {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, token, candidate_id: candId, vacancy_id: vacId } = body || {};
+  if (!hhHub.SAFE_ID.test(String(username || '')) || !hhHub.SAFE_ID.test(String(candId || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (vacId && !hhHub.SAFE_ID.test(String(vacId))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const out = evalJob.startEvalJob({ username, candidateId: candId, vacancyId: vacId || null });
+  if (out.error) return json(res, 422, { error: out.error });
+  console.log(`[hh/eval-run] user=${username} candidate=${candId} vacancy=${out.job.vacancy_id} started`);
+  return json(res, 200, { ok: true, job_id: out.job.id, state: out.job.state });
+}
+
+if (req.method === 'GET' && url.pathname === '/hh/eval-run') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(candidateId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const job = evalJob.readJob(username, candidateId);
+  if (!job) return json(res, 404, { error: 'Оценка ещё не запускалась.' });
+  return json(res, 200, { job });
 }
 
 if (req.method === 'GET' && url.pathname === '/api/hh/proactive/candidates') {

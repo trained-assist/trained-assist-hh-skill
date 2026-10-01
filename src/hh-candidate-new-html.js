@@ -95,6 +95,14 @@ ${manifest.docs.length ? docsTableHtml(manifest) : '<p class="hint">Докуме
 </div>
 </div>
 <div class="card">
+<h3>Оценка кандидата</h3>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+<button class="btn primary" id="btn-eval" type="button">▶ Запустить оценку</button>
+<span id="eval-status" class="hint"></span>
+</div>
+<p class="hint">Прогон: must-have/nice-to-have из ATS-конфига → Σ(s×w)/Σ(5w), veto, ранг среди кандидатов вакансии. Займёт 1–3 минуты — не закрывай вкладку.</p>
+</div>
+<div class="card">
 <h3>Документы кандидата</h3>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 <a class="btn" href="candidate-report?${escHtml(qs.toString())}&which=profile">📄 Профиль (просмотр)</a>
@@ -230,6 +238,48 @@ ${profileCard}
       location.reload();
     }).catch(function (e) { toast(e.message); });
   });
+
+  // ── «Запустить оценку» (#90): старт → поллинг 3с → результат ──
+  var evalBtn = $('btn-eval');
+  if (evalBtn) {
+    var pollTimer = null;
+    function renderJob(job) {
+      var st = $('eval-status');
+      if (!st) return;
+      if (job.state === 'queued' || job.state === 'running') {
+        st.textContent = '⏳ ' + (job.step || job.state) + ' · ' + (job.progress || 0) + '%';
+      } else if (job.state === 'done') {
+        st.textContent = '✅ ' + (job.percent != null ? job.percent + '% · ' + (job.score10 != null ? job.score10 : '') + ' / 10 · ' + (job.verdict || '') : (job.verdict || 'готово')) +
+          (job.comparison ? ' · место ' + job.comparison.place + ' из ' + job.comparison.total : '') +
+          (job.spent_minutes ? ' · ' + job.spent_minutes + ' мин' : '');
+        evalBtn.disabled = false; evalBtn.textContent = '▶ Запустить оценку';
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        setTimeout(function () { location.reload(); }, 1200);
+      } else if (job.state === 'failed') {
+        st.textContent = '❌ ' + (job.error || 'оценка не удалась');
+        evalBtn.disabled = false; evalBtn.textContent = '▶ Запустить оценку';
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
+    }
+    function poll() {
+      fetch('eval-run?' + qs({ candidate_id: CAND }), { signal: AbortSignal.timeout(15000) })
+        .then(function (r) { return r.json(); })
+        .then(function (x) { if (x.job) renderJob(x.job); })
+        .catch(function () { /* тихий ретрай на следующем тике */ });
+    }
+    evalBtn.addEventListener('click', function () {
+      evalBtn.disabled = true; evalBtn.textContent = 'Запускаю…';
+      post('eval-run', { candidate_id: CAND }).then(function (x) {
+        if (!x.ok || x.d.error) { evalBtn.disabled = false; evalBtn.textContent = '▶ Запустить оценку'; toast(x.d.error || 'Не удалось запустить'); return; }
+        renderJob({ state: 'queued', step: 'queued', progress: 0 });
+        pollTimer = setInterval(poll, 3000);
+      }).catch(function (e) { evalBtn.disabled = false; evalBtn.textContent = '▶ Запустить оценку'; toast(e.message); });
+    });
+    // страница открыта после запуска — сразу показываем прогресс
+    poll();
+    pollTimer = setInterval(poll, 3000);
+    setTimeout(function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }, 300000);
+  }
 
   var profBtn = $('btn-profile');
   if (profBtn) profBtn.addEventListener('click', function () {

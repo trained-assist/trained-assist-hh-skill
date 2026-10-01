@@ -403,3 +403,55 @@ describe('candidate report & photo routes (#91)', () => {
     expect(res.status).toBe(413);
   });
 });
+
+describe('eval-run routes (#90)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+
+  it('POST /hh/eval-run requires the profile token', async () => {
+    const u = new URL('http://x/hh/eval-run'); const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: 'bad', candidate_id: 'c-1' }), u, res, ctx());
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /hh/eval-run fails cleanly without an LLM ladder token', async () => {
+    const saved = process.env.LLM_LADDER_TOKEN;
+    delete process.env.LLM_LADDER_TOKEN;
+    const u = new URL('http://x/hh/eval-run'); const res = fakeRes();
+    try {
+      await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'c-1' }), u, res, ctx());
+    } finally {
+      if (saved !== undefined) process.env.LLM_LADDER_TOKEN = saved;
+    }
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body).error).toMatch(/ladder/i);
+  });
+
+  it('POST /hh/eval-run reports a missing candidate honestly', async () => {
+    process.env.LLM_LADDER_TOKEN = 'test-token';
+    const u = new URL('http://x/hh/eval-run'); const res = fakeRes();
+    try {
+      await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'nope-1' }), u, res, ctx());
+    } finally {
+      delete process.env.LLM_LADDER_TOKEN;
+    }
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body).error).toMatch(/не найден/);
+  });
+
+  it('GET /hh/eval-run → 404 when never started, 200 with a job file', async () => {
+    let u = new URL(`http://x/hh/eval-run?username=alice&token=${tok()}&candidate_id=missing-1`); let res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(404);
+
+    const dir = path.join(root, 'data', 'hh', 'alice', 'candidate-eval');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cand-1.job.json'), JSON.stringify({ state: 'done', percent: 60 }));
+    u = new URL(`http://x/hh/eval-run?username=alice&token=${tok()}&candidate_id=cand-1`); res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).job.state).toBe('done');
+  });
+});
