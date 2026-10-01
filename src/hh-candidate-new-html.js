@@ -21,6 +21,7 @@ label{display:block;font-size:12px;font-weight:600;color:#64748b;margin:10px 0 3
 .drop{border:2px dashed #cbd5e1;border-radius:10px;padding:22px;text-align:center;color:#64748b;font-size:13px;background:#f8fafc}
 .drop.over{border-color:#4f46e5;color:#4f46e5;background:#eef2ff}
 table{width:100%;border-collapse:collapse;font-size:13px}
+.tw{overflow-x:auto}
 th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top}
 th{font-size:11px;text-transform:uppercase;color:#94a3b8;letter-spacing:.03em}
 select{padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font:12px inherit;background:#fff}
@@ -51,10 +52,12 @@ function docsTableHtml(manifest) {
 <td><span class="badge ${escHtml(d.detected_by)}">${escHtml(d.detected_by)}</span><div class="reason">${escHtml(d.reason || '')}</div></td>
 <td class="reason">${escHtml(d.added_at.slice(0, 10))}</td>
 </tr>`).join('');
-  return `<table>
+  // Таблица шире экрана (длинные имена/select типа) — скролл внутри карточки,
+  // а не всей страницы: на 390px иначе уходил весь документ вбок.
+  return `<div class="tw"><table>
 <thead><tr><th>Документ</th><th>Тип</th><th>Как определён</th><th>Добавлен</th></tr></thead>
 <tbody>${rows}</tbody>
-</table>`;
+</table></div>`;
 }
 
 function profileHtml(profile) {
