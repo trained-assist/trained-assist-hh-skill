@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "00f6f5680fc17237b72c663f697bbc26c269ac38",
+      "revision": "ba47f7e1761861605c2c4f2e0f6a490c6fa2df55",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "4e8cfea145713bb74a48dda2e87d9389c2bdb0fae7c9423e640ad54e552cb502",
+      "artifactDigest": "fc9a16b4776f7072533384daaef646b97278bbeeae5eedbf7007ea9e5ac082fc",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -1878,6 +1878,65 @@
             "inputSchema": {
               "type": "object",
               "properties": {}
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_interview_transcribe",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "source_url": {
+                  "type": "string",
+                  "description": "Публичная ссылка на запись: Google Drive (drive.google.com/file/d/…/view или /uc?id=…) либо прямой https-URL mp4/m4a/wav."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "Готовый текст/транскрипт интервью вместо файла — Deepgram не вызывается, ключ не нужен."
+                },
+                "candidate_name": {
+                  "type": "string",
+                  "description": "Имя кандидата: в заголовок транскрипта и подпись спикера. По умолчанию «Кандидат»."
+                },
+                "slug": {
+                  "type": "string",
+                  "description": "Имя папки результата. По умолчанию — из candidate_name, иначе из ссылки."
+                },
+                "force": {
+                  "type": "boolean",
+                  "description": "Пересчитать, даже если по этому источнику транскрипт уже есть."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_interview_structure",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "description": "Папка интервью (см. hh_interview_transcribe)."
+                },
+                "force": {
+                  "type": "boolean",
+                  "description": "Пересчитать, даже если structure.json уже есть."
+                }
+              },
+              "required": [
+                "slug"
+              ]
             },
             "allowedTriggers": [
               "user"

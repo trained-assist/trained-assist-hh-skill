@@ -82,6 +82,12 @@ const POLICY = {
   interview_set_criteria: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
   interview_get_criteria: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   interview_analyze:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  // Interview transcription (#88): downloads a public source, calls Deepgram and
+  // writes local transcript/structure files. Local state + an outbound read of a
+  // third-party API, no hh.ru effect; re-running with the same source hits the
+  // sha256 cache, so both are idempotent and user-triggered only.
+  hh_interview_transcribe: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  hh_interview_structure:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
   // ── Read-only actions ──────────────────────────────────────────────────────
   hh_list_vacancies:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_list_responses:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },

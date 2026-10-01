@@ -1873,6 +1873,65 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "hh_interview_transcribe",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_url": {
+            "type": "string",
+            "description": "Публичная ссылка на запись: Google Drive (drive.google.com/file/d/…/view или /uc?id=…) либо прямой https-URL mp4/m4a/wav."
+          },
+          "text": {
+            "type": "string",
+            "description": "Готовый текст/транскрипт интервью вместо файла — Deepgram не вызывается, ключ не нужен."
+          },
+          "candidate_name": {
+            "type": "string",
+            "description": "Имя кандидата: в заголовок транскрипта и подпись спикера. По умолчанию «Кандидат»."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Имя папки результата. По умолчанию — из candidate_name, иначе из ссылки."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если по этому источнику транскрипт уже есть."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_structure",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Папка интервью (см. hh_interview_transcribe)."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если structure.json уже есть."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
       "name": "interview_set_criteria",
       "inputSchema": {
         "type": "object",
