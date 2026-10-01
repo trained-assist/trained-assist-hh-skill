@@ -102,3 +102,44 @@ test('a slow request shows elapsed seconds and restores the button when it times
     await expect(page.locator('.toast-err')).toContainText('проверьте переписку');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Report of 01.10: "отправил ей щас. вся запись стала серой. это чтобы я второй раз не
+// отправил?" — the anti-double-send guard was a whole card frozen grey (which read as a
+// broken page), while sendOne's finally block re-enabled the button anyway, so a second
+// send still went through. The guard is now a visible countdown on the button itself.
+test('a second send is blocked by a visible countdown, then the button comes back', async ({ page }) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'send-cooldown-'));
+  try {
+    const html = pageHtml(dir, { messages: [{ hh_id: '1', role: 'applicant', text: 'Здравствуйте!', timestamp: '2026-09-11T05:38:49.635Z' }] });
+    let calls = 0;
+    await stubSend(page, () => {
+      calls++;
+      return { ok: true };
+    });
+    await page.setContent(html);
+    // 3 s instead of the shipped 15 s so the gate stays fast; the default is pinned
+    // in tests/unit/review-page-html-source.test.js.
+    await page.evaluate(() => { window.HH_SEND_COOLDOWN_MS = 3000; });
+
+    const card = page.locator(`#tab-all .card[data-neg="${NEG}"]`);
+    const btn = card.locator('.btn-send');
+    await card.locator('.msg-area').fill('Спасибо за отклик! Готовы созвониться.');
+    await btn.click();
+
+    // The block is visible and counted down, not a silent dead card.
+    await expect(btn).toBeDisabled();
+    await expect(btn).toHaveClass(/cooldown/);
+    await expect(btn).toHaveText(/Отправлено · [123]с/);
+    await expect(page.locator('.toast').first()).toContainText('заблокирована');
+    expect(calls).toBe(1);
+
+    // The sent card is still readable/clickable — "серый" no longer means "frozen".
+    await expect(card).not.toHaveCSS('pointer-events', 'none');
+    await expect(card.locator('.msg-area')).toBeVisible();
+
+    // …and the button is released again, so a deliberate follow-up is possible.
+    await expect(btn).toBeEnabled({ timeout: 10_000 });
+    await expect(btn).toHaveText('✓ Отправить');
+    expect(calls).toBe(1);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
