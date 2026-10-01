@@ -1,5 +1,5 @@
 'use strict';
-const { dataRoot, tokensRoot, usersRoot } = require('./data-paths.js');
+const { dataRoot, usersRoot } = require('./data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +7,7 @@ const os = require('os');
 const { readHhToken } = require('./hh-utils');
 
 const { resolveSearchAreas, searchResumes } = require('./hh-cold-search-transport');
+const { hhLlm } = require('./hh-llm');
 const { ladderChat, ladderToken } = require('./llm-ladder');
 
 // Words that appear in almost every criterion and almost every resume. Counting them
@@ -758,13 +759,13 @@ function getSearchExclusions(username, vacancyId) {
 // instead of a fixed list — makes cold-search work for any vacancy, not just one domain.
 // Layered: ask the LLM first, sanity-check the result, use a deterministic
 // fallback derived from the vacancy's own fields when the LLM goes off-topic.
-async function generateSearchQueries(atsConfig, orKey, exclusions = []) {
+async function generateSearchQueries(atsConfig, _orKey, exclusions = []) {
   const cfg = normalizeAtsConfig(atsConfig);
   const criteriaStr = [...(cfg.required || []), ...(cfg.preferred || [])]
     .map(c => c.name).filter(Boolean).join(', ') || '—';
 
   let aiQueries = [];
-  if (orKey) {
+  if (ladderToken()) {
     const exclusionsBlock = exclusions.length
       ? `\nКомментарии рекрутера по уже просмотренным кандидатам (что НЕ подходит):\n${exclusions.map(e => `- ${e}`).join('\n')}\nУчти эти исключения в запросах — например, не ищи по городам которые отмечены как нежелательные.\n`
       : '';
@@ -783,22 +784,18 @@ ${exclusionsBlock}
 Верни ТОЛЬКО JSON-массив строк, без markdown:
 ["запрос 1", "запрос 2", ...]`;
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${orKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        max_tokens: 300,
-        temperature: 0.3,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(20_000),
+    // Query generation is not a candidate message and not an evaluation — DEFAULT
+    // ladder (src/hh-llm.js purpose 'default' → 'service').
+    const text = await hhLlm({
+      messages: [{ role: 'user', content: prompt }],
+      purpose: 'default',
+      temperature: 0.3,
+      maxTokens: 300,
+      timeoutMs: 20_000,
+      source: 'hh-proactive',
     });
 
-    if (!res.ok) throw new Error(`OpenRouter ${res.status}`);
-    const data = await res.json();
-    const text = data.choices?.[0]?.message?.content || '[]';
-    const match = text.match(/\[[\s\S]*\]/);
+    const match = (text || '').match(/\[[\s\S]*\]/);
     if (match) {
       try {
         aiQueries = JSON.parse(match[0]).filter(q => typeof q === 'string' && q.trim()).slice(0, 8);
@@ -930,10 +927,8 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   }
   const searchAreas = resolveSearchAreas(atsConfig, activeVacancy, options);
 
-  // Read OpenRouter key for AI enrichment + query generation
-  const tokensBase = tokensRoot();
-  const orKeyFile = path.join(tokensBase, String(username), 'openrouter');
-  const orKey = fs.existsSync(orKeyFile) ? fs.readFileSync(orKeyFile, 'utf8').trim() : (process.env.OPENROUTER_API_KEY || '');
+  // Query generation and AI enrichment both go through the ladder (src/hh-llm.js) —
+  // no key is read here any more.
 
   // Search queries are generated per-vacancy and cached in a per-vacancy file keyed by
   // vacancyKey. They are reused as long as the ATS config fields that influence query
@@ -957,8 +952,8 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
     queries = null;
   }
   if (!queries) {
-    if (!orKey) throw new Error('OpenRouter ключ не найден — нужен, чтобы сгенерировать поисковые запросы под эту вакансию.');
-    queries = await generateSearchQueries(atsConfig, orKey, exclusions);
+    if (!ladderToken()) throw new Error('llm-ladder токен не найден — нужен, чтобы сгенерировать поисковые запросы под эту вакансию.');
+    queries = await generateSearchQueries(atsConfig, null, exclusions);
     saveStoredQueries(username, vacancyKey, queries, configHash);
   }
 

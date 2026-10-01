@@ -5,13 +5,13 @@ const { hydrateResume, buildResumeText, resumeHash, RESUME_VERSION } = require('
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('../../hh-message-prompts');
 const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-message');
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
 const { generateConversation } = require('../../conversation-generation');
+const { hhLlm } = require('../../hh-llm');
 const { ladderChat, ladderToken } = require('../../llm-ladder');
 const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
 
@@ -82,10 +82,6 @@ function tokenBase() {
   return tokensRoot();
 }
 
-function orKeyPath(userId) {
-  return path.join(tokenBase(), String(userId || USER_ID), 'openrouter');
-}
-
 // Wraps hh-utils readHhToken, defaulting to USER_ID when no arg passed
 function readHhToken(userId) {
   return _readHhTokenUtil(userId || USER_ID);
@@ -120,13 +116,10 @@ function hhAuthAwareError(e, prefix = '') {
   return { error: `${prefix}${e.message}` };
 }
 
-function readOrKey(userId) {
-  const file = orKeyPath(userId);
-  if (fs.existsSync(file)) {
-    const key = fs.readFileSync(file, 'utf8').trim();
-    if (key) return key;
-  }
-  return process.env.OPENROUTER_API_KEY || null;
+// "Is an LLM reachable?" probe. The ladder owns the credential — this returns a
+// non-empty marker when it can serve a call, never a key that gets sent anywhere.
+function llmReady() {
+  return ladderToken() || null;
 }
 
 function loadCommunicationStyle(userId) {
@@ -167,42 +160,22 @@ function saveRejectionTemplate(userId, template) {
 }
 
 
-// ── OpenRouter LLM ─────────────────────────────────────────────────────────
+// ── LLM ─────────────────────────────────────────────────────────────────────
+//
+// One ladder for everything in this tool: candidates get the 'conversations' ladder
+// (src/conversation-generation.js), ATS evaluation the free ladder, extraction/rewriting
+// the default ladder — all through src/hh-llm.js. No API key is read here any more:
+// the per-user key file this module used to load first is exactly what made the
+// background scoring fail in production (a dead personal key shadowed the working one).
 
-const FAST_MODEL = 'deepseek/deepseek-v4-flash-0731';
-const SMART_MODEL = 'deepseek/deepseek-chat'; // DeepSeek V3 — for ATS config extraction
-
-function llmCall(apiKey, model, messages, maxTokens = 2000, temperature = 0.1) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else {
-            const content = parsed.choices?.[0]?.message?.content;
-            if (content == null) reject(new Error(`LLM returned empty content (model: ${model})`));
-            else resolve(content);
-          }
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(30_000, () => req.destroy(new Error('openrouter timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+function llmCall(_apiKey, _model, messages, maxTokens = 2000, temperature = 0.1) {
+  return hhLlm({
+    messages,
+    purpose: 'default',
+    temperature,
+    maxTokens,
+    timeoutMs: 30_000,
+    source: 'hh-mcp',
   });
 }
 
@@ -306,7 +279,7 @@ async function extractAtsConfig(vacancyText, apiKey) {
     review_threshold: 4.0,
   }, null, 2);
 
-  const content = await llmCall(apiKey, SMART_MODEL, [
+  const content = await llmCall(apiKey, null, [
     { role: 'system', content: ATS_EXTRACT_SYSTEM },
     { role: 'user', content: `Пример формата:\n${example}\n\nВакансия:\n${vacancyText}` },
   ], 1200, 0.1);
@@ -919,7 +892,7 @@ module.exports = {
       handler: async ({ resume_id, ats_config }) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
-        const apiKey = readOrKey(USER_ID);
+        const apiKey = llmReady();
         if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         try {
@@ -1112,8 +1085,8 @@ module.exports = {
       handler: async ({ vacancy_text }) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
-        const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { error: 'OpenRouter API key не найден. Установи переменную OPENROUTER_API_KEY.' };
+        const apiKey = llmReady();
+        if (!apiKey) return { error: 'llm-ladder token не найден.' };
 
         try {
           let config = await extractAtsConfig(vacancy_text, apiKey);
@@ -1190,7 +1163,7 @@ module.exports = {
       handler: async ({ negotiation_id, ats_config }) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
-        const apiKey = readOrKey(USER_ID);
+        const apiKey = llmReady();
         if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         try {
@@ -1259,7 +1232,7 @@ module.exports = {
             };
           }
 
-          const apiKey = readOrKey(USER_ID);
+          const apiKey = llmReady();
           if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
           const { text: candidateContext } = await formatCandidateContext(neg);
@@ -1403,7 +1376,7 @@ module.exports = {
       handler: async ({ vacancy_id, ats_config, max_days_inactive = 14 } = {}) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
-        const apiKey = readOrKey(USER_ID);
+        const apiKey = llmReady();
         if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         // Resolve vacancy_id from context if not provided
@@ -1589,7 +1562,7 @@ module.exports = {
       handler: async ({ vacancy_id, ats_config } = {}) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
-        const apiKey = readOrKey(USER_ID);
+        const apiKey = llmReady();
         if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         if (!vacancy_id) {
@@ -1706,7 +1679,7 @@ module.exports = {
         required: ['candidates', 'vacancy_name'],
       },
       handler: async ({ candidates, vacancy_id, vacancy_name, vacancy_context, output_path }) => {
-        const apiKey = readOrKey(USER_ID);
+        const apiKey = llmReady();
         const resolvedVacancyId = vacancy_id || readContext('hh', 'active_vacancy')?.value?.id || null;
         const atsConfig = resolvedVacancyId ? readAtsConfigForVacancy(profileWorkDir(), resolvedVacancyId) : readContext('hh', 'ats_config')?.value;
         const atsConfigCtx = atsConfig ? { value: atsConfig } : null;
@@ -1939,8 +1912,8 @@ module.exports = {
       handler: async ({ negotiation_id, vacancy_context, ats_result }) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
-        const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { error: 'OpenRouter API key не найден.' };
+        const apiKey = llmReady();
+        if (!apiKey) return { error: 'llm-ladder token не найден.' };
 
         try {
           const neg = await hhGet(`/negotiations/${negotiation_id}`, token);
@@ -1952,7 +1925,7 @@ module.exports = {
             ats_result ? `\nATS-оценка: ${ats_result.score}/10, вердикт: ${ats_result.verdict}\nСильные стороны: ${(ats_result.matched || []).join(', ')}\nПробелы: ${(ats_result.gaps || []).join(', ')}` : '',
           ].filter(Boolean).join('\n');
 
-          const profile = await llmCall(apiKey, FAST_MODEL, [
+          const profile = await llmCall(apiKey, null, [
             { role: 'system', content: PROFILE_SYSTEM },
             { role: 'user', content: `Составь профиль кандидата для заказчика:\n\n${userMsg}` },
           ], 1500, 0.3);

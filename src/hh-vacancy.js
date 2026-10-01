@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { readHhToken, hhFetch, hhPost } = require('./hh-utils');
-const { gcCall, llmCall, readGigachatKey, FALLBACK_MODEL } = require('./hh-scoring');
+const { hhLlm } = require('./hh-llm');
 
 const STATE_SKILL = 'hh';
 const STATE_KEY = 'vacancy_draft';
@@ -79,10 +79,10 @@ const VACANCY_PROMPT = `Ты HR-эксперт. Получи материалы 
 
 Верни ТОЛЬКО валидный JSON без markdown-оберток и без пояснений.`;
 
-async function generateVacancyFromMessages(workDir, messages, openrouterKey, username) {
-  const gigachatKey = username ? readGigachatKey(username) : null;
-  if (!gigachatKey && !openrouterKey) throw new Error('Neither GIGACHAT nor OPENROUTER credentials available');
-
+// openrouterKey / username are kept in the signature for call-site compatibility and
+// ignored: the ladder owns the credential. Vacancy generation is a structured
+// extraction — the DEFAULT ladder (src/hh-llm.js, purpose 'default' → 'service').
+async function generateVacancyFromMessages(workDir, messages, _openrouterKey, _username) {
   const combined = messages.map((m, i) => `[Блок ${i + 1}]\n${m}`).join('\n\n---\n\n');
   const userMessage = `Вот материалы по вакансии:\n\n${combined}\n\nСгенерируй структурированную вакансию в JSON.`;
   const chatMessages = [
@@ -90,21 +90,17 @@ async function generateVacancyFromMessages(workDir, messages, openrouterKey, use
     { role: 'user', content: userMessage },
   ];
 
-  // Primary: GigaChat-Ultra (Sber, near-free on the recruiting plan).
-  // Fallback: cheap OpenRouter model — never the Claude/Sonnet tier, that's what made
-  // vacancy generation the single most expensive OpenRouter call site (see 2026-09-22 cost audit).
-  let text;
-  if (gigachatKey) {
-    try {
-      text = (await gcCall(gigachatKey, chatMessages, 4096, 0.2, 'GigaChat-Ultra') || '').trim();
-    } catch (e) {
-      console.warn(`[hh-vacancy] GigaChat-Ultra failed: ${e.message}, falling back to OpenRouter`);
-    }
-  }
-  if (!text) {
-    if (!openrouterKey) throw new Error('GigaChat-Ultra failed and no OPENROUTER_API_KEY fallback available');
-    text = (await llmCall(openrouterKey, FALLBACK_MODEL, chatMessages, 4096, 0.2) || '').trim();
-  }
+  // Never the Claude/Sonnet tier — that is what made vacancy generation the single most
+  // expensive call site in the 2026-09-22 cost audit. The ladder opens with the free Go
+  // tier and reaches Go mimo; failover is the ladder's job.
+  const text = (await hhLlm({
+    messages: chatMessages,
+    purpose: 'default',
+    temperature: 0.2,
+    maxTokens: 4096,
+    timeoutMs: 60_000,
+    source: 'hh-vacancy',
+  }) || '').trim();
 
   // Strip possible markdown fences
   const jsonText = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();

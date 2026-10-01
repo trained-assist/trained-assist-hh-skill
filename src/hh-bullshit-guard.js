@@ -1,15 +1,11 @@
 'use strict';
-const { tokensRoot } = require('./data-paths.js');
 
 // Checks outgoing HH messages for 5 classes of errors before sending.
-// Regex checks run first (free). LLM check is one cheap call covering the rest.
+// Regex checks run first (free). The semantic LLM check is one cheap call covering the
+// rest — through the single ladder entry point (src/hh-llm.js, purpose 'score' →
+// free-ladder). This module no longer resolves or reads any API key.
 
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-
-const GUARD_MODEL = 'google/gemini-2.5-flash';
+const { hhLlm, ladderToken } = require('./hh-llm');
 
 // ─── Regex checks ─────────────────────────────────────────────────────────────
 
@@ -53,43 +49,17 @@ function hasInventedTime(messageText, conversationHistory) {
 
 // ─── LLM ──────────────────────────────────────────────────────────────────────
 
-function llmCall(apiKey, messages) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model: GUARD_MODEL, messages, temperature: 0, max_tokens: 300 });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (httpRes) => {
-      const chunks = [];
-      httpRes.on('data', c => chunks.push(c));
-      httpRes.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else resolve(parsed.choices[0].message.content);
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(15_000, () => req.destroy(new Error('guard timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+// Kept as a named export because call sites and tests monkey-patch it. The apiKey
+// argument stays for signature compatibility but is ignored — the ladder owns the
+// credential now (src/hh-llm.js).
+function llmCall(_apiKey, messages) {
+  return hhLlm({ messages, purpose: 'score', temperature: 0, maxTokens: 300, source: 'hh-guard' });
 }
 
-function getApiKey(username) {
-  if (username) {
-    const base = tokensRoot();
-    const f = path.join(base, String(username), 'openrouter');
-    if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').trim();
-  }
-  return process.env.OPENROUTER_API_KEY || null;
+// Probe used by callers to decide "is a semantic check possible?". The ladder token is
+// the only credential; the per-user OpenRouter key path is gone.
+function getApiKey() {
+  return ladderToken() ? 'llm-ladder' : null;
 }
 
 async function llmCheck(messageText, rawHistory, apiKey, llmFn) {

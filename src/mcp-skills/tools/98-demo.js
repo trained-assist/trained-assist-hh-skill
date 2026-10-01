@@ -6,7 +6,7 @@
 
 const fs   = require('fs');
 const path = require('path');
-const https = require('https');
+const { hhLlm, ladderToken } = require('../../hh-llm');
 
 // ── ATS config for the ОРГРЭС vacancy ────────────────────────────────────────
 
@@ -207,13 +207,12 @@ function hhCtxWrite(key, value) {
   fs.renameSync(tmp, p);
 }
 
-// ── OpenRouter call for candidate response ─────────────────────────────────
-
-async function generateCandidateReply(candidate, recruiterMessage, userId) {
-  const keyPath = path.join(require('../../data-paths.js').tokensRoot(), String(userId), 'openrouter');
-  let apiKey = '';
-  try { apiKey = fs.readFileSync(keyPath, 'utf8').trim(); } catch {}
-  if (!apiKey) return null;
+// ── Demo candidate reply (simulated candidate) ─────────────────────────────
+//
+// DEFAULT ladder (src/hh-llm.js) — the ladder owns the credential, so a dead per-user
+// key file can no longer switch the demo off silently.
+async function generateCandidateReply(candidate, recruiterMessage, _userId) {
+  if (!ladderToken()) return null;
 
   const system = [
     `Ты — ${candidate.name}, ${candidate.age} лет, ${candidate.city}.`,
@@ -225,45 +224,17 @@ async function generateCandidateReply(candidate, recruiterMessage, userId) {
     'Не начинай с "Здравствуйте" — уже поздоровались. Не выдумывай факты сверх профиля.',
   ].join('\n');
 
-  const body = JSON.stringify({
-    model: 'anthropic/claude-haiku-4-5',
-    max_tokens: 256,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: recruiterMessage },
-    ],
-  });
-
-  return new Promise((resolve) => {
-    const req = https.request(
-      {
-        hostname: 'openrouter.ai',
-        path: '/api/v1/chat/completions',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Length': Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        const chunks = [];
-        res.on('data', d => chunks.push(d));
-        res.on('end', () => {
-          try {
-            const data = JSON.parse(Buffer.concat(chunks).toString());
-            resolve(data?.choices?.[0]?.message?.content || null);
-          } catch {
-            resolve(null);
-          }
-        });
-      }
-    );
-    req.on('error', () => resolve(null));
-    req.setTimeout(20000, () => { req.destroy(); resolve(null); });
-    req.write(body);
-    req.end();
-  });
+  try {
+    return await hhLlm({
+      messages: [{ role: 'system', content: system }, { role: 'user', content: recruiterMessage }],
+      purpose: 'default',
+      maxTokens: 256,
+      timeoutMs: 20_000,
+      source: 'hh-demo',
+    });
+  } catch {
+    return null;
+  }
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────

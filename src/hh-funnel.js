@@ -24,18 +24,12 @@
 //   → после отправки тестового предложить созвон
 // The steps below are that process, expressed as a closed set.
 
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
-const { tokensRoot } = require('./data-paths.js');
-const { ladderChat, ladderToken } = require('./llm-ladder');
+const { hhLlm, ladderToken } = require('./hh-llm');
 
 // Bump when the decision rules or the action set change: drafts are cached per
 // candidate and a stale draft written by older logic would otherwise live forever
 // (issue #71 — isDraftStale only compared the thread, not the logic version).
 const FUNNEL_LOGIC_VERSION = 'funnel-v1';
-
-const PLANNER_MODEL = 'google/gemini-2.5-flash';
 
 // The fixed step set. `wait` is a first-class outcome on purpose: a candidate who
 // has not answered needs silence, not a second letter.
@@ -81,47 +75,6 @@ ${VALID_ACTIONS.map(a => `- ${a}: ${ACTIONS[a]}`).join('\n')}
 Формат ответа:
 {"action":"<одно из действий>","reason":"<одно предложение почему>","missing_skills":["<навык, которого не хватает>"]}
 Поле missing_skills заполняй только для ask_skills (что спросить), иначе пустой массив.`;
-
-function llmCall(apiKey, messages, { maxTokens = 400, temperature = 0 } = {}) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model: PLANNER_MODEL, messages, temperature, max_tokens: maxTokens });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else resolve(parsed.choices?.[0]?.message?.content);
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(20_000, () => req.destroy(new Error('funnel planner timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-function getApiKey(username) {
-  if (username) {
-    const file = path.join(tokensRoot(), String(username), 'openrouter');
-    if (fs.existsSync(file)) {
-      const key = fs.readFileSync(file, 'utf8').trim();
-      if (key) return key;
-    }
-  }
-  return process.env.OPENROUTER_API_KEY || null;
-}
 
 const DAY_MS = 86400000;
 
@@ -250,20 +203,20 @@ async function planNextStep({ history = [], atsResult = null, atsConfig = {}, re
   try {
     let raw;
     if (llmFn) {
-      raw = await llmFn(apiKey || getApiKey(username), messages, { maxTokens: 400, temperature: 0 });
+      raw = await llmFn(apiKey, messages, { maxTokens: 400, temperature: 0 });
     } else if (ladderToken()) {
       // The planner runs on the DEFAULT ladder (owner 2026-10-01: «процесс определения
       // следующего шага … на стандартной mimi go по дефолту, по дефолтной лесенке») —
       // 'service' opens with the Go free tier and reaches Go mimo. No ladder token →
       // the degraded 'wait' below, same as the old no-key path.
-      const res = await ladderChat({
+      raw = await hhLlm({
         messages,
-        ladder: process.env.HH_PLANNER_LADDER || 'service',
+        purpose: 'default',
+        ladder: process.env.HH_PLANNER_LADDER,
         temperature: 0,
         maxTokens: 400,
         source: 'hh-funnel',
       });
-      raw = res.content;
     } else {
       return { action: 'wait', reason: 'Нет ключа LLM — шаг воронки не определён, ждём ответа.', missing_skills: [], by: 'rule', degraded: true };
     }
@@ -404,7 +357,6 @@ function buildTestTaskMessage(testTask) {
 module.exports = {
   FUNNEL_LOGIC_VERSION,
   guardPlannerAction,
-  PLANNER_MODEL,
   ACTIONS,
   VALID_ACTIONS,
   ACTION_INSTRUCTION,
@@ -417,6 +369,4 @@ module.exports = {
   promisedTestTask,
   renderThread,
   lastMessage,
-  llmCall,
-  getApiKey,
 };
