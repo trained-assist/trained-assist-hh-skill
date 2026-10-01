@@ -56,6 +56,9 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
       score: ats?.score ?? null,
       verdict: ats?.verdict ?? null,
       reasoning: ats?.reasoning ?? null,
+      // Set when the last background scoring attempt failed — shown instead of a bare
+      // "не оценён" so a broken scorer is visible to the recruiter, not silent.
+      scoring_error: history.scoring_error?.message || null,
       matched: ats?.matched || [],
       gaps: ats?.gaps || [],
       draft_message: (() => {
@@ -184,7 +187,9 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            <span class="score-num" style="color:${col}">${(c.score || 0).toFixed(1)}/10</span>
            <span class="verdict-badge" style="background:${col}">${esc(c.verdict)}</span>
          </div>`
-      : '<span class="verdict-none">не оценён</span>';
+      : c.scoring_error
+        ? `<span class="verdict-none verdict-error" title="${esc(c.scoring_error)}">оценка не получена</span>`
+        : '<span class="verdict-none">не оценён</span>';
 
     const hhBtn = c.alternate_url
       ? ` <a href="${esc(c.alternate_url)}" target="_blank" rel="noopener" class="hh-link-btn" title="Открыть резюме на HH">↗ HH</a>`
@@ -304,6 +309,7 @@ h1{font-size:22px;font-weight:700;margin-bottom:4px}
 .score-num{font-size:14px;font-weight:600;min-width:38px}
 .verdict-badge{font-size:12px;font-weight:700;color:#fff;padding:3px 8px;border-radius:99px;white-space:nowrap}
 .verdict-none{font-size:12px;color:#94a3b8;font-style:italic}
+.verdict-error{color:#dc2626;cursor:help}
 .reasoning{font-size:13px;color:#475569;line-height:1.5;margin-bottom:10px}
 .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .tag{font-size:12px;padding:2px 8px;border-radius:4px;font-weight:500}

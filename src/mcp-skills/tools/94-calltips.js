@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
+const { hhLlm } = require('../../hh-llm');
 const { createHmac } = require('crypto');
 
 const USER_ID = process.env.USER_ID || '';
@@ -64,42 +64,10 @@ async function hhGet(apiPath, token) {
   return hhRequest('GET', apiPath, token.access_token);
 }
 
+// Interview-plan generation — DEFAULT ladder (src/hh-llm.js). The ladder owns the
+// credential; this module reads no API key any more.
 function openrouterCall(messages, maxTokens = 2000) {
-  return new Promise((resolve, reject) => {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) return reject(new Error('OPENROUTER_API_KEY not set'));
-    const body = JSON.stringify({
-      model: 'google/gemini-2.5-flash-lite',
-      max_tokens: maxTokens,
-      messages,
-    });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'X-Title': 'calltips-plan',
-        'Content-Length': Buffer.byteLength(body),
-      },
-      timeout: 30000,
-    }, (res) => {
-      let data = '';
-      res.on('data', c => { data += c; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          const text = parsed.choices?.[0]?.message?.content || '';
-          resolve(text);
-        } catch { reject(new Error('OpenRouter parse error')); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('OpenRouter timeout')); });
-    req.write(body);
-    req.end();
-  });
+  return hhLlm({ messages, purpose: 'default', maxTokens, timeoutMs: 30_000, source: 'calltips-plan' });
 }
 
 // ── Get active vacancy ─────────────────────────────────────────────────────

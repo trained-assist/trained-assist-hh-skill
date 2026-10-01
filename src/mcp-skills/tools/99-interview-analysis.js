@@ -17,11 +17,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
-// Credential store (trained-assist-agent#1939): the criteria file lives under
-// agent-tokens/<user>/interviews/, so it goes through the store's safe reader.
-const { readCredentialFileSafe } = require('../../hh-utils');
-const { writeCredentialFile } = require('../../credential-store');
+const { hhLlm } = require('../../hh-llm');
+
 
 const USER_ID = process.env.USER_ID || '';
 
@@ -95,46 +92,16 @@ function slugName(name) {
 
 // ── OpenRouter (structured JSON) ─────────────────────────────────────────────
 
-function openrouterJson(model, system, user) {
-  return new Promise((resolve, reject) => {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) return reject(new Error('OPENROUTER_API_KEY not set'));
-    const body = JSON.stringify({
-      model,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'X-Title': 'interview-analysis',
-        'Content-Length': Buffer.byteLength(body),
-      },
-      timeout: 180000,
-    }, (res) => {
-      let data = '';
-      res.on('data', c => { data += c; });
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          const text = parsed.choices?.[0]?.message?.content;
-          if (!text) return reject(new Error(`OpenRouter empty/error: ${data.slice(0, 300)}`));
-          resolve(text);
-        } catch { reject(new Error(`OpenRouter parse error: ${data.slice(0, 300)}`)); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('OpenRouter timeout')); });
-    req.write(body);
-    req.end();
+// Interview analysis — DEFAULT ladder (src/hh-llm.js). The model name is accepted for
+// call-site compatibility and ignored: the ladder picks the rung and owns failover.
+function openrouterJson(_model, system, user) {
+  return hhLlm({
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    purpose: 'default',
+    temperature: 0.2,
+    maxTokens: 4000,
+    timeoutMs: 180_000,
+    source: 'interview-analysis',
   });
 }
 

@@ -18,14 +18,8 @@
 // gate has to be executable — the same shape as the message guard: free regex
 // first, then one cheap LLM pass over whatever the regex did not flag.
 
-const https = require('https');
-const path = require('path');
-const { tokensRoot } = require('./data-paths.js');
-// Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
-// `openrouter` key lives under agent-tokens.
-const { readCredentialFileSafe } = require('./hh-utils');
+const { hhLlm, ladderToken } = require('./hh-llm');
 
-const GUARD_MODEL = 'google/gemini-2.5-flash';
 
 // ─── Regex pass (free, high precision) ───────────────────────────────────────
 
@@ -91,43 +85,16 @@ function findVagueByRegex(name) {
 
 // ─── LLM pass (one cheap call, only for what regex did not catch) ─────────────
 
-function llmCall(apiKey, messages, { maxTokens = 900, temperature = 0 } = {}) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model: GUARD_MODEL, messages, temperature, max_tokens: maxTokens });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else resolve(parsed.choices?.[0]?.message?.content);
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(20_000, () => req.destroy(new Error('criteria guard timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+// Kept as a named export because call sites and tests inject/patch it. apiKey stays in
+// the signature for compatibility but is ignored — the call goes through the ladder.
+function llmCall(_apiKey, messages, { maxTokens = 900, temperature = 0 } = {}) {
+  return hhLlm({ messages, purpose: 'score', temperature, maxTokens, source: 'hh-criteria-guard' });
 }
 
-function getApiKey(username) {
-  if (username) {
-    const file = path.join(tokensRoot(), String(username), 'openrouter');
-    const key = readCredentialFileSafe(file);
-    if (key !== null && key.trim()) return key.trim();
-  }
-  return process.env.OPENROUTER_API_KEY || null;
+// "is an LLM available?" probe for callers. The ladder token is the credential now.
+function getApiKey() {
+  return ladderToken() ? 'llm-ladder' : null;
+
 }
 
 const GUARD_SYSTEM = `Ты — строгий ревьюер критериев отбора. Отвечай ТОЛЬКО JSON, без markdown и без пояснений.
@@ -238,7 +205,6 @@ function dropViolations(config, violations) {
 }
 
 module.exports = {
-  GUARD_MODEL,
   VAGUE_PATTERNS,
   findVagueByRegex,
   criteriaNames,

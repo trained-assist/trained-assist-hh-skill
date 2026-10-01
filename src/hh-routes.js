@@ -26,6 +26,7 @@ const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { generateConversation } = require('./conversation-generation');
+const { hhLlm } = require('./hh-llm');
 const { ladderToken } = require('./llm-ladder');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
@@ -299,6 +300,7 @@ async function doSend(force) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, negotiation_id: NEG_ID, message: msg, force: !!force }),
+      signal: AbortSignal.timeout(20000),
     });
     const data = await r.json().catch(() => ({}));
     if (data.blocked) {
@@ -1083,40 +1085,20 @@ if (req.method === 'POST' && url.pathname === '/hh/update-style') {
     return json(res, 200, { ok: true, style: examples.trim() });
   }
 
-  const orKeyFile4 = path.join(hhTokensBase4, String(username), 'openrouter');
-  const apiKey4 = readCredentialFileSafe(orKeyFile4)?.trim() || process.env.OPENROUTER_API_KEY;
-  if (!apiKey4) return json(res, 503, { error: 'OpenRouter key not configured' });
+  if (!ladderToken()) return json(res, 503, { error: 'LLM не настроен (нет llm-ladder токена)' });
+
 
   const systemPrompt4 = 'Ты — аналитик коммуникаций. Тебе могут прислать отдельные сообщения рекрутера ИЛИ полные диалоги между рекрутером и кандидатом. Если это диалог — проанализируй только сообщения рекрутера, проигнорируй ответы кандидата.\n\nСоставь краткое описание стиля общения рекрутера. Это описание будет использоваться как инструкция для нейросети при генерации новых сообщений.\n\nФормат — структурированный список на русском языке (через дефис):\n- Тон и манера (формальность, теплота)\n- Характерные обороты и приветствия (с реальными примерами из текста)\n- Структура типичного сообщения\n- Что обычно уточняет или спрашивает\n- Чего избегает\n- Длина сообщений\n\nБудь конкретным — цитируй реальные фразы из примеров.';
   const userMsg4 = 'Примеры (могут быть диалоги или отдельные сообщения рекрутера):\n\n' + examples.trim().slice(0, 4000);
 
   try {
-    const style = await new Promise((resolve, reject) => {
-      const reqBody4 = JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt4 }, { role: 'user', content: userMsg4 }],
-        temperature: 0.3,
-        max_tokens: 600,
-      });
-      const hreq4 = require('https').request({
-        hostname: 'openrouter.ai',
-        path: '/api/v1/chat/completions',
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + apiKey4, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(reqBody4) },
-      }, (hres4) => {
-        const chunks4 = [];
-        hres4.on('data', c => chunks4.push(c));
-        hres4.on('end', () => {
-          try {
-            const p = JSON.parse(Buffer.concat(chunks4).toString('utf8'));
-            if (p.error) reject(new Error(p.error.message || JSON.stringify(p.error)));
-            else resolve(p.choices[0].message.content);
-          } catch (e) { reject(e); }
-        });
-      });
-      hreq4.on('error', reject);
-      hreq4.write(reqBody4);
-      hreq4.end();
+    // Style analysis is a text transformation — DEFAULT ladder (src/hh-llm.js).
+    const style = await hhLlm({
+      messages: [{ role: 'system', content: systemPrompt4 }, { role: 'user', content: userMsg4 }],
+      purpose: 'default',
+      temperature: 0.3,
+      maxTokens: 600,
+      source: 'hh-style',
     });
 
     if (doSave !== false) {
@@ -1368,23 +1350,19 @@ ${expLines || '—'}
 
 Ответ строго в JSON: {"evaluation": "...", "score": N, "tag": "PASS|REVIEW|WEAK"}`;
 
-  const hhTokensBase2 = tokensRoot();
-  const orKeyFile2 = path.join(hhTokensBase2, String(username), 'openrouter');
-  const orKey2 = readCredentialFileSafe(orKeyFile2)?.trim() || (process.env.OPENROUTER_API_KEY || '');
-  if (!orKey2) return json(res, 500, { error: 'OpenRouter API key not configured. Add key via /settoken openrouter <key>' });
+  if (!ladderToken()) return json(res, 500, { error: 'llm-ladder токен не найден — оценка кандидата недоступна.' });
+
   try {
-    const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${orKey2}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'google/gemini-2.5-flash', max_tokens: 1024, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!aiRes.ok) {
-      const errText = await aiRes.text().catch(() => '');
-      return json(res, 500, { error: `OpenRouter API ${aiRes.status}: ${errText.slice(0, 200)}` });
-    }
-    const aiData = await aiRes.json();
-    const text = aiData.choices?.[0]?.message?.content || '{}';
+    // Candidate assessment from search results = evaluation → free ladder
+    // (src/hh-llm.js purpose 'score').
+    const text = await hhLlm({
+      messages: [{ role: 'user', content: prompt }],
+      purpose: 'score',
+      temperature: 0.1,
+      maxTokens: 1024,
+      timeoutMs: 30_000,
+      source: 'hh-candidate-eval',
+    }) || '{}';
     let parsed;
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -1667,25 +1645,17 @@ ${recent || '(пока нет)'}
 {"next":"Если в плане есть незаданный важный вопрос — задай его. Иначе пустая строка.","dig":"ГЛАВНОЕ: один острый уточняющий вопрос к последней реплике — зацепись за конкретную деталь. Всегда заполняй если есть реплики.","why":"Если ответ размытый — попроси конкретный пример. Иначе пустая строка."}
 Язык: ${lang === 'en' ? 'English' : 'русский'}.`;
 
-  const openrouterKey = secrets.OPENROUTER_API_KEY;
-  if (!openrouterKey) return json(res, 503, { error: 'OPENROUTER_API_KEY not configured' });
+  if (!ladderToken()) return json(res, 503, { error: 'llm-ladder токен не найден' });
 
-  const tip = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${openrouterKey}`,
-    },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
-      max_tokens: 300,
-      messages: [{ role: 'user', content: promptText }],
-    }),
-    signal: AbortSignal.timeout(15000),
-  }).then(async (r) => {
-    const data = await r.json();
-    const text = data.choices?.[0]?.message?.content || '{}';
-    const clean = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+  // Interview tip generation — DEFAULT ladder (src/hh-llm.js purpose 'default').
+  const tip = await hhLlm({
+    messages: [{ role: 'user', content: promptText }],
+    purpose: 'default',
+    maxTokens: 300,
+    timeoutMs: 15_000,
+    source: 'hh-interview-tip',
+  }).then((text) => {
+    const clean = String(text || '{}').replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     return JSON.parse(clean);
   }).catch(() => ({ dig: '', next: '', why: '' }));
 
