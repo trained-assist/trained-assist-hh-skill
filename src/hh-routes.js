@@ -18,6 +18,7 @@ const { hhFetch, hhPut, hhPostForm, readHhToken, refreshHhToken, readActiveVacan
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, DEFAULT_MESSAGE_BASE, BASE_PROMPT_FILENAME } = require('./hh-message-prompts');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
+const { appendLocalMessage } = require('./hh-history');
 
 // Cold-search schedule lives in the host's generic cron (#1489 S7.1); these routes reach
 // it only through the provider's hh_proactive_schedule tool, invoked via the host's
@@ -728,22 +729,34 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
 
   const firstContact = !history.messages.some(m => m.role === 'employer');
   try {
-    await hhPostForm(`/negotiations/${negotiation_id}/messages`, tokenData, { message });
-    history.messages.push({ role: 'employer', text: message, timestamp: new Date().toISOString() });
+    const sent = await hhPostForm(`/negotiations/${negotiation_id}/messages`, tokenData, { message });
+    // Persist the id HH confirmed: without it the next sync re-added the same message
+    // as a second copy (every outbound message looked like two sends — and the guard
+    // read that inflated history). See src/hh-history.js.
+    history.messages = appendLocalMessage(history, {
+      role: 'employer', text: message,
+      hhId: sent?.id ?? sent?.message?.id ?? null,
+      timestamp: sent?.created_at || null,
+    });
     fs.writeFileSync(histFile, JSON.stringify(history, null, 2), { mode: 0o600 });
-    // Delivery already succeeded: a stage error must never suggest resending.
-    if (firstContact) {
-      try {
-        const negotiation = await hhFetch(`/negotiations/${negotiation_id}`, tokenData);
-        if (negotiation.state?.id === 'response') {
-          await hhPut(`/negotiations/consider/${negotiation_id}`, tokenData);
-        }
-      } catch (e) {
-        console.warn('[hh/send] stage move to consider failed:', e.message);
-      }
-    }
     console.log(`[hh/send] user=${username} neg=${negotiation_id} len=${message.length}`);
-    return json(res, 200, { ok: true });
+    // Delivery already succeeded — answer now and move the stage afterwards. Awaiting
+    // the negotiation fetch + stage move inline added up to 30 s of a dead-looking
+    // spinner on the review page for a cosmetic HH state change.
+    json(res, 200, { ok: true });
+    if (firstContact) {
+      (async () => {
+        try {
+          const negotiation = await hhFetch(`/negotiations/${negotiation_id}`, tokenData);
+          if (negotiation.state?.id === 'response') {
+            await hhPut(`/negotiations/consider/${negotiation_id}`, tokenData);
+          }
+        } catch (e) {
+          console.warn('[hh/send] stage move to consider failed:', e.message);
+        }
+      })();
+    }
+    return;
   } catch (e) {
     console.error('[hh/send] error:', e.message);
     return json(res, 500, { error: e.message });

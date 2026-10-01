@@ -1283,11 +1283,15 @@ module.exports = {
         if (!token) return { error: 'HH не подключён.' };
 
         try {
-          await hhPost(`/negotiations/${negotiation_id}/messages`, token, { message });
+          const sent = await hhPost(`/negotiations/${negotiation_id}/messages`, token, { message });
 
+          // hh-history dedupes against the HH mirror on the next sync — without the
+          // confirmed id (and with the dedupe below) this message reappeared twice.
           const history = readCandidateHistory(USER_ID, negotiation_id);
-          history.messages = history.messages || [];
-          history.messages.push({ role: 'employer', text: message, timestamp: new Date().toISOString() });
+          history.messages = require('../../hh-history').appendLocalMessage(history, {
+            role: 'employer', text: message,
+            hhId: sent?.id ?? null, timestamp: sent?.created_at || null,
+          });
           saveCandidateHistory(USER_ID, negotiation_id, history);
 
           return { ok: true, negotiation_id, message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };

@@ -216,22 +216,16 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
             return;
           }
 
-          const storedIds = new Set(history.messages.map(m => m.hh_id).filter(Boolean));
-          let added = 0;
-          for (const m of allHhMsgs) {
-            if (storedIds.has(m.id)) continue;
-            history.messages.push({
-              hh_id: m.id,
-              role: m.author?.participant_type === 'applicant' ? 'applicant' : 'employer',
-              text: m.text,
-              timestamp: m.created_at,
-            });
-            storedIds.add(m.id);
-            added++;
-          }
-          if (added > 0) {
+          // hh-history owns dedupe: same hh_id, or same role+text inside the dedupe
+          // window (our own local echo of a delivered message). Previously only hh_id
+          // was compared, so every message sent from the review page came back as a
+          // second copy — see src/hh-history.js.
+          const merged = require('./hh-history').mergeHhMessages(history, allHhMsgs);
+          const healed = merged.messages.length !== history.messages.length;
+          history.messages = merged.messages;
+          newMessages += merged.added;
+          if (merged.added > 0 || healed) {
             history.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            newMessages += added;
           }
           history.last_hh_message_at = neg.updated_at ? new Date(neg.updated_at).getTime() : Date.now();
           fs.writeFileSync(file, JSON.stringify(history, null, 2), { mode: 0o600 });

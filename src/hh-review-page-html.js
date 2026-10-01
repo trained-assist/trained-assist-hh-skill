@@ -216,7 +216,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            </div>
            <textarea class="msg-area" id="msg-${i}" rows="5">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
-             <button class="btn btn-send" onclick="sendOne(${i},'${esc(c.negotiation_id)}')">✓ Отправить</button>
+             <button class="btn btn-send" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}')">✓ Отправить</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
              <button class="btn btn-skip" onclick="setResponseState(this,'${esc(c.negotiation_id)}','archived')">В архив</button>
              <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">✗ Отправить отказ</button>
@@ -334,6 +334,12 @@ h1{font-size:22px;font-weight:700;margin-bottom:4px}
 .btn-reject-all{background:#dc2626;color:#fff;padding:9px 22px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
 .btn-reject-all:disabled{opacity:.4;cursor:not-allowed}
 .btn-reject-all:not(:disabled):hover{opacity:.85}
+.guard-block{margin-top:10px;padding:10px 12px;border:1px solid #fca5a5;background:#fef2f2;border-radius:8px}
+.guard-reason{font-size:13px;color:#b91c1c;line-height:1.4}
+.guard-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.btn-guard-fix{background:#fff;border:1px solid #cbd5e1;color:#475569}
+.btn-guard-force{background:#dc2626;color:#fff}
+.hist-msg.just-sent{outline:2px solid #86efac}
 .toast{position:fixed;top:20px;right:20px;padding:10px 18px;border-radius:8px;background:#16a34a;color:#fff;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15);animation:fadein .2s}
 .toast-err{background:#dc2626}
 @keyframes fadein{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
@@ -491,9 +497,15 @@ function showToast(msg, isError) {
   setTimeout(() => t.remove(), 3000);
 }
 
-async function hhAction(endpoint, payload) {
+// Every POST gets a client-side deadline. Before, only /hh/send-and-reject had one:
+// /hh/send could sit on "⏳" for as long as the server took (guard LLM call + HH POST),
+// with no way to tell "still working" from "hung" — that read as a frozen page.
+window.HH_ACTION_TIMEOUT_MS = 45000;
+
+async function hhAction(endpoint, payload, timeoutMs) {
+  const deadline = timeoutMs || window.HH_ACTION_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = endpoint === '/hh/send-and-reject' ? setTimeout(() => controller.abort(), 60000) : null;
+  const timer = setTimeout(() => controller.abort(), deadline);
   try {
     const r = await fetch(CALLBACK_BASE + endpoint, {
       method: 'POST', signal: controller.signal,
@@ -504,11 +516,28 @@ async function hhAction(endpoint, payload) {
     if (!r.ok) throw new Error(data.error || r.statusText);
     return data;
   } catch(e) {
-    if (e.name === 'AbortError' || e instanceof TypeError || e instanceof SyntaxError) {
+    if (e.name === 'AbortError') {
+      throw new Error('Ответ HH не пришёл за ' + Math.round(deadline / 1000) + ' c. Запрос мог выполниться — проверьте переписку на HH перед повтором.');
+    }
+    if (e instanceof TypeError || e instanceof SyntaxError) {
       throw new Error('Не удалось получить подтверждение. Запрос мог выполниться — проверьте переписку и статус на HH перед повтором.');
     }
     throw e;
   } finally { clearTimeout(timer); }
+}
+
+// Live "we are actually waiting" signal: the button counts seconds instead of
+// sitting on a static ⏳, so a slow guard check never looks like a hung page.
+function startSendClock(btn, label) {
+  if (!btn) return () => {};
+  const t0 = Date.now();
+  btn.dataset.baseLabel = label || btn.dataset.baseLabel || btn.textContent;
+  const base = btn.dataset.baseLabel;
+  btn.textContent = base + ' 0с';
+  const id = setInterval(() => {
+    btn.textContent = base + ' ' + Math.round((Date.now() - t0) / 1000) + 'с';
+  }, 1000);
+  return () => clearInterval(id);
 }
 
 function onCheck() {
@@ -641,12 +670,12 @@ async function sendAndRejectOne(i, negId, force) {
     if (data.blocked) {
       rejecting.delete(negId);
       rejectionStatus(negId, 'Отказ не отправлен: ' + (data.reason || 'сообщение заблокировано'), false);
-      if (confirm('🚫 Guard: ' + (data.reason || 'сообщение заблокировано') + '\\n\\nВсё равно отправить?')) {
-        return await sendAndRejectOne(i, negId, true);
-      }
+      showGuardBlock(i, negId, data.reason, 'reject');
+      showToast('🚫 Guard остановил отказ — исправьте текст или отправьте принудительно', true);
       return;
     }
     if (!data.ok) throw new Error(data.error || 'Результат отказа не подтверждён. Проверьте HH перед повтором.');
+    insertSentMessage(i, msg);
     markDone(i); onCheck();
     rejectionStatus(negId, '✅ Сообщение отправлено. Кандидат переведён в отказ на HH.', true);
   } catch(e) {
@@ -676,24 +705,128 @@ async function autoGenerate() {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, emptyBtns.length) }, worker));
 }
 
-async function sendOne(i, negId, force) {
+// A guard block is a normal outcome, not a crash: show it inline on the card with both
+// ways out (fix the text / send anyway). The native confirm() it replaced froze the
+// whole page and left the button stuck on "⏳..." — the recruiter saw nothing happen
+// and no message on HH, which is what got reported as "interface hangs".
+function showGuardBlock(i, negId, reason, mode) {
+  hideGuardBlock(i);
+  const card = document.getElementById('card-' + i);
+  if (!card) return;
+  const panel = document.createElement('div');
+  panel.className = 'guard-block';
+  panel.id = 'guard-' + i;
+  panel.dataset.mode = mode || 'send';
+  // Built with DOM calls, not innerHTML + inline onclick: the negId/quoting round-trip
+  // through a template literal is exactly where a button silently disappears.
+  const reasonEl = document.createElement('div');
+  reasonEl.className = 'guard-reason';
+  reasonEl.textContent = '\u{1F6AB} Guard: ' + (reason || 'сообщение заблокировано');
+  const actions = document.createElement('div');
+  actions.className = 'guard-actions';
+  const fixBtn = document.createElement('button');
+  fixBtn.className = 'btn btn-guard-fix';
+  fixBtn.type = 'button';
+  fixBtn.textContent = 'Исправить текст';
+  fixBtn.addEventListener('click', () => editAfterGuard(i));
+  const forceBtn = document.createElement('button');
+  forceBtn.className = 'btn btn-guard-force';
+  forceBtn.type = 'button';
+  forceBtn.textContent = 'Всё равно отправить';
+  forceBtn.addEventListener('click', () => forceSend(i));
+  actions.append(fixBtn, forceBtn);
+  panel.append(reasonEl, actions);
+  const area = document.getElementById('msg-' + i);
+  (area?.closest('.msg-section') || card).appendChild(panel);
+}
+
+function hideGuardBlock(i) { document.getElementById('guard-' + i)?.remove(); }
+
+function editAfterGuard(i) {
+  hideGuardBlock(i);
+  const ta = document.getElementById('msg-' + i);
+  if (!ta) return;
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  ta.scrollIntoView({ block: 'center' });
+  showToast('Поправьте текст и отправьте снова');
+}
+
+function forceSend(i) {
+  const panel = document.getElementById('guard-' + i);
+  const mode = panel?.dataset.mode || 'send';
+  const negId = document.getElementById('card-' + i)?.dataset.neg || '';
+  hideGuardBlock(i);
+  if (mode === 'reject') return sendAndRejectOne(i, negId, true);
+  return sendOne(document.querySelector('#card-' + i + ' .btn-send'), i, negId, true);
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Optimistic insert: the delivered message shows up in the card's dialogue thread and
+// in the «N от нас» counter right away. Before, the page only greyed the card out and
+// the recruiter had to reload (and even then saw the message twice — a duplicate-write
+// bug, fixed in src/hh-history.js).
+function insertSentMessage(i, text) {
+  const card = document.getElementById('card-' + i);
+  if (!card) return;
+  const bubble = document.createElement('div');
+  bubble.className = 'hist-msg hist-employer just-sent';
+  const stamp = new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  bubble.innerHTML = '<span class="hist-who">Рекрутер</span><span class="hist-time">' + escapeHtml(stamp) + '</span>'
+    + '<div class="hist-text">' + escapeHtml(text) + '</div>';
+  const details = card.querySelector('details.hist-details');
+  if (details) {
+    const thread = details.querySelector('.hist-thread');
+    if (thread) { thread.appendChild(bubble); details.open = true; }
+    const sum = details.querySelector('.hist-summary');
+    if (sum) { const n = (details.querySelectorAll('.hist-msg').length); sum.textContent = '📨 История диалога (' + n + ' сообщ.)'; }
+  } else {
+    const placeholder = card.querySelector('.hist-none');
+    const wrap = document.createElement('details');
+    wrap.className = 'hist-details';
+    wrap.open = true;
+    wrap.innerHTML = '<summary class="hist-summary">📨 История диалога (1 сообщ.)</summary>';
+    const thread = document.createElement('div');
+    thread.className = 'hist-thread';
+    wrap.appendChild(thread);
+    thread.appendChild(bubble);
+    if (placeholder) placeholder.replaceWith(wrap); else card.querySelector('.msg-section')?.before(wrap);
+  }
+  const meta = card.querySelector('.msg-meta');
+  if (meta) {
+    // NOTE: this script is emitted through a JS template literal — every backslash in a
+    // regex must be doubled here, or \d silently becomes a literal 'd' in the page.
+    meta.textContent = meta.textContent.replace(/(\\d+)\\s+от нас/, (all, n) => (Number(n) + 1) + ' от нас') + ' · ✅ отправлено только что';
+  }
+}
+
+// btn is passed in from the click handler on purpose: the old version read the global
+// window.event, which is undefined on the forced re-send path — the button then stayed
+// disabled with a "⏳..." label for the rest of the session.
+async function sendOne(btn, i, negId, force) {
   const msg = document.getElementById('msg-'+i)?.value?.trim() || '';
   if (!msg) { showToast('Сообщение пустое', true); return; }
-  const btn = event?.currentTarget;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+  hideGuardBlock(i);
+  const stopClock = startSendClock(btn, '⏳ Проверка и отправка');
+  if (btn) btn.disabled = true;
   try {
     const data = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force: !!force });
     if (data.blocked) {
-      if (btn) { btn.disabled = false; btn.textContent = '✓ Отправить'; }
-      if (confirm('🚫 Guard: ' + (data.reason || 'сообщение заблокировано') + '\\n\\nЭто ты лично проверяешь и отправляешь — всё равно отправить?')) {
-        return sendOne(i, negId, true);
-      }
+      showGuardBlock(i, negId, data.reason);
+      showToast('🚫 Guard остановил отправку — исправьте текст или отправьте принудительно', true);
       return;
     }
+    insertSentMessage(i, msg);
     markDone(i); onCheck(); showToast('✅ Отправлено!');
   } catch(e) {
     showToast('❌ ' + e.message, true);
-    if (btn) { btn.disabled = false; btn.textContent = '✓ Отправить'; }
+  } finally {
+    stopClock();
+    const b = btn || document.querySelector('#card-' + i + ' .btn-send');
+    if (b) { b.disabled = false; b.textContent = '✓ Отправить'; }
   }
 }
 

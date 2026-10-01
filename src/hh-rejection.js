@@ -21,12 +21,19 @@ function standardRejectionText(firstName) {
 // Persist each external step: a retry must never resend a delivered message.
 async function sendRejection({ historyFile, message, send, discard }) {
   const read = () => fs.existsSync(historyFile) ? JSON.parse(fs.readFileSync(historyFile, 'utf8')) : { messages: [] };
-  const save = (operation, sentMessage) => {
+  const save = (operation, sentMessage, sent) => {
     const history = read();
     history.rejection_operation = operation;
     if (sentMessage) {
-      history.messages = history.messages || [];
-      history.messages.push({ role: 'employer', text: sentMessage, timestamp: new Date().toISOString(), type: 'rejection' });
+      // hh-history keeps this single even though a rejection is also mirrored by the
+      // next HH sync — see src/hh-history.js for why an id-less copy used to double.
+      const { appendLocalMessage } = require('./hh-history');
+      history.messages = appendLocalMessage(history, {
+        role: 'employer', text: sentMessage,
+        hhId: sent?.id ?? null, timestamp: sent?.created_at || null,
+      });
+      const last = [...history.messages].reverse().find(m => m.text === sentMessage);
+      if (last) last.type = 'rejection';
     }
     const tmp = historyFile + '.rejection.tmp';
     fs.writeFileSync(tmp, JSON.stringify(history, null, 2), { mode: 0o600 });
@@ -40,8 +47,9 @@ async function sendRejection({ historyFile, message, send, discard }) {
   const operation = { message: previous?.status === 'message_sent' ? previous.message : message, status: 'sending' };
   if (previous?.status !== 'message_sent') {
     save(operation);
+    let sent = null;
     try {
-      await send(operation.message);
+      sent = await send(operation.message);
     } catch (e) {
       // A transport error may occur after HH accepted the message.
       operation.status = /^HH 4\d\d:/.test(e.message) ? 'failed' : 'unknown';
@@ -51,7 +59,7 @@ async function sendRejection({ historyFile, message, send, discard }) {
         : 'Сообщение не отправлено: ' + e.message };
     }
     operation.status = 'message_sent';
-    save(operation, operation.message);
+    save(operation, operation.message, sent);
   }
   operation.status = 'discarding';
   save(operation);
