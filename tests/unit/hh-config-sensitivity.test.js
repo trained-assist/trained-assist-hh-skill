@@ -87,7 +87,15 @@ const EVAL_B_STRONG = JSON.stringify({
 });
 
 // Interceptors that ALSO capture the request body for assertions
+// Evaluation and message generation ride the llm-ladder worker now — capture BOTH
+// boundaries so the prompt assertions keep working whatever the transport is.
 function captureOrMock(captureRef, responseContent) {
+  nock('https://llm-ladder.trainedassist.store')
+    .post('/v1/chat/completions')
+    .reply(200, function (_uri, body) {
+      captureRef.value = typeof body === 'string' ? JSON.parse(body) : body;
+      return { choices: [{ message: { content: responseContent } }], model: body.model };
+    });
   return nock('https://openrouter.ai')
     .post('/api/v1/chat/completions')
     .reply(200, function (_uri, body) {
@@ -97,6 +105,9 @@ function captureOrMock(captureRef, responseContent) {
 }
 
 function mockOr(content) {
+  nock('https://llm-ladder.trainedassist.store')
+    .post('/v1/chat/completions')
+    .reply(200, (_uri, body) => ({ choices: [{ message: { content } }], model: body.model }));
   return nock('https://openrouter.ai')
     .post('/api/v1/chat/completions')
     .reply(200, { choices: [{ message: { content } }] });
@@ -122,12 +133,14 @@ beforeAll(async () => {
   process.env.AGENT_DATA_DIR     = tokensDir;
   process.env.HH_API_BASE_URL    = mockHh.baseUrl;
   process.env.OPENROUTER_API_KEY = 'test-or-key-sensitivity';
+  process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // evaluation/writing ride the ladder
 
   nock.disableNetConnect();
   nock.enableNetConnect('127.0.0.1');
 });
 
 afterAll(async () => {
+  delete process.env.LLM_LADDER_TOKEN;
   nock.enableNetConnect();
   nock.cleanAll();
   if (mockHh) await mockHh.stop();

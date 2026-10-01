@@ -14,6 +14,8 @@ const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt
 const { detectMessageType, buildDraftUserMessage, historySignature, isDraftStale, interviewConfigAllowsTime } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { bullshitGuard } = require('./hh-bullshit-guard');
+const { generateConversation } = require('./conversation-generation');
+const { ladderChat, ladderToken } = require('./llm-ladder');
 
 const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 
@@ -22,13 +24,6 @@ const CHINESE_RE = /[一-鿿㐀-䶿豈-﫿぀-ヿ]/;
 function hasGarbage(text) {
   if (!text) return false;
   return CHINESE_RE.test(text) || text.includes('�');
-}
-
-function isCleanResult(llmResult) {
-  if (hasGarbage(llmResult.reasoning)) return false;
-  if ((llmResult.strong || []).some(s => hasGarbage(s))) return false;
-  if ((llmResult.missing || []).some(m => hasGarbage(m))) return false;
-  return true;
 }
 
 // ─── OpenRouter (fallback) ────────────────────────────────────────────────────
@@ -226,29 +221,23 @@ function computeScore(llmResult, config) {
   };
 }
 
-// ─── evaluateCandidate: GigaChat → Gemini fallback ───────────────────────────
+// ─── evaluateCandidate: free ladder (owner decision, A/B 2026-09-30) ─────────
 
 async function evaluateCandidate(candidateText, atsConfig, apiKey, gigachatKey) {
-  const messages = [
-    { role: 'system', content: buildAtsPrompt(atsConfig) },
-    { role: 'user', content: `Оцени кандидата:\n\n${candidateText}` },
-  ];
-
-  // Primary: GigaChat (free, no Chinese garbage)
-  if (gigachatKey) {
-    try {
-      const content = await gcCall(gigachatKey, messages, 2000, 0.1);
-      const llmResult = parseLlmJson(content);
-      if (isCleanResult(llmResult)) return computeScore(llmResult, atsConfig);
-      console.warn('[hh-scoring] GigaChat returned garbage, falling back to Gemini');
-    } catch (e) {
-      console.warn(`[hh-scoring] GigaChat failed: ${e.message}, falling back to Gemini`);
-    }
-  }
-
-  // Fallback: Gemini via OpenRouter
-  if (!apiKey) throw new Error('No LLM credentials available');
-  const content = await llmCall(apiKey, FALLBACK_MODEL, messages, 2000, 0.1);
+  // ATS scoring runs on the ladder's free tier (docs/evals/ladder-enrichment-ab-
+  // 2026-09-30.md: free-ladder, temp 0.1). GigaChat/OpenRouter fallbacks are gone —
+  // the ladder owns failover; apiKey/gigachatKey stay in the signature for call-site
+  // compatibility only.
+  const { content } = await ladderChat({
+    messages: [
+      { role: 'system', content: buildAtsPrompt(atsConfig) },
+      { role: 'user', content: `Оцени кандидата:\n\n${candidateText}` },
+    ],
+    ladder: 'free-ladder',
+    temperature: 0.1,
+    maxTokens: 2000,
+    source: 'hh-evaluate',
+  });
   const llmResult = parseLlmJson(content);
   return computeScore(llmResult, atsConfig);
 }
@@ -327,15 +316,14 @@ function saveCandidateHistory(username, negotiationId, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2), { mode: 0o600 });
 }
 
-// ─── Batch scoring: GigaChat primary ─────────────────────────────────────────
+// ─── Batch scoring: free ladder ──────────────────────────────────────────────
 
 async function scoreUnscoredCandidates(negotiations, username, workDir, { maxConcurrent = 5, msgSyncStats = null, vacancyId = null } = {}) {
   const atsConfig = readAtsConfig(workDir, vacancyId);
   if (!atsConfig) return 0;
 
-  const gigachatKey = readGigachatKey(username);
-  const apiKey = readOrKey(username);
-  if (!gigachatKey && !apiKey) return 0;
+  // ATS scoring rides the free ladder — the ladder token is the only credential here.
+  if (!ladderToken()) return 0;
 
   const unscored = negotiations.filter(neg => {
     if (neg._resume_status !== 'full') return false;
@@ -389,7 +377,7 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
         const history = readCandidateHistory(username, neg.id);
         const candMsgs = (history.messages || []).filter(m => m.role === 'applicant');
         const resumeText = buildResumeText(neg, candMsgs);
-        const result = await module.exports.evaluateCandidate(resumeText, atsConfig, apiKey, gigachatKey);
+        const result = await module.exports.evaluateCandidate(resumeText, atsConfig);
         if (result.score != null) {
           result.scored_at = Date.now();
           result.resume_version = RESUME_VERSION;
@@ -408,15 +396,16 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
   return scored;
 }
 
-// ─── Draft generation: GigaChat primary ──────────────────────────────────────
+// ─── Draft generation: conversation generation (ladder 'conversations') ───────
 
 async function generateDraftMessages(negotiations, username, workDir, { maxConcurrent = 3, vacancyId = null } = {}) {
   const atsConfig = readAtsConfig(workDir, vacancyId);
   if (!atsConfig) return 0;
 
-  const gigachatKey = readGigachatKey(username);
-  const apiKey = readOrKey(username);
-  if (!gigachatKey && !apiKey) return 0;
+  // Every write goes through src/conversation-generation.js (model pick + Q/A history
+  // for the bench) — the ladder token is the only credential; GigaChat/OpenRouter
+  // left this path with the switch to the 'conversations' ladder.
+  if (!ladderToken()) return 0;
 
   const tokensBase = tokensRoot();
   const styleFile = path.join(tokensBase, String(username), 'hh-message-style');
@@ -490,7 +479,6 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           atsConfig: atsConfig || {},
           resumeText: buildResumeText(neg),
           username,
-          apiKey,
         });
         history.ats_result.funnel_action = plan.action;
         history.ats_result.funnel_reason = plan.reason;
@@ -537,28 +525,10 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           { role: 'user', content: userMsg },
         ];
 
-        let message = null;
-
-        // Primary: GigaChat
-        if (gigachatKey) {
-          try {
-            message = await gcCall(gigachatKey, messages, 600, 0.7);
-            if (hasGarbage(message)) {
-              console.warn(`[hh-drafts] GigaChat returned garbage for ${neg.id}, falling back`);
-              message = null;
-            }
-          } catch (e) {
-            console.warn(`[hh-drafts] GigaChat failed for ${neg.id}: ${e.message}, falling back`);
-          }
-        }
-
-        // Fallback: Gemini
-        if (!message && apiKey) {
-          message = await llmCall(apiKey, FALLBACK_MODEL, messages, 600, 0.7);
-          if (hasGarbage(message)) throw new Error('Gemini fallback returned garbage');
-        }
-
-        if (!message) throw new Error('No LLM credentials produced a result');
+        // The write itself: ladder 'conversations' via conversation generation —
+        // the serving rung lands in the Q/A history for the bench.
+        let message = await generateConversation({ messages, temperature: 0.7, maxTokens: 600, source: 'hh-drafts' });
+        if (hasGarbage(message)) throw new Error('conversation generation returned garbage');
         message = message.trim();
 
         // An auto-draft reaches the recruiter pre-filled and one click from being sent,
@@ -577,16 +547,14 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
                 + 'Не повторяй эту ошибку — напиши новый вариант без неё.)',
             },
           ];
-          let retried = null;
-          if (gigachatKey) {
-            try { retried = await gcCall(gigachatKey, retryMessages, 600, 0.7); } catch { retried = null; }
-          }
-          if ((!retried || hasGarbage(retried)) && apiKey) {
-            retried = await llmCall(apiKey, FALLBACK_MODEL, retryMessages, 600, 0.7);
-          }
-          if (retried && !hasGarbage(retried)) {
-            message = retried.trim();
-            guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
+          try {
+            const retried = await generateConversation({ messages: retryMessages, temperature: 0.7, maxTokens: 600, source: 'hh-drafts' });
+            if (retried && !hasGarbage(retried)) {
+              message = retried.trim();
+              guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
+            }
+          } catch (e) {
+            console.warn(`[hh-drafts] retry failed for ${neg.id}: ${e.message}`);
           }
         }
 

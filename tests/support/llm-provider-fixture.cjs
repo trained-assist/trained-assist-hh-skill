@@ -53,3 +53,7 @@ function reply(_uri, body) {
 nock('https://openrouter.ai', { reqheaders: { authorization: 'Bearer fixture-llm-only' } })
   .persist().post('/api/v1/chat/completions').reply(200, reply);
 nock('https://openrouter.ai').persist().post('/api/v1/chat/completions').reply(200, reply);
+// llm-ladder worker: same scripted answers for everything now routed through
+// src/conversation-generation.js / src/llm-ladder.js (writing, evaluation, planner).
+nock('https://llm-ladder.trainedassist.store')
+  .persist().post('/v1/chat/completions').reply(200, (_uri, body) => ({ ...reply(_uri, body), model: body.model }));

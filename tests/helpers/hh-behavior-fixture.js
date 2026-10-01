@@ -52,6 +52,7 @@ async function createBehaviorFixture() {
     HH_API_BASE_URL: srv.baseUrl, HH_COLD_SEARCH_PUBLIC_URL: srv.baseUrl,
     AGENT_PUBLIC_URL: srv.baseUrl, AGENT_SECRET: 'fixture-secret',
     OPENROUTER_API_KEY: 'fixture-llm-only', FIXTURE_LLM_LOG: path.join(root, 'llm.jsonl'),
+    LLM_LADDER_TOKEN: 'fixture-ladder-token',
   };
 
   const mcp = await startMcp({ userId: USER, workDir, env, nodeArgs: ['--require', LLM_FIXTURE] });

@@ -57,6 +57,7 @@ async function createFixture({ connected = true, llm = false } = {}) {
     AGENT_TOKENS_ROOT: path.join(root, 'agent-tokens'), AGENT_DATA_DIR: path.join(root, 'data'),
     HH_API_BASE_URL: baseUrl, HH_COLD_SEARCH_PUBLIC_URL: baseUrl, AGENT_SECRET: 'fixture-secret',
     OPENROUTER_API_KEY: llm ? 'fixture-llm-only' : '', FIXTURE_LLM_LOG: path.join(root, 'llm.jsonl'),
+    LLM_LADDER_TOKEN: llm ? 'fixture-ladder-token' : '',
   };
   let client = new McpClient(process.execPath, [...(llm ? ['--require', path.join(repo, 'tests/support/llm-fixture.cjs')] : []), path.join(repo, 'src/mcp-skills/index.js')], { cwd: workDir, env });
   return { root, get client() { return client; }, requests, unexpected, baseUrl,

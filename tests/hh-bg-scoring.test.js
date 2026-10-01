@@ -270,9 +270,11 @@ describe('scoreUnscoredCandidates — skip and guard conditions', () => {
     if (existsSync(configFile)) require('fs').unlinkSync(configFile);
 
     process.env.OPENROUTER_API_KEY = 'test-or-key';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
     const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
     expect(scored).toBe(0);
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
   });
 
   it('already-scored candidates are skipped (idempotency)', async () => {
@@ -282,13 +284,16 @@ describe('scoreUnscoredCandidates — skip and guard conditions', () => {
     }
 
     process.env.OPENROUTER_API_KEY = 'test-or-key';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
     const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
     expect(scored).toBe(0); // All already scored → nothing to do
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
   });
 
   it('returns 0 when no API key available', async () => {
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
     const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
     expect(scored).toBe(0);
   });
@@ -331,6 +336,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
 
   it('blocks partial resumes and rescoring migrates old scores exactly once', async () => {
     process.env.OPENROUTER_API_KEY = 'test-or-key';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
     try {
       const neg = structuredClone(DEFAULT_NEGOTIATIONS[0]);
       neg._resume_status = 'unavailable';
@@ -346,11 +352,12 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
       expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR)).toBe(1);
       expect(scoring.readCandidateHistory(TEST_USER, neg.id).ats_result.resume_version).toBe(1);
       expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR)).toBe(0);
-    } finally { delete process.env.OPENROUTER_API_KEY; }
+    } finally { delete process.env.OPENROUTER_API_KEY; delete process.env.LLM_LADDER_TOKEN; }
   });
 
   it('scores 3 unscored candidates and writes ats_result to disk', async () => {
     process.env.OPENROUTER_API_KEY = 'test-or-key';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
     const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
     expect(scored).toBe(DEFAULT_NEGOTIATIONS.length);
 
@@ -363,6 +370,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
       expect(typeof h.ats_result.scored_at).toBe('number');
     }
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
   });
 
   it('knockout/required_skills/preferred_skills schema is readable by buildAtsPrompt', () => {
@@ -377,6 +385,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
 
   it('writes last-scoring.json after scoring', async () => {
     process.env.OPENROUTER_API_KEY = 'test-or-key';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
     const { existsSync, readFileSync } = require('fs');
     const { join } = require('path');
     const { homedir } = require('os');
@@ -389,5 +398,6 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
     expect(log.scored).toBe(DEFAULT_NEGOTIATIONS.length);
     expect(typeof log.at).toBe('number');
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
   });
 });
