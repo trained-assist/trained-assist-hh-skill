@@ -2100,6 +2100,67 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "hh_interview_transcribe",
+      "description": "Расшифровать интервью: качает запись по публичной ссылке (Google Drive или прямой https-URL; локальные файлы не принимаются) и отправляет в Deepgram (nova-2, ru, diarize+utterances) напрямую — видео НЕ распиливается и аудио НЕ отделяется. Сохраняет сырой deepgram.json и транскрипт в формате гайда (заголовок «Интервью: …», реплики «[м:сс] Спикер: текст», соседние реплики одного спикера склеены) в agent-data/hh/<user>/interviews/<slug>/. Вместо ссылки можно передать text с готовым транскриптом — тогда Deepgram не вызывается. Идемпотентно по sha256 источника: повтор возвращает кэш, force пересчитывает. Нужен ключ DEEPGRAM_API_KEY в env или credential-файл.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_url": {
+            "type": "string",
+            "description": "Публичная ссылка на запись: Google Drive (drive.google.com/file/d/…/view или /uc?id=…) либо прямой https-URL mp4/m4a/wav."
+          },
+          "text": {
+            "type": "string",
+            "description": "Готовый текст/транскрипт интервью вместо файла — Deepgram не вызывается, ключ не нужен."
+          },
+          "candidate_name": {
+            "type": "string",
+            "description": "Имя кандидата: в заголовок транскрипта и подпись спикера. По умолчанию «Кандидат»."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Имя папки результата. По умолчанию — из candidate_name, иначе из ссылки."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если по этому источнику транскрипт уже есть."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
+      "name": "hh_interview_structure",
+      "description": "Разбить готовый транскрипт интервью на Q&A-ходы БЕЗ LLM: по Q&A-паттерну (кто задаёт вопросы — рекрутер, кто отвечает — кандидат) и по заголовку «Интервью: … (рекрутер) — …», если транскрипт уже подписан. Читает agent-data/hh/<user>/interviews/<slug>/ (сырой deepgram.json, иначе <slug>-transcript.txt), пишет структуру в оба имени контракта — <slug>.structure.json и structure.json (его читает hh_interview_evaluate): {speakers_detected, turns: [{speaker, role, text, t}]}. Один голос или нечитаемое чередование → speakers_detected: false и роли не подписаны — не выдумывай их. Идемпотентно: повтор возвращает кэш, force пересчитывает.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Папка интервью (см. hh_interview_transcribe)."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Пересчитать, даже если structure.json уже есть."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": false,
+      "retrySafety": "idempotent"
+    },
+    {
       "name": "interview_set_criteria",
       "description": "Сохранить эталон критериев заказчика (профиль «ДА» + красные флаги) для разбора интервью. Задаётся один раз и переиспользуется всеми последующими interview_analyze — так «пришла расшифровка → сразу анализ» без переспросов. Вызывай когда пользователь описывает, кого ищут / что важно / за что отказывать. Передай criteria как markdown-текст.",
       "inputSchema": {

@@ -83,6 +83,11 @@ const POLICY = {
   rejection_with_feedback:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_proactive_search:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
 
+  // ── Interview transcription (#88): local transcript/structure files + a Deepgram
+  //    read call; no hh.ru effect, sha256-cached, user-triggered only ──────────
+  hh_interview_transcribe: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  hh_interview_structure:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+
   // ── Outbound message to a candidate — external_message, always approval-gated ──
   hh_send_message: { effect: 'external_message', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
 
