@@ -387,3 +387,52 @@ describe('criteria guard — a flagged criterion is replaced, not silently delet
     expect(res.config.required[0].name).toBe('опыт работы с Wildberries от 2 лет');
   });
 });
+
+describe('funnel — a promised test task is not blocked by our own silence', () => {
+  const TASK = 'Откройте витрину бренда и сверьте её с гайдом по карточкам.';
+
+  it('sends the assignment we already promised', () => {
+    // Live regression, 01.10.2026 / vacancy 138004863: our last message was
+    // «Супер, пришлю задание», the funnel answered `wait` (we spoke last, no
+    // reply), and the assignment the candidate was waiting for was never sent.
+    const step = deterministicStep({
+      history: [
+        { role: 'applicant', text: 'Готов выполнить', timestamp: iso(3600 * 1000) },
+        { role: 'employer', text: 'Супер, пришлю задание', timestamp: iso(1800 * 1000) },
+      ],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: TASK },
+    });
+    expect(step.action).toBe('send_test');
+  });
+
+  it('still waits when no promise was made', () => {
+    const step = deterministicStep({
+      history: [{ role: 'employer', text: 'Какие у вас метрики?', timestamp: iso(3600 * 1000) }],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: TASK },
+    });
+    expect(step.action).toBe('wait');
+  });
+
+  it('never re-sends an assignment that already went out', () => {
+    const step = deterministicStep({
+      history: [
+        { role: 'employer', text: 'Супер, пришлю задание', timestamp: iso(2 * DAY) },
+        { role: 'employer', text: `Тестовое задание.\n\n${TASK}`, timestamp: iso(2 * DAY - 1000) },
+      ],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: TASK },
+    });
+    expect(step.action).not.toBe('send_test');
+  });
+
+  it('offers nothing when the vacancy has no assignment', () => {
+    const step = deterministicStep({
+      history: [{ role: 'employer', text: 'Супер, пришлю задание', timestamp: iso(3600 * 1000) }],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: '' },
+    });
+    expect(step.action).not.toBe('send_test');
+  });
+});
