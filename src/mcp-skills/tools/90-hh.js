@@ -9,6 +9,7 @@ const https = require('https');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('../../hh-message-prompts');
 const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-message');
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
+const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
 const { generateConversation } = require('../../conversation-generation');
 const { ladderChat, ladderToken } = require('../../llm-ladder');
@@ -1119,13 +1120,21 @@ module.exports = {
           // Enforce the measurability rule executably, not just in the prompt: on the
           // 01.10.2026 WB vacancy the model shipped «аналитический склад ума» and
           // «постановка ТЗ подрядчикам» into the rubric and every candidate got the
-          // same mark on them. This draft has not been seen by a human yet, so
-          // dropping the flagged criteria here is safe — a saved config is never
-          // touched (see checkCriteria contract).
+          // same mark on them.
+          //
+          // Flagged criteria are REPLACED where the guard proposed a measurable
+          // wording, not deleted. The first version dropped everything and threw the
+          // suggestion away — a live check on 138004863 showed it would have removed
+          // «настройка и оптимизация внутренней рекламы», a real requirement, from
+          // the rubric the recruiter was about to review. Only criteria with no
+          // usable replacement (regex hits, or a refusal to suggest) are dropped.
+          // A saved config is never touched by this path.
           const guard = await checkCriteria(config, { username: USER_ID, apiKey });
-          const dropped = guard.violations.map(v => v.name);
-          if (dropped.length) {
-            config = dropViolations(config, guard.violations);
+          let replaced = [];
+          let dropped = [];
+          if (guard.violations.length) {
+            ({ config, replaced, dropped } = applyCriteriaGuard(config, guard.violations));
+            dropped = dropped.map(d => d.name);
             if (!config.required.length && !config.preferred.length) {
               return {
                 error: 'Из текста вакансии не удалось получить проверяемые критерии — все оказались общими формулировками. Добавь в описание вакансии конкретные требования (инструменты, метрики, цифры) и попробуй снова.',
@@ -1153,8 +1162,10 @@ module.exports = {
             config,
             review_url: editorUrl,
             dropped_criteria: dropped,
+            replaced_criteria: replaced,
             criteria_guard: { violations: guard.violations, degraded: guard.degraded },
             note: `Черновик сохранён. Открой ${editorUrl} чтобы проверить критерии/веса и сохранить — фоновый скоринг начнёт использовать конфиг только после сохранения там.`
+              + (replaced.length ? ` Переформулировано в измеримые: ${replaced.map(r => r.to).join('; ')}.` : '')
               + (dropped.length ? ` Убрано как неизмеримые: ${dropped.join('; ')}.` : ''),
           };
         } catch (e) {

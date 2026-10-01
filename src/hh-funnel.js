@@ -138,6 +138,20 @@ function normalizeText(s) {
   return String(s || '').toLowerCase().replace(/[^a-zа-яё0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// The recruiter's own promise to send the assignment. Live check 01.10.2026 on
+// vacancy 138004863: the thread ended with «Супер, пришлю задание» and the funnel
+// answered `wait` — because we spoke last and the candidate was silent. That is the
+// one case where waiting is exactly wrong: the next letter IS the test task, and
+// the candidate is waiting for it. Two days of silence later it becomes a followup
+// instead, and the assignment is never sent.
+const PROMISED_TASK_RE = /(пришл|отправлю|высылаю|скину|перешл)[^.!?\n]{0,40}(задани|тестов)/i;
+
+function promisedTestTask(messages) {
+  const last = lastMessage(messages);
+  if (!last || last.role !== 'employer') return false;
+  return PROMISED_TASK_RE.test(String(last.text || ''));
+}
+
 // The test task is sent verbatim from the config, so "was it sent?" has to be
 // answered by looking for the actual text in the thread — a flag can be lost, the
 // letter cannot.
@@ -164,6 +178,11 @@ function deterministicStep({ history = [], atsResult = null, atsConfig = {}, now
   }
 
   const testTask = String(atsConfig.test_task || '').trim();
+  // Promised but not sent: the letter that is due is the assignment itself, so
+  // this must be decided BEFORE the "we spoke last → wait" branch below.
+  if (testTask && !testTaskWasSent(history, testTask) && promisedTestTask(history)) {
+    return { action: 'send_test', reason: 'Рекрутер обещал прислать задание, а оно ещё не отправлено — отправляем.', by: 'rule' };
+  }
   if (testTask && testTaskWasSent(history, testTask)) {
     const answered = (history || []).some(m => m && m.role === 'applicant'
       && new Date(m.timestamp || 0).getTime() > new Date((history.filter(h => h.role === 'employer').pop() || {}).timestamp || 0).getTime());
@@ -201,7 +220,8 @@ function buildPlannerMessage({ history, atsResult, atsConfig, resumeText = '' } 
   const matched = (atsResult?.matched || []).join(', ') || 'нет';
   const testTask = String(atsConfig?.test_task || '').trim();
   return `Вакансия: ${atsConfig?.vacancy_title || 'не указана'}
-Скор кандидата: ${atsResult?.score ?? 'н/д'}/${atsConfig?.pass_threshold ?? '?'} (порог прохода), вердикт: ${atsResult?.verdict || 'н/д'}
+Скор кандидата: ${atsResult?.score ?? 'н/д'} из 10. Порог прохода: ${atsConfig?.pass_threshold ?? '?'}. Вердикт скоринга: ${atsResult?.verdict || 'н/д'}.
+Вердикт «ПРОПУСТИТЬ» означает, что кандидат ПРОХОДИТ отбор. Не предлагай отказ, если вердикт не «ОТКЛОНИТЬ».
 Совпадения: ${matched}
 Пробелы: ${gaps}
 Тестовое задание в вакансии: ${testTask ? 'есть' : 'НЕТ — не предлагать его'}
@@ -251,17 +271,66 @@ async function planNextStep({ history = [], atsResult = null, atsConfig = {}, re
     if (!m) throw new Error('no json');
     const parsed = JSON.parse(m[0]);
     const action = VALID_ACTIONS.includes(parsed.action) ? parsed.action : 'wait';
-    return {
-      action,
-      reason: String(parsed.reason || '').slice(0, 300),
-      missing_skills: Array.isArray(parsed.missing_skills)
-        ? parsed.missing_skills.map(s => String(s).slice(0, 120)).filter(Boolean).slice(0, 5)
-        : [],
-      by: 'llm',
-    };
+    const reason = String(parsed.reason || '').slice(0, 300);
+    const missing_skills = Array.isArray(parsed.missing_skills)
+      ? parsed.missing_skills.map(s => String(s).slice(0, 120)).filter(Boolean).slice(0, 5)
+      : [];
+    return guardPlannerAction({ action, reason, missing_skills }, { history, atsResult, atsConfig });
   } catch (e) {
     return { action: 'wait', reason: `Планировщик недоступен (${e.message}) — ждём ответа.`, missing_skills: [], by: 'rule', degraded: true };
   }
+}
+
+/**
+ * Post-gate on the planner's decision. `deterministicStep` above can only stop the
+ * funnel early; nothing checked what the model came back with.
+ *
+ * Live finding 01.10.2026 (vacancy 138004863, production key): the planner answered
+ * `reject` for a candidate scored 8.5 against a 7.5 pass threshold, verdict
+ * ПРОПУСТИТЬ — twice out of three runs on the same thread. `reject` is the one step
+ * that leaves the system for good ("вежливый отказ"), so a prompt line is not a
+ * gate: the threshold the owner set must decide it, not the model's reading of it.
+ * The same class applies to `send_test`, which sends a real assignment.
+ *
+ * Direction is deliberate: this can only make the funnel safer. Every override moves
+ * an outward action (reject / send_test) to an inward one (the answer is still owed,
+ * the recruiter decides), never the other way round.
+ */
+function guardPlannerAction(plan, { history = [], atsResult = null, atsConfig = {} } = {}) {
+  const score = atsResult?.score;
+  const review = atsConfig.review_threshold ?? 4;
+  const decidedToReject = plan.action === 'reject';
+
+  // A refusal is allowed only on the ATS verdict the recruiter's thresholds produced.
+  // Unknown score (not scored yet) is treated as "do not refuse" — silence costs a
+  // day, a wrong refusal costs the candidate.
+  const mayReject = atsResult?.verdict === 'ОТКЛОНИТЬ' && score != null && score < review;
+  if (decidedToReject && !mayReject) {
+    const why = score == null
+      ? `кандидат ещё не отскорен (балла нет)`
+      : `скор ${score} при пороге отклонения ${review}`;
+    return {
+      action: 'wait',
+      reason: `Планировщик предложил отказ, но ${why} — ждём вместо отказа.`,
+      missing_skills: [],
+      by: 'rule',
+      guarded: 'reject',
+    };
+  }
+
+  // The assignment may only go out when the config actually carries it: an empty
+  // test_task would send a letter about an assignment that does not exist.
+  if (plan.action === 'send_test' && !String(atsConfig.test_task || '').trim()) {
+    return {
+      action: 'wait',
+      reason: 'Планировщик предложил отправить задание, а в вакансии его нет — ждём.',
+      missing_skills: [],
+      by: 'rule',
+      guarded: 'send_test',
+    };
+  }
+
+  return { ...plan, by: 'llm' };
 }
 
 // Instruction for the WRITING step. The planner already decided; this must not
@@ -334,6 +403,7 @@ function buildTestTaskMessage(testTask) {
 
 module.exports = {
   FUNNEL_LOGIC_VERSION,
+  guardPlannerAction,
   PLANNER_MODEL,
   ACTIONS,
   VALID_ACTIONS,
@@ -344,6 +414,7 @@ module.exports = {
   buildActionInstruction,
   buildTestTaskMessage,
   testTaskWasSent,
+  promisedTestTask,
   renderThread,
   lastMessage,
   llmCall,

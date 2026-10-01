@@ -25,6 +25,7 @@ const {
   ACTIONS,
   VALID_ACTIONS,
   deterministicStep,
+  guardPlannerAction,
   planNextStep,
   buildActionInstruction,
   buildTestTaskMessage,
@@ -32,6 +33,7 @@ const {
   FUNNEL_LOGIC_VERSION,
 } = require('../../src/hh-funnel');
 const { checkCriteria, dropViolations, findVagueByRegex } = require('../../src/hh-criteria-guard');
+const { applyCriteriaGuard } = require('../../src/hh-criteria-apply');
 const { isDraftStale, historySignature, buildDraftUserMessage } = require('../../src/hh-draft-message');
 
 const DAY = 86400000;
@@ -348,5 +350,179 @@ describe('action set is closed and documented', () => {
       expect(VALID_ACTIONS, a).toContain(a);
       expect(ACTIONS[a].length, a).toBeGreaterThan(10);
     }
+  });
+});
+
+describe('criteria guard — a flagged criterion is replaced, not silently deleted', () => {
+  it('uses the measurable wording the guard proposed', () => {
+    // Regression from the live check on 138004863: dropping instead of replacing
+    // would have deleted «настройка и оптимизация внутренней рекламы» — a real
+    // requirement — from the rubric the recruiter was about to review.
+    const config = {
+      required: [{ name: 'настройка и оптимизация внутренней рекламы', weight: 3 }],
+      preferred: [],
+    };
+    const violations = [{
+      field: 'required',
+      name: 'настройка и оптимизация внутренней рекламы',
+      source: 'llm',
+      suggestion: 'Настройка внутренней рекламы WB: ставки, ДРР, поисковая выдача',
+    }];
+    const res = applyCriteriaGuard(config, violations);
+    expect(res.config.required).toHaveLength(1);
+    expect(res.config.required[0].name).toContain('ДРР');
+    expect(res.config.required[0].weight).toBe(3);
+    expect(res.replaced).toHaveLength(1);
+    expect(res.dropped).toHaveLength(0);
+  });
+
+  it('drops only what has no usable replacement', () => {
+    const config = {
+      required: [{ name: 'аналитический склад ума', weight: 1.5 }],
+      preferred: [{ name: 'понимание товара и трендов', weight: 1.5 }],
+    };
+    const violations = [
+      { field: 'required', name: 'аналитический склад ума' },
+      { field: 'preferred', name: 'понимание товара и трендов', suggestion: '   ' },
+    ];
+    const res = applyCriteriaGuard(config, violations);
+    expect(res.config.required).toHaveLength(0);
+    expect(res.config.preferred).toHaveLength(0);
+    expect(res.dropped.map(d => d.name).sort()).toEqual(['аналитический склад ума', 'понимание товара и трендов']);
+  });
+
+  it('leaves untouched criteria alone', () => {
+    const config = { required: [{ name: 'опыт работы с Wildberries от 2 лет', weight: 3 }], preferred: [] };
+    const res = applyCriteriaGuard(config, []);
+    expect(res.config.required[0].name).toBe('опыт работы с Wildberries от 2 лет');
+  });
+});
+
+describe('funnel — a promised test task is not blocked by our own silence', () => {
+  const TASK = 'Откройте витрину бренда и сверьте её с гайдом по карточкам.';
+
+  it('sends the assignment we already promised', () => {
+    // Live regression, 01.10.2026 / vacancy 138004863: our last message was
+    // «Супер, пришлю задание», the funnel answered `wait` (we spoke last, no
+    // reply), and the assignment the candidate was waiting for was never sent.
+    const step = deterministicStep({
+      history: [
+        { role: 'applicant', text: 'Готов выполнить', timestamp: iso(3600 * 1000) },
+        { role: 'employer', text: 'Супер, пришлю задание', timestamp: iso(1800 * 1000) },
+      ],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: TASK },
+    });
+    expect(step.action).toBe('send_test');
+  });
+
+  it('still waits when no promise was made', () => {
+    const step = deterministicStep({
+      history: [{ role: 'employer', text: 'Какие у вас метрики?', timestamp: iso(3600 * 1000) }],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: TASK },
+    });
+    expect(step.action).toBe('wait');
+  });
+
+  it('never re-sends an assignment that already went out', () => {
+    const step = deterministicStep({
+      history: [
+        { role: 'employer', text: 'Супер, пришлю задание', timestamp: iso(2 * DAY) },
+        { role: 'employer', text: `Тестовое задание.\n\n${TASK}`, timestamp: iso(2 * DAY - 1000) },
+      ],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: TASK },
+    });
+    expect(step.action).not.toBe('send_test');
+  });
+
+  it('offers nothing when the vacancy has no assignment', () => {
+    const step = deterministicStep({
+      history: [{ role: 'employer', text: 'Супер, пришлю задание', timestamp: iso(3600 * 1000) }],
+      atsResult: { verdict: 'ПРОПУСТИТЬ', score: 8.5 },
+      atsConfig: { pass_threshold: 6.5, test_task: '' },
+    });
+    expect(step.action).not.toBe('send_test');
+  });
+});
+
+// ── Outward steps are gated by code, not by the planner's reading of the score ──
+//
+// Live finding 01.10.2026 (vacancy 138004863, production key): the planner returned
+// `reject` for a candidate scored 8.5 against a 7.5 pass threshold, verdict
+// ПРОПУСТИТЬ, on 2 of 3 runs of the same thread. A refusal leaves the system for
+// good and cannot be unsent, so the recruiter's own thresholds — not a prompt line —
+// must decide it. Same for `send_test`: the assignment only exists if the config
+// carries it.
+
+describe('funnel — the planner cannot refuse a passing candidate', () => {
+  const PASSING = { verdict: 'ПРОПУСТИТЬ', score: 8.5, gaps: [], matched: [] };
+
+  it('turns a refusal into silence when the candidate is above the pass threshold', () => {
+    const guarded = guardPlannerAction({ action: 'reject', reason: 'не подходит' }, {
+      history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+    });
+    expect(guarded.action).not.toBe('reject');
+    expect(guarded.action).toBe('wait');
+    expect(guarded.guarded).toBe('reject');
+  });
+
+  it('turns a refusal into silence when the verdict says the candidate passes', () => {
+    // The trap of the original bug: score 6.0 sits above review_threshold 5, so the
+    // candidate is ПРОПУСТИТЬ — the model read "низкий скор" and refused anyway.
+    const guarded = guardPlannerAction({ action: 'reject', reason: 'скор низкий' }, {
+      history: [], atsResult: { verdict: 'ПРОПУСТИТЬ', score: 6.0 },
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+    });
+    expect(guarded.action).not.toBe('reject');
+  });
+
+  it('turns a refusal into silence when the candidate has no score yet', () => {
+    const guarded = guardPlannerAction({ action: 'reject', reason: '...' }, {
+      history: [], atsResult: { verdict: 'ПРОПУСТИТЬ', score: null }, atsConfig: {},
+    });
+    expect(guarded.action).not.toBe('reject');
+  });
+
+  it('still refuses on the ATS verdict the thresholds produced', () => {
+    const guarded = guardPlannerAction({ action: 'reject', reason: 'ниже порога' }, {
+      history: [], atsResult: { verdict: 'ОТКЛОНИТЬ', score: 3 },
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+    });
+    expect(guarded.action).toBe('reject');
+    expect(guarded.by).toBe('llm');
+  });
+
+  it('a refusal survives the full planner path, not just the helper', async () => {
+    const llmCall = async () => JSON.stringify({ action: 'reject', reason: 'не подходит' });
+    const plan = await planNextStep({
+      history: [{ role: 'applicant', text: 'Готов задание', timestamp: iso(3600 * 1000) }],
+      atsResult: PASSING,
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+      apiKey: 'k',
+      llmFn: llmCall,
+    });
+    expect(plan.action).not.toBe('reject');
+  });
+
+  it('never sends an assignment the vacancy does not contain', async () => {
+    const llmCall = async () => JSON.stringify({ action: 'send_test', reason: 'отправляю' });
+    const plan = await planNextStep({
+      history: [{ role: 'applicant', text: 'Готов', timestamp: iso(3600 * 1000) }],
+      atsResult: PASSING,
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5, test_task: '' },
+      apiKey: 'k',
+      llmFn: llmCall,
+    });
+    expect(plan.action).not.toBe('send_test');
+  });
+
+  it('leaves a legitimate step alone', () => {
+    const guarded = guardPlannerAction({ action: 'ask_skills', reason: 'спросить' }, {
+      history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5 },
+    });
+    expect(guarded.action).toBe('ask_skills');
+    expect(guarded.guarded).toBeUndefined();
   });
 });
