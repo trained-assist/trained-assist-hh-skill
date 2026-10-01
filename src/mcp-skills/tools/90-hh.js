@@ -8,6 +8,8 @@ const os = require('os');
 const https = require('https');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('../../hh-message-prompts');
 const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-message');
+const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
+const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
 const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
 
 const USER_ID = process.env.USER_ID || '';
@@ -233,16 +235,56 @@ async function formatBatchResultForTelegram(results, vacancyTitle, reviewUrl, ap
   }
 }
 
-// ── ATS logic (ported from recruiter-assistant/platform/test_pipeline.py) ──
+// ATS logic (ported from recruiter-assistant/platform/test_pipeline.py) ──
 
-const ATS_EXTRACT_SYSTEM = `Ты — senior технический рекрутер. По тексту вакансии сформируй ATS-конфиг.
+// Criteria rubric, rewritten 01.10.2026 (owner feedback on vacancy
+// «Менеджер по продвижению на Wildberries», 138004863).
+//
+// The old prompt said only "required: 3-5 ключевых требований, вес 1.0-3.0" and
+// produced a rubric nobody could act on: «аналитический склад ума» (weight 1.5),
+// «постановка ТЗ подрядчикам», «понимание товара и трендов». None of them can be
+// confirmed or refuted from a resume or from a candidate's answer, so every
+// candidate got the same low mark on them and the verdict stopped discriminating.
+// The owner: "абстрактные неизмеримые критерии … ни о чём все это пишут" — and
+// named what works instead: «знание метрик маркетплейса», «опыт настройки SEO,
+// оптимизации карточки на ВБ».
+//
+// Two rules now make that checkable instead of aspirational:
+//   1. the prompt states the measurability test and shows good/bad pairs;
+//   2. src/hh-criteria-guard.js enforces it executably (regex + one cheap LLM
+//      call) — the prompt alone regenerates the same noise for every vacancy.
 
-Правила:
-- knockout: не более 3, только технические dealbreakers. Не включай возраст/гражданство/геолокацию.
-- required: 3-5 ключевых требований, вес 1.0-3.0 (чем критичнее — тем выше).
-- preferred: 2-4 желательных навыка, вес 0.5-1.5.
+const ATS_EXTRACT_SYSTEM = `Ты — senior рекрутер. По тексту вакансии сформируй ATS-конфиг: критерии, по которым отклик можно оценить объективно.
+
+ГЛАВНОЕ ПРАВИЛО — КРИТЕРИЙ ДОЛЖЕН БЫТЬ ПРОВЕРЯЕМЫМ.
+По критерию должно быть можно однозначно ответить «да» или «нет» по резюме или по ответу кандидата. Для этого в критерии должен быть хотя бы один concrete-признак: инструмент или система, площадка или сервис, метрика, цифра, объём, срок, категория товаров, число объектов.
+Качества личности, общие «умения» и пересказ задачи без проверяемого признака — ЗАПРЕЩЕНЫ.
+
+ПЛОХО (так критерий не работает — по нему все получают одинаковый балл):
+- «аналитический склад ума», «ответственность», «стрессоустойчивость»
+- «умеет работать в команде», «навыки коммуникации», «проактивность»
+- «понимание товара и трендов», «умение считать результат»
+- «умеет анализировать и развивать карточки товаров»
+- «постановка ТЗ подрядчикам» (нет ни инструмента, ни цифры, ни объекта)
+- «неумение X» / «отсутствие Y» — критерий называет НАВЫК, а не его отсутствие
+- «не менее 2 лет» внутри названия — срок живёт в filters.min_experience_years
+
+ХОРОШО (по этому можно принять решение):
+- «настройка внутренней рекламы WB: ставки, ДРР, поисковая выдача»
+- «знание метрик карточки WB: CTR, ДРР, выкуп, оборачиваемость»
+- «SEO-оптимизация карточки на WB: семантика, заголовок, rich-контент»
+- «опыт работы с карточками одежды на WB от 2 лет»
+- «ведение рекламного кабинета WB с бюджетом от 30 тыс ₽/мес»
+- «работа в MPStats / Moneyplace / встроенной аналитике WB»
+
+Остальные поля:
+- required: 3-5 критериев, вес 1.0-3.0 (вес = насколько критично отсутствие). Обязательным ставь то, без чего работа невозможна; остальное — preferred.
+- preferred: 2-4 критерия, вес 0.5-1.5.
 - pass_threshold: 6.0-7.5 (выше для senior, ниже для массового подбора).
 - review_threshold: на 2-2.5 ниже pass_threshold.
+- filters.min_experience_years — срок опыта сюда, а не в название критерия.
+
+Нокаут-критериев в этом конфиге НЕТ. Не выдумывай поле knockout, не пиши его в JSON. Жёсткие условия вроде «нужен диплом» или «нужно быть в Москве» выражай через required с высоким весом, а не через отдельный список.
 
 Выведи ТОЛЬКО валидный JSON без markdown и без комментариев.`;
 
@@ -254,7 +296,6 @@ async function extractAtsConfig(vacancyText, apiKey) {
   const example = JSON.stringify({
     vacancy_title: '...',
     vacancy_context: '...',
-    knockout: ['dealbreaker'],
     required: [{ name: 'навык', weight: 2.0 }],
     preferred: [{ name: 'навык', weight: 1.0 }],
     filters: { min_experience_years: 2, remote_ok: true, salary_max_rub: null },
@@ -1057,7 +1098,7 @@ module.exports = {
     // ── ATS & Evaluation ────────────────────────────────────────────────────
 
     hh_extract_ats_config: {
-      description: 'Generate ATS evaluation config from vacancy text using LLM. Returns knockout criteria, required/preferred skills with weights, and score thresholds. Recruiter reviews and adjusts before using.',
+      description: 'Generate ATS evaluation config from vacancy text using LLM. Returns required/preferred MEASURABLE criteria with weights and score thresholds (no knockout list). Criteria that cannot be confirmed from a resume are dropped automatically. Recruiter reviews and adjusts before using.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1072,7 +1113,24 @@ module.exports = {
         if (!apiKey) return { error: 'OpenRouter API key не найден. Установи переменную OPENROUTER_API_KEY.' };
 
         try {
-          const config = await extractAtsConfig(vacancy_text, apiKey);
+          let config = await extractAtsConfig(vacancy_text, apiKey);
+          // Enforce the measurability rule executably, not just in the prompt: on the
+          // 01.10.2026 WB vacancy the model shipped «аналитический склад ума» and
+          // «постановка ТЗ подрядчикам» into the rubric and every candidate got the
+          // same mark on them. This draft has not been seen by a human yet, so
+          // dropping the flagged criteria here is safe — a saved config is never
+          // touched (see checkCriteria contract).
+          const guard = await checkCriteria(config, { username: USER_ID, apiKey });
+          const dropped = guard.violations.map(v => v.name);
+          if (dropped.length) {
+            config = dropViolations(config, guard.violations);
+            if (!config.required.length && !config.preferred.length) {
+              return {
+                error: 'Из текста вакансии не удалось получить проверяемые критерии — все оказались общими формулировками. Добавь в описание вакансии конкретные требования (инструменты, метрики, цифры) и попробуй снова.',
+                rejected: dropped,
+              };
+            }
+          }
           const activeVacancy = readContext('hh', 'active_vacancy')?.value;
           if (activeVacancy?.id) {
             config.vacancy_id = activeVacancy.id;
@@ -1092,7 +1150,10 @@ module.exports = {
             ok: true,
             config,
             review_url: editorUrl,
-            note: `Черновик сохранён. Открой ${editorUrl} чтобы проверить критерии/веса и сохранить — фоновый скоринг начнёт использовать конфиг только после сохранения там.`,
+            dropped_criteria: dropped,
+            criteria_guard: { violations: guard.violations, degraded: guard.degraded },
+            note: `Черновик сохранён. Открой ${editorUrl} чтобы проверить критерии/веса и сохранить — фоновый скоринг начнёт использовать конфиг только после сохранения там.`
+              + (dropped.length ? ` Убрано как неизмеримые: ${dropped.join('; ')}.` : ''),
           };
         } catch (e) {
           return hhAuthAwareError(e, 'Не удалось извлечь конфиг: ');
@@ -2016,7 +2077,7 @@ async function evaluateCandidate(candidateText, atsConfig, apiKey) {
   return computeScore(llmResult, config);
 }
 
-async function generateMessage(candidateContext, atsResult, name, apiKey, messageType = 'initial', history = [], userId = null, atsConfig = null) {
+async function generateMessage(candidateContext, atsResult, name, apiKey, messageType = 'initial', history = [], userId = null, atsConfig = null, planOut = null) {
   const firstName = name.split(' ')[0];
 
   const commStyle = loadCommunicationStyle(userId || USER_ID);
@@ -2031,6 +2092,30 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
   const explicit = ['rejection', 'invite_call'].includes(messageType) ? messageType : null;
   const type = detectMessageType({ history, forceType: explicit });
 
+  // Funnel first, writing second (01.10.2026). An explicit forceType from the caller
+  // (a rejection the recruiter asked for, a call invite) still wins: the planner
+  // decides the process, the recruiter decides overrides.
+  let plan = null;
+  if (!explicit) {
+    plan = await planNextStep({
+      history,
+      atsResult,
+      atsConfig: atsConfig || {},
+      resumeText: candidateContext,
+      username: userId || USER_ID,
+      apiKey,
+    });
+    // The test task leaves word-for-word, assembled in code — a model paraphrase
+    // would break the promise the vacancy text makes.
+    if (plan.action === 'send_test') {
+      const verbatim = buildTestTaskMessage(atsConfig?.test_task);
+      if (verbatim) {
+        if (planOut) { planOut.action = plan.action; planOut.reason = plan.reason; planOut.by = plan.by; }
+        return verbatim;
+      }
+    }
+  }
+
   const userMsg = buildDraftUserMessage({
     messageType: type,
     firstName,
@@ -2038,12 +2123,21 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
     history,
     availabilityBlock,
     candidateContext,
+    action: plan ? plan.action : null,
+    missingSkills: plan?.missing_skills || [],
+    testTask: atsConfig?.test_task || '',
   });
 
-  return llmCall(apiKey, SMART_MODEL, [
+  const text = await llmCall(apiKey, SMART_MODEL, [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userMsg },
   ], 1000, 0.7);
+
+  // planOut is an out-param on purpose: all four call sites of this function treat
+  // the result as a string, and changing the return shape would ripple into each of
+  // them for no gain. Callers that display the step read planOut.
+  if (planOut) { planOut.action = plan?.action || type; planOut.reason = plan?.reason || null; planOut.by = plan?.by || 'forced'; }
+  return text;
 }
 
 // ── Per-candidate history ───────────────────────────────────────────────────

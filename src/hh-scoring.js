@@ -12,6 +12,7 @@ const path = require('path');
 const os = require('os');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('./hh-message-prompts');
 const { detectMessageType, buildDraftUserMessage, historySignature, isDraftStale, interviewConfigAllowsTime } = require('./hh-draft-message');
+const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 
 const FALLBACK_MODEL = 'google/gemini-2.5-flash';
@@ -479,18 +480,56 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         // history is an ARRAY by contract (see hh-draft-message.js). This line wrapped it
         // as { messages: thread }, so (history || []).filter threw and every background
         // auto-draft failed on every cycle with "(history || []).filter is not a function".
-        const messageType = detectMessageType({ history: thread });
+        // The funnel decides WHAT to do; the writer only renders it (01.10.2026).
+        // 'wait' and 'reject' produce no draft at all — a candidate we already
+        // wrote to and who did not answer must not get a second letter from the
+        // background loop.
+        const plan = await planNextStep({
+          history: thread,
+          atsResult: history.ats_result,
+          atsConfig: atsConfig || {},
+          resumeText: buildResumeText(neg),
+          username,
+          apiKey,
+        });
+        history.ats_result.funnel_action = plan.action;
+        history.ats_result.funnel_reason = plan.reason;
+        if (plan.action === 'wait' || plan.action === 'reject') {
+          // Record WHY there is no draft, against the same thread signature — so the
+          // next cycle knows this was decided, not forgotten.
+          history.ats_result.draft_skip_sig = historySignature(thread);
+          if (plan.action === 'reject') delete history.ats_result.draft_message;
+          saveCandidateHistory(username, neg.id, history);
+          return;
+        }
+        delete history.ats_result.draft_skip_sig;
+        // The test task goes out word-for-word, assembled in code — a model
+        // paraphrase would break the promise the vacancy text makes.
+        if (plan.action === 'send_test') {
+          const verbatim = buildTestTaskMessage(atsConfig?.test_task);
+          if (verbatim) {
+            history.ats_result.draft_message = verbatim;
+            history.ats_result.draft_history_sig = historySignature(thread);
+            delete history.ats_result.draft_warning;
+            saveCandidateHistory(username, neg.id, history);
+            generated++;
+            return;
+          }
+        }
 
         const systemPrompt = baseSystem;
 
         const resumeText = buildResumeText(neg);
         const userMsg = buildDraftUserMessage({
-          messageType,
+          messageType: 'reply',
           firstName,
           resumeText,
           atsResult: history.ats_result,
           history: thread,
           availabilityBlock,
+          action: plan.action,
+          missingSkills: plan.missing_skills,
+          testTask: atsConfig?.test_task || '',
         });
 
         const messages = [

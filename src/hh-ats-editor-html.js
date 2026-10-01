@@ -13,10 +13,6 @@ const TEMPLATES = {
     config: {
       vacancy_title: 'Вебинарный специалист / Webinar Manager',
       vacancy_context: 'Проведение обучающих и продающих вебинаров, взаимодействие с аудиторией, работа с платформами (Zoom, Bizon365, Webinar.ru).',
-      knockout: [
-        'Нет опыта проведения онлайн-мероприятий / вебинаров',
-        'Нет навыков публичных выступлений',
-      ],
       required: [
         { name: 'Опыт проведения вебинаров / онлайн-мероприятий', weight: 3.0 },
         { name: 'Работа с вебинарными платформами (Zoom, Bizon365, Webinar.ru)', weight: 2.5 },
@@ -39,10 +35,6 @@ const TEMPLATES = {
     config: {
       vacancy_title: 'Маркетолог / Marketing Manager',
       vacancy_context: 'Продвижение B2C/B2B продуктов. Работа с рекламными каналами, аналитика, контент.',
-      knockout: [
-        'Нет опыта в digital-маркетинге от 1 года',
-        'Незнание базовых метрик (CTR, CPC, ROI, ROAS)',
-      ],
       required: [
         { name: 'Digital marketing (SEO/SEM/SMM)', weight: 2.5 },
         { name: 'Аналитика (Google Analytics, Яндекс.Метрика)', weight: 2.0 },
@@ -64,11 +56,6 @@ const TEMPLATES = {
     config: {
       vacancy_title: 'C++ / 3D Программист',
       vacancy_context: 'Разработка рендеринга реального времени, симуляций или игровых систем.',
-      knockout: [
-        'Нет коммерческого C++ от 2 лет',
-        'Нет портфолио с 3D-проектами',
-        'Незнание линейной алгебры (матрицы, кватернионы)',
-      ],
       required: [
         { name: 'C++ (STL, C++17/20)', weight: 3.0 },
         { name: '3D-математика (матрицы, кватернионы, трансформации)', weight: 2.5 },
@@ -90,10 +77,6 @@ const TEMPLATES = {
     config: {
       vacancy_title: 'Офисный сотрудник / административная роль',
       vacancy_context: 'Работа с документами, координация, взаимодействие с клиентами и партнёрами.',
-      knockout: [
-        'Нет опыта офисной работы от 1 года',
-        'Нет навыков MS Office / Google Workspace',
-      ],
       required: [
         { name: 'MS Office / Google Workspace', weight: 2.0 },
         { name: 'Деловая коммуникация', weight: 2.0 },
@@ -114,10 +97,6 @@ const TEMPLATES = {
     config: {
       vacancy_title: 'Backend Developer (Node.js / Python / Go)',
       vacancy_context: 'Разработка серверных приложений, REST/gRPC API, микросервисы.',
-      knockout: [
-        'Нет коммерческого backend-опыта от 2 лет',
-        'Незнание SQL / реляционных БД',
-      ],
       required: [
         { name: 'Node.js / Python / Go / Java (хотя бы один)', weight: 3.0 },
         { name: 'REST API + HTTP протокол', weight: 2.0 },
@@ -308,18 +287,6 @@ ${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${call
     </div>
   </div>
 
-  <!-- Knockout -->
-  <div class="config-card">
-    <div class="criteria-section">
-      <div class="criteria-label">
-        <span style="color:var(--red)">✕ Нокаут-критерии</span>
-        <button class="btn btn-sm btn-danger" onclick="addKnockout()">+ добавить</button>
-      </div>
-      <div id="knockoutList"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Провал любого → немедленное отклонение. Макс. 3.</div>
-    </div>
-  </div>
-
   <!-- Required + Preferred -->
   <div class="config-card">
     <div class="criteria-section">
@@ -381,6 +348,11 @@ ${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${call
       </div>
     </div>
     <div class="field">
+      <label>Тестовое задание (отправляется кандидату дословно, когда он согласится его выполнять)</label>
+      <textarea id="fTestTask" rows="8" placeholder="Вставь текст задания целиком: что сделать, на сколько времени, в каком формате прислать ответ, срок."></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Текст уходит кандидату без правок — модель его не переписывает. Оставь пустым, если тестового задания нет: тогда бот не будет предлагать его.</div>
+    </div>
+    <div class="field">
       <label>Требования к звонку (что взять с собой, формат)</label>
       <input type="text" id="fIcRequirements" placeholder="Например: подключение к Zoom, тестовое задание уже готово">
     </div>
@@ -417,7 +389,6 @@ let initStages = ${initStagesJson};
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let stages = [];
-let knockout = [];
 let required = [];
 let preferred = [];
 
@@ -428,7 +399,6 @@ function init() {
     loadFromConfig(initConfig, initStages || []);
   } else {
     stages = ['Скрининг резюме', 'Техническое интервью', 'Финальное интервью', 'Оффер'];
-    knockout = [''];
     required = [{ name: '', weight: 2.0 }];
     preferred = [{ name: '', weight: 1.0 }];
     renderAll();
@@ -461,10 +431,10 @@ function loadFromConfig(config, stagesArr) {
   document.getElementById('fIcBookingUrl').value = ic.booking_url || '';
   document.getElementById('fIcRequirements').value = ic.requirements || '';
   document.getElementById('fIcAvailability').value = ic.availability || '';
+  document.getElementById('fTestTask').value = config.test_task || '';
   document.getElementById('fIcEnabled').checked = !!ic.invite_call_enabled;
   updateIcEnabledLabel();
   stages = (stagesArr && stagesArr.length) ? [...stagesArr] : ['Скрининг', 'Интервью', 'Оффер'];
-  knockout = config.knockout && config.knockout.length ? [...config.knockout] : [''];
   required = config.required && config.required.length ? config.required.map(x => ({ ...x })) : [{ name: '', weight: 2.0 }];
   preferred = config.preferred && config.preferred.length ? config.preferred.map(x => ({ ...x })) : [{ name: '', weight: 1.0 }];
   renderAll();
@@ -514,33 +484,6 @@ function renderStages() {
 
 // ── Knockout ──────────────────────────────────────────────────────────────────
 
-function addKnockout() { knockout.push(''); renderKnockout(); }
-
-function renderKnockout() {
-  const list = document.getElementById('knockoutList');
-  list.innerHTML = '';
-  knockout.forEach((k, i) => {
-    const item = document.createElement('div');
-    item.className = 'criteria-item';
-    item.innerHTML = \`
-      <span style="color:var(--red);font-size:14px;flex-shrink:0">✕</span>
-      <input type="text" value="\${escHtml(k)}" data-idx="\${i}" placeholder="Нокаут-критерий...">
-      <button class="del-btn" data-idx="\${i}">×</button>
-    \`;
-    list.appendChild(item);
-  });
-  list.querySelectorAll('input[type=text]').forEach(inp => {
-    inp.addEventListener('input', e => { knockout[+e.target.dataset.idx] = e.target.value; updateJsonPreview(); });
-  });
-  list.querySelectorAll('.del-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      knockout.splice(+e.target.dataset.idx, 1);
-      if (knockout.length === 0) knockout.push('');
-      renderKnockout();
-      updateJsonPreview();
-    });
-  });
-}
 
 // ── Required ──────────────────────────────────────────────────────────────────
 
@@ -618,7 +561,7 @@ function renderPreferred() {
 
 // ── Field events ──────────────────────────────────────────────────────────────
 
-['fTitle','fContext','fPass','fReview','fMinExp','fMaxSalary','fIcLevel','fIcBookingUrl','fIcRequirements','fIcAvailability'].forEach(id => {
+['fTitle','fContext','fPass','fReview','fMinExp','fMaxSalary','fIcLevel','fIcBookingUrl','fIcRequirements','fIcAvailability','fTestTask'].forEach(id => {
   document.getElementById(id).addEventListener('input', updateJsonPreview);
 });
 document.getElementById('fRemote').addEventListener('change', () => { updateRemoteLabel(); updateJsonPreview(); });
@@ -642,7 +585,6 @@ function buildConfig() {
   return {
     vacancy_title: document.getElementById('fTitle').value.trim(),
     vacancy_context: document.getElementById('fContext').value.trim(),
-    knockout: knockout.filter(k => k.trim()),
     required: required.filter(r => r.name.trim()).map(r => ({ name: r.name.trim(), weight: +r.weight })),
     preferred: preferred.filter(p => p.name.trim()).map(p => ({ name: p.name.trim(), weight: +p.weight })),
     filters: {
@@ -652,6 +594,7 @@ function buildConfig() {
     },
     pass_threshold: isNaN(pass) ? 6.5 : pass,
     review_threshold: isNaN(review) ? 4.0 : review,
+    test_task: document.getElementById('fTestTask').value.trim(),
     interview_config: {
       level: document.getElementById('fIcLevel').value.trim(),
       requirements: document.getElementById('fIcRequirements').value.trim(),
@@ -680,8 +623,6 @@ function validate() {
   const errors = [];
   if (!config.vacancy_title) errors.push('Укажи название вакансии.');
   if (!config.vacancy_context) errors.push('Укажи контекст вакансии.');
-  if (config.knockout.length === 0) errors.push('Нужен хотя бы один нокаут-критерий.');
-  if (config.knockout.length > 3) errors.push('Нокаут-критериев не должно быть больше 3.');
   if (config.required.length === 0) errors.push('Нужен хотя бы один обязательный навык.');
   if (config.pass_threshold <= config.review_threshold) errors.push('Pass threshold должен быть выше review threshold.');
   if (config.pass_threshold < 1 || config.pass_threshold > 10) errors.push('Pass threshold: от 1 до 10.');
