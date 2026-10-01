@@ -108,7 +108,7 @@ function buildReportData({ username, candidateId, vacancyId = null, evalSlug = n
     resume_raw: combinedResumeText(username, candidateId, manifest),
     scoring: buildScoring(interviewEval, job, ats, spentMinutes),
     interview_coverage: interviewEval?.coverage || null,
-    communication: interviewEval?.communication || null,
+    communication: normalizeCommunication(interviewEval?.communication),
     comparison: job?.comparison || null,
     ats_gaps: ats ? { matched: ats.matched || [], gaps: ats.gaps || [], reasoning: ats.reasoning || '' } : null,
     limitations: buildLimitations({ sources, interviewEval, job, ats }),
@@ -133,11 +133,27 @@ function combinedResumeText(username, candidateId, manifest) {
   return parts.join('\n\n').slice(0, 60000);
 }
 
+// Схема #89: communication = {style:{label,score,evidence}, politeness:{...}, ...}
+// (объект метрик). Сводим к {rows:[{metric, score, quote}]} для рендера; плоские
+// варианты (rows[] / metrics{}) пропускаем как есть.
+function normalizeCommunication(comm) {
+  if (!comm) return null;
+  if (Array.isArray(comm.rows) || comm.metrics) return comm;
+  const rows = Object.entries(comm)
+    .filter(([, v]) => v && typeof v === 'object')
+    .map(([key, v]) => ({ metric: v.label || key, score: v.score ?? null, quote: v.evidence || v.reason || '' }));
+  return rows.length ? { rows } : null;
+}
+
 function buildScoring(interviewEval, job, ats, spentMinutes) {
-  const rows = (interviewEval?.scoring || []).map((r, i) => ({
+  // Схема #89: requirements[] {label, kind, must_have, weight, score, evidence};
+  // старые/альтернативные имена (scoring/criterion) держим как фолбэк.
+  const srcRows = interviewEval?.requirements || interviewEval?.scoring || [];
+  const rows = srcRows.map((r, i) => ({
     n: i + 1,
-    requirement: r.criterion || r.requirement || r.name,
-    klass: r.klass || r.class || (r.weight >= 2 ? 'must' : 'nice'),
+    requirement: r.label || r.criterion || r.requirement || r.name,
+    klass: r.must_have === true ? 'must' : r.must_have === false ? 'nice'
+      : (r.klass || r.class || ((r.weight ?? 1) >= 2 ? 'must' : 'nice')),
     weight: r.weight ?? 1,
     score: r.score === null || r.score === undefined ? 'n/a' : r.score,
     evidence: r.evidence || '',
@@ -145,8 +161,8 @@ function buildScoring(interviewEval, job, ats, spentMinutes) {
   }));
   const notEvaluated = rows.filter(r => r.score === 'n/a').map(r => r.requirement);
   const scoredRows = rows.filter(r => r.score !== 'n/a');
-  const percent = job?.percent ?? interviewEval?.percent ?? null;
-  const score10 = job?.score10 ?? interviewEval?.score10 ?? null;
+  const percent = job?.percent ?? interviewEval?.totals?.percent ?? interviewEval?.percent ?? null;
+  const score10 = job?.score10 ?? interviewEval?.totals?.score_10 ?? interviewEval?.score10 ?? null;
   const verdict = job?.verdict ?? interviewEval?.verdict ?? ats?.verdict ?? null;
   return {
     percent, score10, verdict,
@@ -230,7 +246,11 @@ function renderCleanEvalMd(d) {
     if (d.interview_coverage.covered?.length) {
       L.push('| Тема | Ключевая цитата |');
       L.push('|---|---|');
-      for (const c of d.interview_coverage.covered) L.push(`| ${escMd(c.topic)} | ${escMd(c.quote)} |`);
+      for (const c of d.interview_coverage.covered) {
+        const topic = c.topic || c.label || '';
+        const score = c.score !== undefined && c.score !== null ? ` (${c.score}/5)` : '';
+        L.push(`| ${escMd(topic)}${score} | ${escMd(c.quote || c.evidence || '—')} |`);
+      }
       L.push('');
     }
     if (d.interview_coverage.missing?.length) {
