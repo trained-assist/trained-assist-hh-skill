@@ -81,7 +81,7 @@ function vacanciesPageHtml({ username, token, cards = [], lastScoredAt = null, h
   const body = `<main>
 <h1>Вакансии</h1>
 <p class="sub">${escHtml(username)}${lastScoredAt ? ` · последний скоринг ${escHtml(fmtDate(lastScoredAt))}` : ''}</p>
-<div class="card" style="background:#eef2ff;box-shadow:none"><b>Создать вакансию</b> — напиши боту в Telegram команду <code>/new_job_post</code> и опиши роль; черновик появится здесь.</div>
+<div class="card" style="background:#eef2ff;box-shadow:none"><b>Создать вакансию</b> — напиши боту в Telegram команду <code>/new_job_post</code> и опиши роль; черновик появится здесь. Либо <a href="vacancy-new?${q}">собери портрет вакансии в вебе</a> — вход для информации по вакансии, индикатор полноты и «Сгенерировать АТС».</div>
 ${list}
 </main>
 <dialog id="launch-dialog" style="border:none;border-radius:12px;padding:20px;max-width:440px;width:calc(100% - 32px)">

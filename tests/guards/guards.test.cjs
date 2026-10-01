@@ -28,12 +28,26 @@ const source = walk(SRC).map((file) => ({ file, rel: path.relative(ROOT, file), 
 // endpoints), not server-side outbound calls — the timeout guard does not apply.
 const isHtmlRenderer = (rel) => /(-html|-page)\.js$/.test(rel);
 
+// One deliberate exception: the vacancy-new page extracts text from dropped PDFs by
+// shelling out to poppler's pdftotext — a fixed binary, argv only, no shell, no user
+// input in the command line (the file goes to a server-generated temp path). The
+// blanket ban stays for every other file; Claude / runner.js remain banned everywhere.
+const SPAWN_ALLOW = new Map([['src/hh-doc-text.js', 'pdftotext']]);
+
 test('quick-action tools never spawn Claude / runner.js', () => {
   for (const { rel, text } of source) {
-    assert.ok(!/require\(\s*['"]child_process['"]\s*\)|from\s+['"]child_process['"]/.test(text),
-      `${rel} must not spawn external processes (quick-action tools never launch Claude)`);
     assert.ok(!/runner\.js/.test(text), `${rel} references runner.js`);
     assert.ok(!/\b(execFileSync|execFile|spawnSync|spawn)\s*\(\s*['"]claude['"]/.test(text), `${rel} spawns claude`);
+    const allowed = SPAWN_ALLOW.get(rel);
+    if (allowed) {
+      assert.ok(!/\b(exec|execSync)\s*\(/.test(text), `${rel}: only spawnSync with a fixed argv is allowed`);
+      assert.ok(!/shell\s*:\s*true/.test(text), `${rel}: shell must stay off`);
+      const spawns = [...text.matchAll(/spawnSync\s*\(\s*(['"])([^'"]+)\1/g)].map(m => m[2]);
+      assert.deepEqual(spawns, spawns.map(() => allowed), `${rel}: only spawnSync('${allowed}') is allowed`);
+      continue;
+    }
+    assert.ok(!/require\(\s*['"]child_process['"]\s*\)|from\s+['"]child_process['"]/.test(text),
+      `${rel} must not spawn external processes (quick-action tools never launch Claude)`);
   }
 });
 
