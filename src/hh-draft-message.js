@@ -31,7 +31,14 @@ const HISTORY_WINDOW = 8;
 function detectMessageType({ history = [], forceType = null } = {}) {
   if (forceType === 'rejection') return 'rejection';
   if (forceType === 'invite_call') return 'invite_call';
-  const msgs = (history || []).filter(m => m && String(m.text || '').trim());
+  // `history` is an array by contract — every 90-hh.js call site passes `history.messages`.
+  // One background call site passed the whole record `{ messages: thread }` instead, and
+  // `(history || []).filter` then threw "(history || []).filter is not a function" on every
+  // cycle, silently killing ALL background auto-drafts on prod (negotiation 5610867713,
+  // 01.10.2026). That call site is fixed in hh-scoring.js; this guard keeps the next shape
+  // drift from taking the whole drafting loop down — a wrong shape degrades to 'initial'.
+  const list = Array.isArray(history) ? history : (history?.messages || []);
+  const msgs = list.filter(m => m && String(m.text || '').trim());
   if (!msgs.length) return 'initial';
   const last = msgs[msgs.length - 1];
   // We spoke last and got nothing back → nudge. Never re-introduce, never re-ask.
