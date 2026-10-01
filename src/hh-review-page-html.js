@@ -281,7 +281,10 @@ h1{font-size:22px;font-weight:700;margin-bottom:4px}
 .tb-btn:hover,.tb-btn.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
 .tb-sep{width:1px;height:20px;background:#e2e8f0;margin:0 4px}
 .card{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);transition:opacity .3s}
-.card.done{opacity:.4;pointer-events:none}
+/* «Отправлено» — это учёт, а не мёртвая карточка: блок повторной отправки живёт
+   обратным отсчётом на самой кнопке (startSendCooldown). Раньше карточка серела и
+   переставала реагировать на клики — это выглядело как сломавшаяся страница. */
+.card.done{opacity:.6;box-shadow:inset 3px 0 0 #16a34a}
 .card.skipped{opacity:.35;pointer-events:none}
 .card-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:10px}
 .card-header-left{display:flex;align-items:flex-start;gap:10px}
@@ -319,6 +322,7 @@ h1{font-size:22px;font-weight:700;margin-bottom:4px}
 .btn{padding:8px 18px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
 .btn:hover{opacity:.85}
 .btn-send{background:#16a34a;color:#fff}
+.btn-send.cooldown{opacity:.6;cursor:progress}
 .btn-send-reject{background:#dc2626;color:#fff}
 .btn-skip{background:#e2e8f0;color:#475569}
 .reject-note{font-size:13px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:10px;font-style:italic}
@@ -546,6 +550,38 @@ function startSendClock(btn, label) {
     btn.textContent = base + ' ' + Math.round((Date.now() - t0) / 1000) + 'с';
   }, 1000);
   return () => clearInterval(id);
+}
+
+// Блок повторной отправки после доставки: HH не дедуплицирует письма, поэтому второй
+// клик отправляет кандидату дубль. Блок ВИДИМЫЙ — обратный отсчёт на кнопке, — и ровно
+// на 15 секунд. Раньше защита была другой и противоречивой: карточка серала и
+// блокировалась целиком (выглядело как зависшая страница), а блок finally всё равно
+// включал кнопку сразу после успеха, так что отправка всё ещё проходила дважды.
+const SEND_COOLDOWN_MS = 15000;
+window.HH_SEND_COOLDOWN_MS = window.HH_SEND_COOLDOWN_MS || SEND_COOLDOWN_MS;
+
+const sendCooldowns = new Map();
+function startSendCooldown(btn, i) {
+  if (!btn) return;
+  const prev = sendCooldowns.get(i);
+  if (prev) { clearInterval(prev); sendCooldowns.delete(i); }
+  const until = Date.now() + (Number(window.HH_SEND_COOLDOWN_MS) || SEND_COOLDOWN_MS);
+  btn.classList.add('cooldown');
+  const tick = () => {
+    const left = Math.ceil((until - Date.now()) / 1000);
+    if (left <= 0) {
+      clearInterval(sendCooldowns.get(i));
+      sendCooldowns.delete(i);
+      btn.disabled = false;
+      btn.classList.remove('cooldown');
+      btn.textContent = '✓ Отправить';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '✓ Отправлено · ' + left + 'с';
+  };
+  sendCooldowns.set(i, setInterval(tick, 250));
+  tick();
 }
 
 function onCheck() {
@@ -820,6 +856,7 @@ async function sendOne(btn, i, negId, force) {
   hideGuardBlock(i);
   const stopClock = startSendClock(btn, '⏳ Проверка и отправка');
   if (btn) btn.disabled = true;
+  let sent = false;
   try {
     const data = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force: !!force });
     if (data.blocked) {
@@ -828,13 +865,18 @@ async function sendOne(btn, i, negId, force) {
       return;
     }
     insertSentMessage(i, msg);
-    markDone(i); onCheck(); showToast('✅ Отправлено!');
+    markDone(i); onCheck();
+    sent = true;
+    showToast('✅ Отправлено! Повторная отправка заблокирована на ' + Math.round((Number(window.HH_SEND_COOLDOWN_MS) || SEND_COOLDOWN_MS) / 1000) + ' с.');
   } catch(e) {
     showToast('❌ ' + e.message, true);
   } finally {
     stopClock();
     const b = btn || document.querySelector('#card-' + i + ' .btn-send');
-    if (b) { b.disabled = false; b.textContent = '✓ Отправить'; }
+    if (b) {
+      if (sent) startSendCooldown(b, i);
+      else { b.disabled = false; b.classList.remove('cooldown'); b.textContent = '✓ Отправить'; }
+    }
   }
 }
 

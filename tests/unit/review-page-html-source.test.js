@@ -33,3 +33,26 @@ describe('generateReviewHtml source — callback embedding', () => {
     expect(src).toContain('callbackBase');
   });
 });
+
+// The re-send guard after a delivered message is a 15-second visible countdown on the
+// send button (recruiter report 01.10: the card used to freeze grey with no way to tell
+// a temporary block from a dead page). Pinned here so a test override in the browser
+// suite can never quietly become the shipped value.
+describe('generateReviewHtml source — re-send cooldown', () => {
+  const src = readFileSync(
+    pathJoin(fileURLToPath(import.meta.url), '..', '..', '..', 'src', 'hh-review-page-html.js'),
+    'utf8',
+  );
+
+  it('ships a 15-second cooldown', () => {
+    expect(src).toMatch(/const SEND_COOLDOWN_MS = 15000;/);
+  });
+
+  it('counts the cooldown down on the button instead of freezing the card', () => {
+    expect(src).toContain('startSendCooldown');
+    expect(src).toContain("btn.textContent = '✓ Отправлено · ' + left + 'с'");
+    // No silent freeze: a sent card stays interactive (only .skipped is inert).
+    expect(src).toMatch(/\.card\.done\{[^}]*opacity/);
+    expect(src).not.toMatch(/\.card\.done\{[^}]*pointer-events:none/);
+  });
+});
