@@ -26,6 +26,7 @@ const INTENTS = {
   where_prompt:    (u) => q.hhWherePrompt(u),
   show_ats_config: (u) => q.hhShowAtsConfig(u),
   style_page:      (u) => q.hhStylePage(u),
+  portrait_gauge:  (u, w) => q.hhPortraitGauge(u, w),
   send_preview:    (u, w, t) => q.hhSendPreview(u, w, t),
   send_confirm:    (u, w) => q.hhSendConfirm(u, w),
   send_cancel:     (u, w) => q.hhSendCancel(u, w),
