@@ -98,10 +98,14 @@ describe('buildDraftUserMessage — the model sees the dialogue and the branch i
     expect(build()).toMatch(/НЕ представляйся заново/i);
   });
 
-  it('reply: a vague answer gets thank-you + "which question" + the questions again', () => {
+  it('reply: a vague answer gets thank-you + clarify what he meant + the questions again', () => {
+    // The middle assertion used to be /к какому из вопросов/i — it pinned the exact phrase
+    // that shipped broken Russian on prod (#68). It asserted wording, not requirement, so it
+    // passed while the letter was unusable. The requirement is "ask the candidate what he
+    // meant"; how that is put is the model's job. See the #68 block at the bottom.
     const msg = build();
     expect(msg).toMatch(/поблагодар/i);
-    expect(msg).toMatch(/к какому из вопросов/i);
+    expect(msg).toMatch(/что именно он имел в виду/i);
     expect(msg).toMatch(/заново/i);
   });
 
@@ -208,5 +212,55 @@ describe('no call site may build its own first-message prompt again', () => {
   it('the shared builder is what all three call sites import', () => {
     const missing = DRAFT_PATHS.filter(rel => !code(rel).includes('hh-draft-message'));
     expect(missing).toEqual([]);
+  });
+});
+
+describe('instructions describe intent, not wording to copy (#68)', () => {
+  // Live defect (01.10.2026, negotiation 5610867713): the reply branch told the model
+  // «спроси, к какому из вопросов он относится» — a description OF the candidate. The model
+  // obeyed literally, echoing it back as speech: "К какому из моих вопросов вы относитесь?"
+  // Broken Russian, 2 runs of 2. The same sentence was duplicated in two prompt files, and
+  // nothing anywhere told the model that instructions are meta rather than text.
+  //
+  // These assertions pin the CLASS, not that one string: no instruction may hand the model a
+  // third-person stub whose only job is to be echoed. Renaming the phrase would otherwise pass.
+  const { TYPE_INSTRUCTION } = require('../../src/hh-draft-message');
+  const { DEFAULT_MESSAGE_BASE } = require('../../src/hh-message-prompts');
+
+  const INSTRUCTIONS = Object.values(TYPE_INSTRUCTION).concat([DEFAULT_MESSAGE_BASE]);
+  // Third-person descriptions that mean "how to put it" and get copied verbatim.
+  const META_STUBS = [
+    'к какому из вопросов он относится',
+    'к какому из наших вопросов он относится',
+  ];
+
+  it('no instruction hands the model a third-person stub to echo', () => {
+    const offenders = INSTRUCTIONS.filter(text =>
+      META_STUBS.some(stub => String(text).toLowerCase().includes(stub)));
+    expect(offenders).toEqual([]);
+  });
+
+  it('the reply branch still demands all three clarification steps', () => {
+    // Guard against "fixing" the wording by dropping the branch: thank, clarify, re-ask.
+    const reply = TYPE_INSTRUCTION.reply;
+    expect(reply).toMatch(/поблагодари/i);
+    expect(reply).toMatch(/что именно/i);
+    expect(reply).toMatch(/перечисли вопросы заново/i);
+  });
+
+  it('the clarification step models first-person recruiter speech', () => {
+    // The fix works because the model gets a speakable line to adapt, not a stub to copy.
+    expect(TYPE_INSTRUCTION.reply).toContain('«Ваше «да» — это про все вопросы сразу или про какой-то один?»');
+  });
+
+  it('the system prompt states that instructions are meaning, not text', () => {
+    // Without this meta-rule the next third-person instruction leaks into the letter again.
+    expect(DEFAULT_MESSAGE_BASE).toMatch(/описывают СМЫСЛ, а не готовые фразы/i);
+  });
+
+  it('no instruction forces a gendered verbal form', () => {
+    // «упомяни, что писал(а) ранее» pinned one gender into the letter.
+    const offenders = INSTRUCTIONS.filter(text => /писал\(а\)|задавал\(а\)|спросил\(а\)/.test(String(text)));
+    expect(offenders).toEqual([]);
   });
 });
