@@ -25,6 +25,7 @@ const {
   ACTIONS,
   VALID_ACTIONS,
   deterministicStep,
+  guardPlannerAction,
   planNextStep,
   buildActionInstruction,
   buildTestTaskMessage,
@@ -434,5 +435,85 @@ describe('funnel — a promised test task is not blocked by our own silence', ()
       atsConfig: { pass_threshold: 6.5, test_task: '' },
     });
     expect(step.action).not.toBe('send_test');
+  });
+});
+
+// ── Outward steps are gated by code, not by the planner's reading of the score ──
+//
+// Live finding 01.10.2026 (vacancy 138004863, production key): the planner returned
+// `reject` for a candidate scored 8.5 against a 7.5 pass threshold, verdict
+// ПРОПУСТИТЬ, on 2 of 3 runs of the same thread. A refusal leaves the system for
+// good and cannot be unsent, so the recruiter's own thresholds — not a prompt line —
+// must decide it. Same for `send_test`: the assignment only exists if the config
+// carries it.
+
+describe('funnel — the planner cannot refuse a passing candidate', () => {
+  const PASSING = { verdict: 'ПРОПУСТИТЬ', score: 8.5, gaps: [], matched: [] };
+
+  it('turns a refusal into silence when the candidate is above the pass threshold', () => {
+    const guarded = guardPlannerAction({ action: 'reject', reason: 'не подходит' }, {
+      history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+    });
+    expect(guarded.action).not.toBe('reject');
+    expect(guarded.action).toBe('wait');
+    expect(guarded.guarded).toBe('reject');
+  });
+
+  it('turns a refusal into silence when the verdict says the candidate passes', () => {
+    // The trap of the original bug: score 6.0 sits above review_threshold 5, so the
+    // candidate is ПРОПУСТИТЬ — the model read "низкий скор" and refused anyway.
+    const guarded = guardPlannerAction({ action: 'reject', reason: 'скор низкий' }, {
+      history: [], atsResult: { verdict: 'ПРОПУСТИТЬ', score: 6.0 },
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+    });
+    expect(guarded.action).not.toBe('reject');
+  });
+
+  it('turns a refusal into silence when the candidate has no score yet', () => {
+    const guarded = guardPlannerAction({ action: 'reject', reason: '...' }, {
+      history: [], atsResult: { verdict: 'ПРОПУСТИТЬ', score: null }, atsConfig: {},
+    });
+    expect(guarded.action).not.toBe('reject');
+  });
+
+  it('still refuses on the ATS verdict the thresholds produced', () => {
+    const guarded = guardPlannerAction({ action: 'reject', reason: 'ниже порога' }, {
+      history: [], atsResult: { verdict: 'ОТКЛОНИТЬ', score: 3 },
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+    });
+    expect(guarded.action).toBe('reject');
+    expect(guarded.by).toBe('llm');
+  });
+
+  it('a refusal survives the full planner path, not just the helper', async () => {
+    const llmCall = async () => JSON.stringify({ action: 'reject', reason: 'не подходит' });
+    const plan = await planNextStep({
+      history: [{ role: 'applicant', text: 'Готов задание', timestamp: iso(3600 * 1000) }],
+      atsResult: PASSING,
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5 },
+      apiKey: 'k',
+      llmFn: llmCall,
+    });
+    expect(plan.action).not.toBe('reject');
+  });
+
+  it('never sends an assignment the vacancy does not contain', async () => {
+    const llmCall = async () => JSON.stringify({ action: 'send_test', reason: 'отправляю' });
+    const plan = await planNextStep({
+      history: [{ role: 'applicant', text: 'Готов', timestamp: iso(3600 * 1000) }],
+      atsResult: PASSING,
+      atsConfig: { pass_threshold: 7.5, review_threshold: 5, test_task: '' },
+      apiKey: 'k',
+      llmFn: llmCall,
+    });
+    expect(plan.action).not.toBe('send_test');
+  });
+
+  it('leaves a legitimate step alone', () => {
+    const guarded = guardPlannerAction({ action: 'ask_skills', reason: 'спросить' }, {
+      history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5 },
+    });
+    expect(guarded.action).toBe('ask_skills');
+    expect(guarded.guarded).toBeUndefined();
   });
 });
