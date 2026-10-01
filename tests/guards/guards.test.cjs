@@ -32,7 +32,11 @@ const isHtmlRenderer = (rel) => /(-html|-page)\.js$/.test(rel);
 // shelling out to poppler's pdftotext — a fixed binary, argv only, no shell, no user
 // input in the command line (the file goes to a server-generated temp path). The
 // blanket ban stays for every other file; Claude / runner.js remain banned everywhere.
-const SPAWN_ALLOW = new Map([['src/hh-doc-text.js', 'pdftotext']]);
+const SPAWN_ALLOW = new Map([
+  ['src/hh-doc-text.js', ['pdftotext']],
+  // PDF по кнопке (#91): фиксированные бинари, argv без shell, файлы из tmpdir
+  ['src/hh-report-pdf.js', ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium']],
+]);
 
 test('quick-action tools never spawn Claude / runner.js', () => {
   for (const { rel, text } of source) {
@@ -43,7 +47,7 @@ test('quick-action tools never spawn Claude / runner.js', () => {
       assert.ok(!/\b(exec|execSync)\s*\(/.test(text), `${rel}: only spawnSync with a fixed argv is allowed`);
       assert.ok(!/shell\s*:\s*true/.test(text), `${rel}: shell must stay off`);
       const spawns = [...text.matchAll(/spawnSync\s*\(\s*(['"])([^'"]+)\1/g)].map(m => m[2]);
-      assert.deepEqual(spawns, spawns.map(() => allowed), `${rel}: only spawnSync('${allowed}') is allowed`);
+      for (const bin of spawns) assert.ok(allowed.includes(bin), `${rel}: spawnSync('${bin}') не в allowlist`);
       continue;
     }
     assert.ok(!/require\(\s*['"]child_process['"]\s*\)|from\s+['"]child_process['"]/.test(text),
