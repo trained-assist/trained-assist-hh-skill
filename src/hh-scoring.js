@@ -5,11 +5,8 @@ const { buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
 // Pure scoring utilities — no global state, no USER_ID dependency.
 // Used by both 90-hh.js MCP tool and server.js /hh/review endpoint.
 
-const https = require('https');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('./hh-message-prompts');
 const { detectMessageType, buildDraftUserMessage, historySignature, isDraftStale, interviewConfigAllowsTime } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
@@ -17,10 +14,13 @@ const { bullshitGuard } = require('./hh-bullshit-guard');
 const { generateConversation } = require('./conversation-generation');
 const { ladderChat, ladderToken } = require('./llm-ladder');
 // Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
-// `gigachat` / `openrouter` keys and `hh-message-style` live under agent-tokens.
+// per-profile LLM keys and `hh-message-style` live under agent-tokens.
 const { readCredentialFileSafe } = require('./hh-utils');
 
-const FALLBACK_MODEL = 'google/gemini-2.5-flash';
+// Backoff for a candidate whose scoring failed: don't burn a ladder call on the same
+// broken candidate every 5-minute cycle. 15 min, doubling per consecutive failure, cap 6h.
+const SCORING_BACKOFF_BASE_MS = 15 * 60 * 1000;
+const SCORING_BACKOFF_CAP_MS = 6 * 60 * 60 * 1000;
 
 const CHINESE_RE = /[一-鿿㐀-䶿豈-﫿぀-ヿ]/;
 
@@ -29,123 +29,10 @@ function hasGarbage(text) {
   return CHINESE_RE.test(text) || text.includes('�');
 }
 
-// ─── OpenRouter (fallback) ────────────────────────────────────────────────────
+// All LLM calls (scoring, drafts, guards, planner) go through the ladder — see
+// src/llm-ladder.js and src/hh-llm.js. The former per-file provider transports
+// (OpenRouter / Sber GigaChat) were removed with the dead personal-key chains.
 
-function llmCall(apiKey, model, messages, maxTokens = 2000, temperature = 0.1) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else resolve(parsed.choices[0].message.content);
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(20_000, () => req.destroy(new Error('openrouter timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-// ─── GigaChat (primary) ───────────────────────────────────────────────────────
-
-// Token cache: credentials_b64 → { token, expiresAt }
-const _gcTokenCache = {};
-
-// Sber uses a self-signed cert — skip verification on their endpoints.
-const GC_AUTH_AGENT = new https.Agent({ rejectUnauthorized: false });
-const GC_API_AGENT  = new https.Agent({ rejectUnauthorized: false });
-
-function gcGetToken(credentials) {
-  const cached = _gcTokenCache[credentials];
-  if (cached && cached.expiresAt > Date.now() + 60_000) return Promise.resolve(cached.token);
-
-  return new Promise((resolve, reject) => {
-    const body = 'scope=GIGACHAT_API_PERS';
-    const req = https.request({
-      hostname: 'ngw.devices.sberbank.ru',
-      port: 9443,
-      path: '/api/v2/oauth',
-      method: 'POST',
-      agent: GC_AUTH_AGENT,
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'RqUID': crypto.randomUUID(),
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      let data = '';
-      res.on('data', c => (data += c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (!parsed.access_token) return reject(new Error('GigaChat auth failed: ' + data));
-          _gcTokenCache[credentials] = { token: parsed.access_token, expiresAt: parsed.expires_at };
-          resolve(parsed.access_token);
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(15_000, () => req.destroy(new Error('GigaChat auth timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-async function gcCall(credentials, messages, maxTokens = 2000, temperature = 0.1, model = 'GigaChat') {
-  const token = await gcGetToken(credentials);
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens });
-    const req = https.request({
-      hostname: 'gigachat.devices.sberbank.ru',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      agent: GC_API_AGENT,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else resolve(parsed.choices[0].message.content);
-        } catch (e) { reject(e); }
-      });
-    });
-    req.setTimeout(30_000, () => req.destroy(new Error('GigaChat API timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-function readGigachatKey(username) {
-  const tokensBase = tokensRoot();
-  const file = path.join(tokensBase, String(username), 'gigachat');
-  const key = readCredentialFileSafe(file)?.trim();
-  if (key) return key;
-  return process.env.GIGACHAT_API_KEY || null;
-}
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -224,10 +111,10 @@ function computeScore(llmResult, config) {
 
 // ─── evaluateCandidate: free ladder (owner decision, A/B 2026-09-30) ─────────
 
-async function evaluateCandidate(candidateText, atsConfig, apiKey, gigachatKey) {
+async function evaluateCandidate(candidateText, atsConfig, _unusedKey, _unusedKey2) {
   // ATS scoring runs on the ladder's free tier (docs/evals/ladder-enrichment-ab-
-  // 2026-09-30.md: free-ladder, temp 0.1). GigaChat/OpenRouter fallbacks are gone —
-  // the ladder owns failover; apiKey/gigachatKey stay in the signature for call-site
+  // 2026-09-30.md: free-ladder, temp 0.1). The old direct-provider fallbacks are gone —
+  // the ladder owns failover; the credential args stay in the signature for call-site
   // compatibility only.
   const { content } = await ladderChat({
     messages: [
@@ -288,13 +175,6 @@ function readAtsDraft(workDir, vacancyId) {
   return readAtsConfigFile(file);
 }
 
-function readOrKey(username) {
-  const tokensBase = tokensRoot();
-  const file = path.join(tokensBase, String(username), 'openrouter');
-  const key = readCredentialFileSafe(file)?.trim();
-  if (key) return key;
-  return process.env.OPENROUTER_API_KEY || null;
-}
 
 // ─── Candidate history ────────────────────────────────────────────────────────
 
@@ -317,18 +197,43 @@ function saveCandidateHistory(username, negotiationId, data) {
 
 // ─── Batch scoring: free ladder ──────────────────────────────────────────────
 
-async function scoreUnscoredCandidates(negotiations, username, workDir, { maxConcurrent = 5, msgSyncStats = null, vacancyId = null } = {}) {
+// Exponential backoff window for a candidate whose scoring failed: 15 min, 30, 60 …
+// capped at 6h. `attempts` is the number of consecutive failures recorded on the
+// candidate history (reset on the next success).
+function scoringBackoffMs(attempts = 1) {
+  const n = Math.max(1, Number(attempts) || 1);
+  return Math.min(SCORING_BACKOFF_BASE_MS * 2 ** (n - 1), SCORING_BACKOFF_CAP_MS);
+}
+
+function inScoringBackoff(history, now = Date.now()) {
+  const err = history?.scoring_error;
+  if (!err || !err.at) return false;
+  return now - err.at < scoringBackoffMs(err.attempts);
+}
+
+async function scoreUnscoredCandidates(negotiations, username, workDir, { maxConcurrent = 5, msgSyncStats = null, vacancyId = null, onStats = null } = {}) {
   const atsConfig = readAtsConfig(workDir, vacancyId);
   if (!atsConfig) return 0;
 
   // ATS scoring rides the free ladder — the ladder token is the only credential here.
   if (!ladderToken()) return 0;
 
+  const now = Date.now();
   const unscored = negotiations.filter(neg => {
     if (neg._resume_status !== 'full') return false;
     const history = readCandidateHistory(username, neg.id);
-    if (neg._resume_status === 'full' && (history.ats_result?.resume_version !== RESUME_VERSION || history.ats_result?.resume_hash !== resumeHash(neg))) return true;
-    if (history.ats_result?.score == null) return true; // not scored yet
+    // A changed resume is new input — always (re)score it, backoff or not. Only
+    // meaningful once there IS a result to compare against; a candidate that was
+    // never scored has no previous version, and must fall through to the backoff below
+    // instead of being retried every cycle.
+    const hadResult = !!history.ats_result;
+    if (hadResult && (history.ats_result.resume_version !== RESUME_VERSION || history.ats_result.resume_hash !== resumeHash(neg))) return true;
+    if (history.ats_result?.score == null) {
+      // Not scored yet — unless the last attempt failed and is still in backoff.
+      // Without this, one broken candidate burned a ladder call every 5-minute
+      // cycle forever while the log reported success.
+      return !inScoringBackoff(history, now);
+    }
     // re-score if candidate replied after last scoring
     const scoredAt = history.ats_result.scored_at || 0;
     const lastCandMsg = [...(history.messages || [])].reverse().find(m => m.role === 'applicant');
@@ -336,7 +241,7 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
     return new Date(lastCandMsg.timestamp || 0).getTime() > scoredAt;
   });
 
-  const writeLog = (checked, scored) => {
+  const writeLog = (checked, scored, failed = 0) => {
     try {
       const dataDir = dataRoot();
       const dir = path.join(dataDir, 'hh', String(username));
@@ -345,6 +250,10 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
         at: Date.now(),
         checked,
         scored,
+        // Honest degradation: how many candidates were attempted and NOT scored.
+        // The old log only carried `scored`, so a run where every call failed still
+        // looked like a healthy "checked N, scored 0".
+        failed,
         // message sync stats from background loop (null when called from tests/manual)
         ...(msgSyncStats ? {
           with_new_messages: msgSyncStats.synced,
@@ -369,6 +278,7 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
   }
 
   let scored = 0;
+  let failed = 0;
   for (let i = 0; i < unscored.length; i += maxConcurrent) {
     const batch = unscored.slice(i, i + maxConcurrent);
     await Promise.all(batch.map(async (neg) => {
@@ -377,21 +287,32 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
         const candMsgs = (history.messages || []).filter(m => m.role === 'applicant');
         const resumeText = buildResumeText(neg, candMsgs);
         const result = await module.exports.evaluateCandidate(resumeText, atsConfig);
-        if (result.score != null) {
-          result.scored_at = Date.now();
-          result.resume_version = RESUME_VERSION;
-          result.resume_hash = resumeHash(neg);
-          history.ats_result = result;
-          saveCandidateHistory(username, neg.id, history);
-          scored++;
-        }
+        if (result.score == null) throw new Error('scoring returned no score');
+        result.scored_at = Date.now();
+        result.resume_version = RESUME_VERSION;
+        result.resume_hash = resumeHash(neg);
+        history.ats_result = result;
+        delete history.scoring_error;
+        saveCandidateHistory(username, neg.id, history);
+        scored++;
       } catch (e) {
+        // Record the failure ON the candidate and back off: the review page can show
+        // "оценка не получена" instead of a silent "не оценён", and the next cycles
+        // skip this candidate until the backoff window passes.
+        failed++;
+        try {
+          const history = readCandidateHistory(username, neg.id);
+          const attempts = (history.scoring_error?.attempts || 0) + 1;
+          history.scoring_error = { message: String(e.message || e).slice(0, 300), at: Date.now(), attempts };
+          saveCandidateHistory(username, neg.id, history);
+        } catch { /* failure to record must not mask the original failure */ }
         console.error(`[hh-scoring] failed to score ${neg.id}:`, e.message);
       }
     }));
   }
 
-  writeLog(unscored.length, scored);
+  writeLog(unscored.length, scored, failed);
+  if (onStats) { try { onStats({ checked: unscored.length, scored, failed }); } catch { /* logging must not break scoring */ } }
   return scored;
 }
 
@@ -402,8 +323,8 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
   if (!atsConfig) return 0;
 
   // Every write goes through src/conversation-generation.js (model pick + Q/A history
-  // for the bench) — the ladder token is the only credential; GigaChat/OpenRouter
-  // left this path with the switch to the 'conversations' ladder.
+  // for the bench) — the ladder token is the only credential; the old per-user
+  // credential paths left this path with the switch to the 'conversations' ladder.
   if (!ladderToken()) return 0;
 
   const tokensBase = tokensRoot();
@@ -575,17 +496,12 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
 }
 
 module.exports = {
-  FALLBACK_MODEL,
-  llmCall,
-  gcCall,
   parseLlmJson,
   buildAtsPrompt,
   computeScore,
   evaluateCandidate,
   readAtsConfig,
   readAtsDraft,
-  readOrKey,
-  readGigachatKey,
   readCandidateHistory,
   saveCandidateHistory,
   buildResumeText,

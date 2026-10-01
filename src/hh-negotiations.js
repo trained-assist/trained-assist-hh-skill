@@ -274,8 +274,17 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
     // Sync is independent of scoring setup. No LLM calls without an ATS config.
     if (!readAtsConfig(workDir, vacancy.id)) return accessToken;
 
-    const scored = await scoreUnscoredCandidates(negotiations, username, workDir, { maxConcurrent: 4, msgSyncStats: msgSync, vacancyId: vacancy.id });
-    if (scored > 0) console.log(`[hh-bg] scored ${scored} new candidates for ${username}/${vacancy.id}`);
+    await scoreUnscoredCandidates(negotiations, username, workDir, {
+      maxConcurrent: 4,
+      msgSyncStats: msgSync,
+      vacancyId: vacancy.id,
+      // Honest log: report failures too, so a run where every call failed does not look
+      // like a healthy "scored 0" (the old code logged only scored>0).
+      onStats: ({ checked, scored: ok, failed }) => {
+        if (ok > 0) console.log(`[hh-bg] scored ${ok} new candidates for ${username}/${vacancy.id}`);
+        if (failed > 0) console.warn(`[hh-bg] scoring FAILED for ${failed}/${checked} candidates ${username}/${vacancy.id}`);
+      },
+    });
 
     const drafted = await generateDraftMessages(negotiations, username, workDir, { maxConcurrent: 3, vacancyId: vacancy.id });
     if (drafted > 0) console.log(`[hh-bg] generated ${drafted} draft messages for ${username}/${vacancy.id}`);

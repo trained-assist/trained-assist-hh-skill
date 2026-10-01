@@ -1,33 +1,25 @@
 'use strict';
-const { tokensRoot } = require('../../data-paths.js');
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const https = require('https');
-const http = require('http');
 
 const USER_ID = process.env.USER_ID || '';
 
 // ── Token helpers ────────────────────────────────────────────────────────────
 
-function tokenBase() {
-  return tokensRoot();
-}
+const { readHhToken: _readHhTokenUtil } = require('../../hh-utils');
+const { hhLlm, ladderToken } = require('../../hh-llm');
 
-const { readHhToken: _readHhTokenUtil, readCredentialFileSafe } = require('../../hh-utils');
 
 function readHhToken(userId) {
   return _readHhTokenUtil(userId || USER_ID);
 }
 
-function readOrKey(userId) {
-  const file = path.join(tokenBase(), String(userId || USER_ID), 'openrouter');
-  // Credential store (trained-assist-agent#1939): plaintext passes through, an
-  // envelope is decrypted, an unreadable file falls back to the platform key.
-  const key = readCredentialFileSafe(file);
-  if (key !== null && key.trim()) return key.trim();
-  return process.env.OPENROUTER_API_KEY || null;
+// "Is an LLM reachable?" probe. The ladder owns the credential (src/hh-llm.js) — this
+// returns a non-empty marker, never a key that gets sent anywhere.
+function llmReady() {
+  return ladderToken() || null;
+
 }
 
 // ── Context store ─────────────────────────────────────────────────────────────
@@ -79,41 +71,19 @@ function hhRequest(method, apiPath, accessToken) {
   });
 }
 
-// ── OpenRouter ────────────────────────────────────────────────────────────────
-
-const SMART_MODEL = 'deepseek/deepseek-chat';
-
-function llmCall(apiKey, messages, maxTokens = 1500, temperature = 0.7) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ model: SMART_MODEL, messages, temperature, max_tokens: maxTokens });
-    const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (parsed.error) reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-          else {
-            const content = parsed.choices?.[0]?.message?.content;
-            if (content == null) reject(new Error(`LLM returned empty content`));
-            else resolve(content);
-          }
-        } catch (e) { reject(e); }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(30_000, () => req.destroy(new Error('OpenRouter timeout after 30s')));
-    req.write(body);
-    req.end();
+// ── LLM ─────────────────────────────────────────────────────────────────────
+//
+// Both tools here WRITE a message to a candidate (cold outreach, polite refusal), so
+// they ride the 'conversations' ladder — the same rung the recruiter-facing draft
+// generator uses (src/hh-llm.js purpose 'message'). The ladder owns the credential.
+function llmCall(_apiKey, messages, maxTokens = 1500, temperature = 0.7) {
+  return hhLlm({
+    messages,
+    purpose: 'message',
+    temperature,
+    maxTokens,
+    timeoutMs: 30_000,
+    source: 'hh-outreach',
   });
 }
 
@@ -164,8 +134,8 @@ module.exports = {
         required: ['vacancy_description'],
       },
       handler: async ({ resume_url, resume_id, resume_text, vacancy_description, tone = 'friendly', length = 'medium' }) => {
-        const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { ok: false, error: 'OpenRouter API key not found. Set OPENROUTER_API_KEY or store a key via the agent.' };
+        const apiKey = llmReady();
+        if (!apiKey) return { ok: false, error: 'llm-ladder token не найден — генерация сообщений недоступна.' };
 
         let resumeSummary = '';
         let candidateName = '';
@@ -257,8 +227,8 @@ ${vacancy_description}
         required: ['candidate_name', 'reason'],
       },
       handler: async ({ candidate_name, reason, role, positive_note, tone = 'human' }) => {
-        const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { ok: false, error: 'OpenRouter API key not found.' };
+        const apiKey = llmReady();
+        if (!apiKey) return { ok: false, error: 'llm-ladder token не найден — генерация сообщений недоступна.' };
 
         const reasonLabels = {
           experience_mismatch: 'недостаточный опыт по ключевым требованиям',
