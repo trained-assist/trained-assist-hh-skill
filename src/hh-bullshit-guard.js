@@ -92,7 +92,11 @@ function getApiKey(username) {
   return process.env.OPENROUTER_API_KEY || null;
 }
 
-async function llmCheck(messageText, history, apiKey) {
+async function llmCheck(messageText, rawHistory, apiKey, llmFn) {
+  // Judge the dialogue the recruiter actually had. A history that carries the same
+  // outbound message twice (an old file written before hh-history dedupe) made every
+  // intro look repeated and blocked legitimate sends — see src/hh-history.js.
+  const history = require('./hh-history').dedupeMessages(rawHistory);
   const ctx = history.slice(-6).map(m => {
     const who = m.role === 'employer' ? 'Рекрутер' : 'Кандидат';
     return `${who}: ${m.text.slice(0, 300)}`;
@@ -108,7 +112,7 @@ repeated_question = тот же вопрос уже задавался в ист
 repeated_intro = рекрутер снова пишет "Меня зовут X" или "Я — X из Y" хотя уже представлялся
 template_garbage = текст явно является незаполненным шаблоном или бессмысленным набором фраз`;
 
-  const raw = await module.exports.llmCall(apiKey, [{ role: 'user', content: prompt }]);
+  const raw = await (llmFn || module.exports.llmCall)(apiKey, [{ role: 'user', content: prompt }]);
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('guard: no json in llm response');
   return JSON.parse(match[0]);
@@ -149,7 +153,7 @@ async function bullshitGuard(messageText, conversationHistory = [], options = {}
       checks.llm_skipped = 'no_api_key';
     } else {
       try {
-        const r = await llmCheck(messageText, conversationHistory, apiKey);
+        const r = await llmCheck(messageText, conversationHistory, apiKey, options.llmCall);
         llmChecked = true;
         checks.repeated_question = !!r.repeated_question;
         checks.repeated_intro = !!r.repeated_intro;
