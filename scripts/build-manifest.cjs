@@ -82,6 +82,10 @@ const POLICY = {
   interview_set_criteria: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
   interview_get_criteria: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   interview_analyze:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  // Interview → portrait requirements (#89): reads structure.json + the stored portrait,
+  // writes the evaluation cache locally (LLM, no HH effect). Coverage reads that cache.
+  hh_interview_evaluate: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+  hh_interview_coverage: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   // ── Read-only actions ──────────────────────────────────────────────────────
   hh_list_vacancies:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_list_responses:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },

@@ -75,6 +75,10 @@ const POLICY = {
   hh_portrait_update:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_portrait_completeness:{ effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_portrait_to_ats:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+
+  // ── Интервью → требования портрета (#89) — локальная LLM-оценка + кэш, без HH ──
+  hh_interview_evaluate: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
+  hh_interview_coverage: { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   cold_message_generate:    { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   rejection_with_feedback:  { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_proactive_search:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },

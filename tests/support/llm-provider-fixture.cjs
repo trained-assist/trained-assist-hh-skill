@@ -22,7 +22,22 @@ function reply(_uri, body) {
   } catch { /* logging is best-effort */ }
   const text = JSON.stringify(body && body.messages ? body.messages.map(m => m && m.content).join('\n') : '');
   let content;
-  if (/ATS-конфиг/.test(text)) {
+  if (/ОЦЕНКА ИНТЕРВЬЮ ПО ТРЕБОВАНИЯМ ПОРТРЕТА/.test(text)) {
+    // hh_interview_evaluate (#89): per-requirement 0-5 + evidence, coverage via n/a,
+    // communication as a parallel axis. ids match the portrait the behavior fixture writes.
+    content = JSON.stringify({
+      requirements: [
+        { id: 'req-1', score: 4, evidence: '«Мы внедряли Node.js в продакшен три года подряд» [реплика 2]', comment: 'подтверждено примерами' },
+        { id: 'req-2', score: 3, evidence: '«Опыт от трёх лет, у меня больше» [реплика 4]', comment: 'соответствует' },
+      ],
+      communication: {
+        style: { score: 4, evidence: 'спокойный деловой тон, без лишнего' },
+        politeness: { score: 5, evidence: 'здоровается, благодарит, отвечает по делу' },
+        vocabulary: { score: 4, evidence: 'профессиональная лексика без канцелярита' },
+        structure: { score: 3, evidence: 'иногда отвечает длинно, но по существу' },
+      },
+    });
+  } else if (/ATS-конфиг/.test(text)) {
     content = JSON.stringify({
       vacancy_title: 'Инженер Node.js',
       vacancy_context: 'fixture',

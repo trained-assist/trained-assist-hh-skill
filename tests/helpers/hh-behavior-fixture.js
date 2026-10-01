@@ -43,6 +43,22 @@ async function createBehaviorFixture() {
   put('active_vacancies', [VACANCY]);
   put('ats_config', ATS);
   put('ats_config:vac-001', ATS);
+  // Portrait for hh_interview_evaluate (#89): requirements live in the portrait,
+  // weights in the ats_config above (required → 2, must-have).
+  const { writePortrait } = require('../../src/hh-portrait');
+  writePortrait(workDir, 'vac-001', {
+    vacancy: { title: VACANCY.name, work_format: 'Удалённо', location: 'Москва' },
+    requirements: {
+      experience: 'от 3 лет в разработке',
+      hard_skills: ['Node.js'],
+      soft_skills: [],
+    },
+  });
+  // Interview structure for hh_interview_evaluate — the #88 contract, committed fixture.
+  const structure = fs.readFileSync(path.resolve(__dirname, '../../fixtures/interviews/video-interveu-primer-2-structure.json'), 'utf8');
+  const interviewDir = path.join(root, 'data', 'hh', USER, 'interviews', 'video-interveu-primer-2');
+  fs.mkdirSync(interviewDir, { recursive: true });
+  fs.writeFileSync(path.join(interviewDir, 'structure.json'), structure);
 
   const env = {
     HOME: root, TMPDIR: root, NODE_ENV: 'test',

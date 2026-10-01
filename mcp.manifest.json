@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "ba47f7e1761861605c2c4f2e0f6a490c6fa2df55",
+      "revision": "3e41ad98bd9a50670ecb1a7a9e3e4c24a6410e03",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "1bd7d90564caabda9528992fe5d6ca19abdc523cef7a6d378c3f289f0b3a9277",
+      "artifactDigest": "e8bd105b1295637a8e8ee1ccb45cb120ee74152887309fdff44406d44cd19227",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -2123,6 +2123,64 @@
             "effect": "write",
             "requiresApproval": false,
             "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_interview_evaluate",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "description": "Слаг интервью: папка interviews/<slug> со structure.json."
+                },
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Вакансия (portrait:{id} + ats_config:{id}). По умолчанию — активная вакансия."
+                },
+                "force": {
+                  "type": "boolean",
+                  "description": "Пересчитать, даже если оценка уже есть (по умолчанию возвращается кэш)."
+                }
+              },
+              "required": [
+                "slug"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "write",
+            "requiresApproval": false,
+            "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_interview_coverage",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "description": "Слаг интервью: папка interviews/<slug>."
+                },
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Вакансия. По умолчанию — активная вакансия."
+                }
+              },
+              "required": [
+                "slug"
+              ]
+            },
+            "allowedTriggers": [
+              "user",
+              "cron",
+              "durable_task"
+            ],
+            "effect": "read",
+            "requiresApproval": false,
+            "retrySafety": "read_only"
           }
         ]
       },
