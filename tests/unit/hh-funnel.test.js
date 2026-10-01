@@ -32,6 +32,7 @@ const {
   FUNNEL_LOGIC_VERSION,
 } = require('../../src/hh-funnel');
 const { checkCriteria, dropViolations, findVagueByRegex } = require('../../src/hh-criteria-guard');
+const { applyCriteriaGuard } = require('../../src/hh-criteria-apply');
 const { isDraftStale, historySignature, buildDraftUserMessage } = require('../../src/hh-draft-message');
 
 const DAY = 86400000;
@@ -339,5 +340,50 @@ describe('action set is closed and documented', () => {
       expect(VALID_ACTIONS, a).toContain(a);
       expect(ACTIONS[a].length, a).toBeGreaterThan(10);
     }
+  });
+});
+
+describe('criteria guard — a flagged criterion is replaced, not silently deleted', () => {
+  it('uses the measurable wording the guard proposed', () => {
+    // Regression from the live check on 138004863: dropping instead of replacing
+    // would have deleted «настройка и оптимизация внутренней рекламы» — a real
+    // requirement — from the rubric the recruiter was about to review.
+    const config = {
+      required: [{ name: 'настройка и оптимизация внутренней рекламы', weight: 3 }],
+      preferred: [],
+    };
+    const violations = [{
+      field: 'required',
+      name: 'настройка и оптимизация внутренней рекламы',
+      source: 'llm',
+      suggestion: 'Настройка внутренней рекламы WB: ставки, ДРР, поисковая выдача',
+    }];
+    const res = applyCriteriaGuard(config, violations);
+    expect(res.config.required).toHaveLength(1);
+    expect(res.config.required[0].name).toContain('ДРР');
+    expect(res.config.required[0].weight).toBe(3);
+    expect(res.replaced).toHaveLength(1);
+    expect(res.dropped).toHaveLength(0);
+  });
+
+  it('drops only what has no usable replacement', () => {
+    const config = {
+      required: [{ name: 'аналитический склад ума', weight: 1.5 }],
+      preferred: [{ name: 'понимание товара и трендов', weight: 1.5 }],
+    };
+    const violations = [
+      { field: 'required', name: 'аналитический склад ума' },
+      { field: 'preferred', name: 'понимание товара и трендов', suggestion: '   ' },
+    ];
+    const res = applyCriteriaGuard(config, violations);
+    expect(res.config.required).toHaveLength(0);
+    expect(res.config.preferred).toHaveLength(0);
+    expect(res.dropped.map(d => d.name).sort()).toEqual(['аналитический склад ума', 'понимание товара и трендов']);
+  });
+
+  it('leaves untouched criteria alone', () => {
+    const config = { required: [{ name: 'опыт работы с Wildberries от 2 лет', weight: 3 }], preferred: [] };
+    const res = applyCriteriaGuard(config, []);
+    expect(res.config.required[0].name).toBe('опыт работы с Wildberries от 2 лет');
   });
 });
