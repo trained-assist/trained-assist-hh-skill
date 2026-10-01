@@ -37,6 +37,9 @@ const ATS = {
 };
 
 function mockOr(content) {
+  nock('https://llm-ladder.trainedassist.store')
+    .post('/v1/chat/completions')
+    .reply(200, (_uri, body) => ({ choices: [{ message: { content } }], model: body.model }));
   return nock('https://openrouter.ai')
     .post('/api/v1/chat/completions')
     .reply(200, { choices: [{ message: { content } }] });
@@ -60,6 +63,7 @@ beforeAll(async () => {
   process.env.AGENT_DATA_DIR = tokensDir;
   process.env.HH_API_BASE_URL = mockHh.baseUrl;
   process.env.OPENROUTER_API_KEY = 'test-or-key';
+  process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // hh_evaluate_resume rides the free ladder
 
   nock.disableNetConnect();
   nock.enableNetConnect('127.0.0.1');
@@ -71,6 +75,7 @@ afterAll(async () => {
   delete process.env.AGENT_DATA_DIR;
   delete process.env.HH_API_BASE_URL;
   delete process.env.OPENROUTER_API_KEY;
+  delete process.env.LLM_LADDER_TOKEN;
   nock.enableNetConnect();
   nock.cleanAll();
   await mockHh.stop();

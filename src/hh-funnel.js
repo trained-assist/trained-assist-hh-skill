@@ -28,6 +28,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { tokensRoot } = require('./data-paths.js');
+const { ladderChat, ladderToken } = require('./llm-ladder');
 
 // Bump when the decision rules or the action set change: drafts are cached per
 // candidate and a stale draft written by older logic would otherwise live forever
@@ -241,16 +242,31 @@ async function planNextStep({ history = [], atsResult = null, atsConfig = {}, re
   const rule = deterministicStep({ history, atsResult, atsConfig, now });
   if (rule) return { ...rule, missing_skills: [] };
 
-  const key = apiKey || getApiKey(username);
-  if (!key) {
-    return { action: 'wait', reason: 'Нет ключа LLM — шаг воронки не определён, ждём ответа.', missing_skills: [], by: 'rule', degraded: true };
-  }
+  const messages = [
+    { role: 'system', content: PLANNER_SYSTEM },
+    { role: 'user', content: buildPlannerMessage({ history, atsResult, atsConfig, resumeText }) },
+  ];
 
   try {
-    const raw = await (llmFn || llmCall)(key, [
-      { role: 'system', content: PLANNER_SYSTEM },
-      { role: 'user', content: buildPlannerMessage({ history, atsResult, atsConfig, resumeText }) },
-    ], { maxTokens: 400, temperature: 0 });
+    let raw;
+    if (llmFn) {
+      raw = await llmFn(apiKey || getApiKey(username), messages, { maxTokens: 400, temperature: 0 });
+    } else if (ladderToken()) {
+      // The planner runs on the DEFAULT ladder (owner 2026-10-01: «процесс определения
+      // следующего шага … на стандартной mimi go по дефолту, по дефолтной лесенке») —
+      // 'service' opens with the Go free tier and reaches Go mimo. No ladder token →
+      // the degraded 'wait' below, same as the old no-key path.
+      const res = await ladderChat({
+        messages,
+        ladder: process.env.HH_PLANNER_LADDER || 'service',
+        temperature: 0,
+        maxTokens: 400,
+        source: 'hh-funnel',
+      });
+      raw = res.content;
+    } else {
+      return { action: 'wait', reason: 'Нет ключа LLM — шаг воронки не определён, ждём ответа.', missing_skills: [], by: 'rule', degraded: true };
+    }
     const m = String(raw || '').match(/\{[\s\S]*\}/);
     if (!m) throw new Error('no json');
     const parsed = JSON.parse(m[0]);

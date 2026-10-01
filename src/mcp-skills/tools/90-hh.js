@@ -11,6 +11,8 @@ const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-mes
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
+const { generateConversation } = require('../../conversation-generation');
+const { ladderChat, ladderToken } = require('../../llm-ladder');
 const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
 
 const USER_ID = process.env.USER_ID || '';
@@ -918,7 +920,7 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { error: 'OpenRouter API key не найден.' };
+        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         try {
           const fakeNeg = { resume: { id: resume_id } };
@@ -1189,7 +1191,7 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { error: 'OpenRouter API key не найден.' };
+        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         try {
           const neg = await hhGet(`/negotiations/${negotiation_id}`, token);
@@ -1258,7 +1260,7 @@ module.exports = {
           }
 
           const apiKey = readOrKey(USER_ID);
-          if (!apiKey) return { error: 'OpenRouter API key не найден.' };
+          if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
           const { text: candidateContext } = await formatCandidateContext(neg);
           const contextWithVacancy = vacancy_context
@@ -1402,7 +1404,7 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { error: 'OpenRouter API key не найден.' };
+        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         // Resolve vacancy_id from context if not provided
         if (!vacancy_id) {
@@ -1588,7 +1590,7 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = readOrKey(USER_ID);
-        if (!apiKey) return { error: 'OpenRouter API key не найден.' };
+        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         if (!vacancy_id) {
           const ctx = readContext('hh', 'active_vacancy');
@@ -1713,7 +1715,7 @@ module.exports = {
         for (const c of candidates) {
           let draft = null;
           let alreadySent = false;
-          if (c.verdict !== 'ОТКЛОНИТЬ' && apiKey) {
+          if (c.verdict !== 'ОТКЛОНИТЬ' && ladderToken()) { // drafts are written through the ladder now (apiKey stays for the planNextStep arg)
             const history = readCandidateHistory(USER_ID, c.negotiation_id);
             alreadySent = (history.messages || []).some(m => m.role === 'employer');
             const configVersion = atsConfigCtx?.value?.updated_at || null;
@@ -2079,10 +2081,19 @@ module.exports = {
 async function evaluateCandidate(candidateText, atsConfig, apiKey) {
   const config = normalizeAtsConfig(atsConfig);
   const systemPrompt = buildAtsPrompt(config);
-  const content = await llmCall(apiKey, FAST_MODEL, [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Оцени кандидата:\n\n${candidateText}` },
-  ], 2000, 0.1);
+  // ATS evaluation runs on the free ladder (owner decision, A/B 2026-09-30 —
+  // docs/evals/ladder-enrichment-ab-2026-09-30.md: free-ladder, temp 0.1).
+  // apiKey stays in the signature for call-site compat; the ladder owns credentials.
+  const { content } = await ladderChat({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Оцени кандидата:\n\n${candidateText}` },
+    ],
+    ladder: 'free-ladder',
+    temperature: 0.1,
+    maxTokens: 2000,
+    source: 'hh-evaluate',
+  });
 
   const llmResult = parseLlmJson(content);
   return computeScore(llmResult, config);
@@ -2139,10 +2150,17 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
     testTask: atsConfig?.test_task || '',
   });
 
-  const text = await llmCall(apiKey, SMART_MODEL, [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userMsg },
-  ], 1000, 0.7);
+  // The write itself goes through conversation generation (ladder 'conversations',
+  // model pick + Q/A history for the bench live there).
+  const text = await generateConversation({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMsg },
+    ],
+    temperature: 0.7,
+    maxTokens: 1000,
+    source: 'hh-generate-message',
+  });
 
   // planOut is an out-param on purpose: all four call sites of this function treat
   // the result as a string, and changing the return shape would ripple into each of

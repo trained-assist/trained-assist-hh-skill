@@ -98,13 +98,22 @@ describe('criteria guard — LLM pass and cleanup', () => {
   });
 
   it('degrades to regex-only without a key instead of failing', async () => {
-    const res = await checkCriteria(
-      { required: [{ name: 'аналитический склад ума' }, { name: 'настройка рекламы WB' }] },
-      { useLlm: true, apiKey: null, username: 'nobody-without-a-token' },
-    );
-    expect(res.degraded).toBe(true);
-    // regex still did its job
-    expect(res.violations.map(v => v.name)).toEqual(['аналитический склад ума']);
+    // The test means "no key" — an OPENROUTER_API_KEY exported in the shell would
+    // otherwise turn it into a real network call with a different outcome.
+    const prevKey = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    try {
+      const res = await checkCriteria(
+        { required: [{ name: 'аналитический склад ума' }, { name: 'настройка рекламы WB' }] },
+        { useLlm: true, apiKey: null, username: 'nobody-without-a-token' },
+      );
+      expect(res.degraded).toBe(true);
+      // regex still did its job
+      expect(res.violations.map(v => v.name)).toEqual(['аналитический склад ума']);
+    } finally {
+      if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = prevKey;
+    }
   });
 });
 

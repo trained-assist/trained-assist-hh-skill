@@ -18,7 +18,14 @@ import { homedir, tmpdir } from 'os';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
+import nock from 'nock';
 const { createMockHhServer, DEFAULT_VACANCIES, DEFAULT_NEGOTIATIONS } = require('./helpers/mock-hh-server.js');
+
+// Evaluation and generation ride the llm-ladder worker; keep this file off the real
+// network: every ladder call fails (500) so handlers prove their graceful paths.
+nock('https://llm-ladder.trainedassist.store')
+  .persist().post('/v1/chat/completions')
+  .reply(500, { error: { message: 'fixture: ladder down', type: 'ladder_error' } });
 
 const TEST_USER_ID = 'hh-e2e-test-88888';
 const TOKEN_DIR = join(homedir(), 'agent-tokens', TEST_USER_ID);
@@ -236,13 +243,15 @@ describe('Flow 4 — hh_batch_evaluate message_draft persistence', () => {
       }
     }
     process.env.AGENT_DATA_DIR = DATA_DIR;
-    // Provide a fake OR key so handler doesn't bail early; LLM call will fail gracefully
+    // Fake credentials: the gate must pass, the LLM call fails gracefully (nock 500 above)
     process.env.OPENROUTER_API_KEY = 'test-or-key-fake';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-fake';
   });
 
   afterEach(() => {
     delete process.env.AGENT_DATA_DIR;
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
   });
 
   it('reuses existing message_draft when config_version matches — no regeneration', async () => {
@@ -333,14 +342,16 @@ describe('Flow 5 — hh_regenerate_messages', () => {
       }
     }
     process.env.AGENT_DATA_DIR = DATA_DIR;
-    // Fake OR key: LLM call fails gracefully — enough to prove the handler still
+    // Fake ladder token: the call fails gracefully — enough to prove the handler still
     // ATTEMPTS regeneration for these candidates (unlike hh_batch_evaluate's cache skip).
     process.env.OPENROUTER_API_KEY = 'test-or-key-fake';
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-fake';
   });
 
   afterEach(() => {
     delete process.env.AGENT_DATA_DIR;
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.LLM_LADDER_TOKEN;
   });
 
   it('attempts regeneration even when message_draft.config_version already matches — no cache skip', async () => {

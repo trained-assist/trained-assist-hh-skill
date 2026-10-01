@@ -40,7 +40,14 @@ const ATS = {
 };
 
 // Nock helper — intercept one OpenRouter chat completion call
+// One scripted answer, TWO boundaries: evaluation/writing/planner now go through the
+// llm-ladder worker (free / conversations / service), extraction & profile stay on
+// direct OpenRouter — a test that mocks one of them leaves the other interceptor
+// pending (cleaned in beforeEach), so the same helper serves every call site.
 function mockOr(content) {
+  nock('https://llm-ladder.trainedassist.store')
+    .post('/v1/chat/completions')
+    .reply(200, (_uri, body) => ({ choices: [{ message: { content } }], model: body.model }));
   return nock('https://openrouter.ai')
     .post('/api/v1/chat/completions')
     .reply(200, { choices: [{ message: { content } }] });
@@ -73,6 +80,7 @@ beforeAll(async () => {
   process.env.AGENT_DATA_DIR     = tokensDir;   // isolate history writes to temp dir
   process.env.HH_API_BASE_URL    = mockHh.baseUrl;
   process.env.OPENROUTER_API_KEY = 'test-or-key';
+  process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // evaluation/writing/planner ride the ladder
 
   // Block all real network except 127.0.0.1 (mock HH server)
   nock.disableNetConnect();
@@ -85,6 +93,7 @@ afterAll(async () => {
   delete process.env.AGENT_DATA_DIR;
   delete process.env.HH_API_BASE_URL;
   delete process.env.OPENROUTER_API_KEY;
+  delete process.env.LLM_LADDER_TOKEN;
 
   nock.enableNetConnect();
   nock.cleanAll();

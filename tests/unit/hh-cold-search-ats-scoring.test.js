@@ -35,13 +35,14 @@ const response = (status, body = {}) => ({ ok: status === 200, status, headers: 
 
 let root, saved;
 beforeEach(() => {
-  saved = Object.fromEntries(['AGENT_DATA_DIR', 'AGENT_TOKENS_DIR', 'USERS_DIR', 'AGENT_SECRET', 'OPENROUTER_API_KEY'].map(k => [k, process.env[k]]));
+  saved = Object.fromEntries(['AGENT_DATA_DIR', 'AGENT_TOKENS_DIR', 'USERS_DIR', 'AGENT_SECRET', 'OPENROUTER_API_KEY', 'LLM_LADDER_TOKEN'].map(k => [k, process.env[k]]));
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-ats-scoring-'));
   process.env.AGENT_DATA_DIR = path.join(root, 'data');
   process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
   process.env.USERS_DIR = path.join(root, 'users');
   process.env.AGENT_SECRET = 's3cret';
   process.env.OPENROUTER_API_KEY = 'or-test';
+  process.env.LLM_LADDER_TOKEN = 'ladder-test'; // evaluation/enrichment ride the free ladder
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -129,7 +130,7 @@ function fixture(user = 'rec') {
   put('ats_config:A', CONFIG);
   const scoringPrompts = [];
   vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-    if (String(url).startsWith('https://openrouter.ai')) {
+    if (String(url).startsWith('https://openrouter.ai') || String(url).startsWith('https://llm-ladder.trainedassist.store')) {
       const content = JSON.parse(init.body).messages[0].content;
       if (content.includes('поисковых запросов')) return response(200, { choices: [{ message: { content: '["Инженер-конструктор"]' } }] });
       scoringPrompts.push(content);

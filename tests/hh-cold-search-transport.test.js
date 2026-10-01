@@ -221,8 +221,8 @@ describe('background scoring isolation', () => {
     const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
     const api = require('../src/hh-proactive-search');
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-bg-scope-'));
-    const old = { AGENT_DATA_DIR: process.env.AGENT_DATA_DIR, AGENT_TOKENS_DIR: process.env.AGENT_TOKENS_DIR, USERS_DIR: process.env.USERS_DIR, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY };
-    process.env.AGENT_DATA_DIR = root; process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens'); process.env.USERS_DIR = path.join(root, 'users'); process.env.OPENROUTER_API_KEY = 'fixture';
+    const old = { AGENT_DATA_DIR: process.env.AGENT_DATA_DIR, AGENT_TOKENS_DIR: process.env.AGENT_TOKENS_DIR, USERS_DIR: process.env.USERS_DIR, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, LLM_LADDER_TOKEN: process.env.LLM_LADDER_TOKEN };
+    process.env.AGENT_DATA_DIR = root; process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens'); process.env.USERS_DIR = path.join(root, 'users'); process.env.OPENROUTER_API_KEY = 'fixture'; process.env.LLM_LADDER_TOKEN = 'fixture'; // enrichment rides the free ladder
     const dir = path.join(root, 'hh', 'fixture', 'proactive'); fs.mkdirSync(dir, { recursive: true });
     const prompts = [];
     vi.stubGlobal('fetch', async (_url, init) => {

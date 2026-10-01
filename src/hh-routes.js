@@ -19,6 +19,8 @@ const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, DEFAULT_MESSAGE_BASE, BASE_PROMPT_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
+const { generateConversation } = require('./conversation-generation');
+const { ladderToken } = require('./llm-ladder');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
 
@@ -773,9 +775,10 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
 
   const hhTokensBase = tokensRoot();
-  const orKeyFile = path.join(hhTokensBase, String(username), 'openrouter');
-  const apiKey = fs.existsSync(orKeyFile) ? fs.readFileSync(orKeyFile, 'utf8').trim() : process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return json(res, 503, { error: 'OpenRouter key not configured' });
+  // Writing goes through our llm-ladder (src/conversation-generation.js) — the ladder
+  // token replaces the old per-user OpenRouter key requirement for this route; the
+  // guard still degrades gracefully without its own key (hh-bullshit-guard.js).
+  if (!ladderToken()) return json(res, 503, { error: 'llm-ladder token not configured' });
 
   const styleFile = path.join(hhTokensBase, String(username), 'hh-message-style');
   const commStyle = fs.existsSync(styleFile) ? fs.readFileSync(styleFile, 'utf8').trim() : null;
@@ -871,7 +874,6 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       atsConfig: atsConfig || {},
       resumeText: fullResumeText,
       username,
-      apiKey,
     });
   }
 
@@ -890,32 +892,13 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     });
 
   function callLlm(userContent) {
-    return new Promise((resolve, reject) => {
-      const reqBody = JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
-        temperature: 0.7,
-        max_tokens: 800,
-      });
-      const hreq = require('https').request({
-        hostname: 'openrouter.ai',
-        path: '/api/v1/chat/completions',
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(reqBody) },
-      }, (hres) => {
-        const chunks = [];
-        hres.on('data', c => chunks.push(c));
-        hres.on('end', () => {
-          try {
-            const p = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            if (p.error) reject(new Error(p.error.message || JSON.stringify(p.error)));
-            else resolve(p.choices[0].message.content);
-          } catch (e) { reject(e); }
-        });
-      });
-      hreq.on('error', reject);
-      hreq.write(reqBody);
-      hreq.end();
+    // One abstraction for every candidate-message write: ladder 'conversations'
+    // (gemini-3.1-flash-lite-preview first), exchange recorded for the bench.
+    return generateConversation({
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
+      temperature: 0.7,
+      maxTokens: 800,
+      source: 'hh-generate-message',
     });
   }
 

@@ -7,6 +7,7 @@ const os = require('os');
 const { readHhToken } = require('./hh-utils');
 
 const { resolveSearchAreas, searchResumes } = require('./hh-cold-search-transport');
+const { ladderChat, ladderToken } = require('./llm-ladder');
 
 // Words that appear in almost every criterion and almost every resume. Counting them
 // as a match put a «Программист 1С» on top of an «Инженер-конструктор» list: his
@@ -212,7 +213,7 @@ function compareByAtsScore(a, b) {
 }
 
 // AI assessment against the ATS funnel: score + plus/yellow/red tags + summary.
-async function enrichCandidate(candidate, atsConfig, orKey) {
+async function enrichCandidate(candidate, atsConfig) {
   const cfg = normalizeAtsConfig(atsConfig);
   const knockoutStr = (cfg.knockout || []).map(k => `- ${k}`).join('\n') || '—';
   const requiredStr = (cfg.required || []).map(r => `- ${r.name} (вес ${r.weight})`).join('\n') || '—';
@@ -268,21 +269,17 @@ ${expStr}
 - summary_why — живо, как рекрутер рассказывает коллеге
 - summary_pitch — конкретные факты которые продают кандидата клиенту`;
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${orKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
-      max_tokens: 600,
-      temperature: 0.1,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-    signal: AbortSignal.timeout(25_000),
+  // Enrichment = candidate evaluation → the ladder's free tier (owner decision,
+  // A/B 2026-09-30: free-ladder, temp 0.1 — docs/evals/ladder-enrichment-ab-2026-09-30.md).
+  // Query generation is the only OpenRouter call left here and reads its own key.
+  const { content: text } = await ladderChat({
+    messages: [{ role: 'user', content: prompt }],
+    ladder: 'free-ladder',
+    temperature: 0.1,
+    maxTokens: 600,
+    timeoutMs: 25_000,
+    source: 'hh-enrich',
   });
-
-  if (!res.ok) throw new Error(`OpenRouter ${res.status}`);
-  const data = await res.json();
-  const text = data.choices?.[0]?.message?.content || '{}';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('no JSON in AI response');
   const parsed = JSON.parse(match[0]);
@@ -290,13 +287,13 @@ ${expStr}
 }
 
 // Enrich top-N candidates in parallel batches of 5
-async function enrichCandidates(candidates, atsConfig, orKey) {
+async function enrichCandidates(candidates, atsConfig) {
   const BATCH = 10;
   const enriched = [...candidates];
   for (let i = 0; i < enriched.length; i += BATCH) {
     const batch = enriched.slice(i, i + BATCH);
     const results = await Promise.allSettled(
-      batch.map(c => enrichCandidate(c, atsConfig, orKey))
+      batch.map(c => enrichCandidate(c, atsConfig))
     );
     for (let j = 0; j < batch.length; j++) {
       const r = results[j];
@@ -1058,15 +1055,15 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
     else pending.push({ ...c, assessment_hash: hash });
   }
   let enriched = [...cached, ...pending];
-  if (orKey && pending.length > 0) {
+  if (pending.length > 0 && !ladderToken()) {
+    console.warn('[proactive-search] llm-ladder credentials missing — skipping AI enrichment');
+  } else if (pending.length > 0) {
     console.error(`[proactive-search] enriching ${toEnrich.length} candidates with AI (top-30 + ${newButNotTop30.length} new)…`);
     try {
-      enriched = [...cached, ...await enrichCandidates(pending, atsConfig, orKey)];
+      enriched = [...cached, ...await enrichCandidates(pending, atsConfig)];
     } catch (e) {
       console.error('[proactive-search] enrichment failed:', e.message);
     }
-  } else if (!orKey) {
-    console.warn('[proactive-search] no OpenRouter key — skipping AI enrichment');
   }
 
   const now = new Date();
@@ -1153,10 +1150,8 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
   try {
     const dataDir = dataRoot();
     const dir = path.join(dataDir, 'hh', String(username), 'proactive');
-    const tokensBase = tokensRoot();
-    const keyFile = path.join(tokensBase, String(username), 'openrouter');
-    const key = fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : (process.env.OPENROUTER_API_KEY || '');
-    if (!key) return 0;
+    // The only LLM call left in this loop is enrichment → free ladder.
+    if (!ladderToken()) return 0;
     const latest = new Map();
     for (const name of fs.readdirSync(dir).filter(f => /^search-results-.*\.json$/.test(f))) {
       const file = path.join(dir, name);
@@ -1211,7 +1206,7 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
         continue;
       }
       remaining -= needScore.length;
-      const enriched = await enrichCandidates(needScore, atsConfig, key);
+      const enriched = await enrichCandidates(needScore, atsConfig);
       for (const candidate of enriched) {
         const idx = candidates.findIndex(c => c.id === candidate.id);
         if (idx >= 0) Object.assign(candidates[idx], candidate);
