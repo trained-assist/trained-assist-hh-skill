@@ -27,11 +27,16 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
   // fallback), or a 2nd tracked vacancy's page would compare against vacancy A's
   // config version and wrongly invalidate every cached draft.
   let atsConfigVersion = null;
+  // Same read tells us whether this vacancy has criteria AT ALL: without them the
+  // background loop skips it and letters stop refreshing (issue #126) — a state the
+  // page must show instead of leaving the recruiter to discover stale drafts.
+  let hasAtsConfig = false;
   try {
     const { readAtsConfig } = require('./hh-scoring');
     const workDir = path.join(BASE_USERS_DIR, String(username));
     const atsCfg = readAtsConfig(workDir, vacancyId);
     atsConfigVersion = atsCfg?.updated_at || null;
+    hasAtsConfig = !!atsCfg;
   } catch {}
 
 
@@ -397,6 +402,11 @@ h1{font-size:18px}
 <h1>Кандидаты: ${esc(vacancyTitle)}</h1>
 ${require('./hh-nav').vacancyPickerHtml(vacancies, vacancyId, v => `?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(v.id)}`, `${callbackBase}/hh/vacancy-new?username=${encodeURIComponent(username)}&token=${pageToken}`)}
 ${syncError ? `<p role="alert">${esc(syncError)}</p>` : ''}
+${!hasAtsConfig ? `<div id="no-ats-banner" role="alert" style="background:rgba(240,180,41,.12);border:1px solid rgba(240,180,41,.35);color:#8a5a00;border-radius:8px;padding:12px 16px;margin:12px 0;font-size:14px">
+  ⚠️ Письма этой вакансии не обновляются — нет критериев оценки. Фоновая перегенерация без них не работает.
+  <button id="extractCriteriaBtn" class="tb-btn" style="background:rgba(240,180,41,.2);color:#8a5a00;font-weight:600;margin-left:6px">Собрать критерии из текста вакансии</button>
+  <a href="${callbackBase}/hh/ats-editor?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}" style="color:#8a5a00;font-weight:600">Открыть редактор →</a>
+</div>` : ''}
 <nav class="vacancy-tabs" aria-label="Статус отклика">${[['active','Активные'],['starred','★ Избранные'],['archived','Архив']].map(([status,label]) => `<a class="vacancy-tab${status === listView ? ' active' : ''}" href="?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}&list=${status}">${label} (${counts[status]})</a>`).join('')}</nav>
 <p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()">↻ Обновить</button></p>
 <p id="responseUpdates" role="status" aria-live="polite"></p>
@@ -515,6 +525,30 @@ function showToast(msg, isError) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 3000);
 }
+
+// Close the loop of the "no criteria" banner (issue #126): collect criteria from the
+// HH vacancy text right here, then hand the recruiter the editor with the draft
+// already loaded. Extraction is an LLM call — this can take a while, so the button says
+// what it is doing and the draft is never made live without the recruiter reviewing it
+// in the editor (the same rule as hh_extract_ats_config from chat).
+document.getElementById('extractCriteriaBtn')?.addEventListener('click', async function() {
+  if (!HH_VACANCY_ID) { showToast('❌ Не выбрана вакансия — критерии собирать не из чего.', true); return; }
+  this.disabled = true;
+  const label = this.textContent;
+  this.textContent = '⏳ Собираю критерии…';
+  try {
+    const r = await hhAction('/hh/ats-extract', { vacancy_id: HH_VACANCY_ID });
+    const dropped = (r.dropped_criteria || []).length;
+    // On success we go straight to the editor: it already shows the "черновик по тексту
+    // вакансии" banner, so a toast here would be replaced by the navigation before the
+    // recruiter could read it. Errors stay on this page — that is where they are actionable.
+    location.href = CALLBACK_BASE + '/hh/ats-editor?username=' + encodeURIComponent(HH_USER) + '&token=' + encodeURIComponent(HH_PAGE_TOKEN) + '&vacancy_id=' + encodeURIComponent(HH_VACANCY_ID) + (dropped ? '&dropped=' + dropped : '');
+  } catch (e) {
+    showToast('❌ Не удалось собрать критерии: ' + e.message, true);
+    this.disabled = false;
+    this.textContent = label;
+  }
+});
 
 // Every POST gets a client-side deadline. Before, only /hh/send-and-reject had one:
 // /hh/send could sit on "⏳" for as long as the server took (guard LLM call + HH POST),
@@ -686,9 +720,20 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       : '';
     if (btn) { btn.disabled = false; btn.textContent = '✦ Переписать'; }
     if (data.guard_warning) showToast('⚠️ Черновик после перегенерации всё ещё под вопросом: ' + data.guard_warning, true);
+    // No ATS criteria for this vacancy: the letter was written and saved, but the
+    // background loop will not refresh it until criteria exist (issue #126). Say so
+    // instead of letting the recruiter discover the staleness a week later.
+    if (data.no_ats_config) {
+      showToast('⚠️ Критерии оценки не заданы — письмо сохранено, но фон обновлять его не будет. Заполни ATS воронку.', true);
+      const banner = document.getElementById('no-ats-banner');
+      if (banner) banner.hidden = false;
+    }
   } catch(e) {
     if (ta) { ta.classList.remove('generating'); ta.placeholder = ''; }
     if (btn) { btn.disabled = false; btn.textContent = '✦ Сгенерировать'; }
+    // The failure used to be swallowed here: the button simply reset and the
+    // recruiter read it as "nothing changed" (issue #126, defect 2).
+    showToast('❌ Ошибка генерации: ' + (e && e.message ? e.message : e), true);
   }
 }
 

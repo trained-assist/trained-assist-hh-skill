@@ -677,6 +677,55 @@ if (req.method === 'POST' && url.pathname === '/hh/reset-ats-results') {
   return json(res, 200, { ok: true, reset, skipped });
 }
 
+// Collect ATS criteria from the HH vacancy text (issue #126, slice 4). The review page
+// shows a vacancy without criteria as "letters stop updating" — but until now there was
+// no way to fix it from the page itself: criteria could only be produced by the chat
+// LLM, so a recruiter without chat access was stuck in a circle (criteria cannot be
+// entered by hand → background skipped the vacancy → letters froze). This route fetches
+// the vacancy text from HH and runs the SAME hh_extract_ats_config tool the agent uses,
+// so page and chat produce identical configs — including the measurability guard.
+if (req.method === 'POST' && url.pathname === '/hh/ats-extract') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const body = JSON.parse(await readBody(req));
+  const { username, vacancy_id: vacancyId } = body || {};
+  if (!username || !vacancyId) return json(res, 400, { error: 'missing fields' });
+  if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
+  const tokenFile = path.join(tokensRoot(), String(username), 'hh');
+  const hhToken = fs.existsSync(tokenFile) ? readHhTokenFile(tokenFile) : null;
+  if (!hhToken) return json(res, 403, { error: 'HH не подключён для этого профиля' });
+  if (typeof hostRunMcpTool !== 'function') return json(res, 503, { error: 'host runMcpTool not provided' });
+
+  let vacancyText = '';
+  try {
+    const vac = await hhFetch(`/vacancies/${vacancyId}`, hhToken);
+    const desc = (vac.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
+    const skills = (vac.key_skills || []).map(s => s.name).join(', ');
+    vacancyText = [`Вакансия: ${vac.name || ''}`, desc && `Описание и требования:\n${desc}`, skills && `Ключевые навыки: ${skills}`]
+      .filter(Boolean).join('\n\n');
+  } catch (e) {
+    console.error('[hh/ats-extract] vacancy fetch failed:', e.message);
+    return json(res, 502, { error: `Не удалось получить текст вакансии с HH: ${e.message}` });
+  }
+  if (!vacancyText.trim()) return json(res, 422, { error: 'У вакансии на HH нет описания — критерии извлекать не из чего. Заполни описание вакансии или напиши критерии руками.' });
+
+  let out;
+  try {
+    const text = await hostRunMcpTool({
+      tool: 'hh_extract_ats_config',
+      params: { vacancy_text: vacancyText },
+      username,
+      workDir: path.join(BASE_USERS_DIR, username),
+      timeoutMs: 120_000,
+    });
+    out = JSON.parse(text || '{}');
+  } catch (e) {
+    console.error(`[hh/ats-extract] user=${username} vacancy=${vacancyId}:`, e.message);
+    return json(res, 500, { error: e.message });
+  }
+  if (out && out.error) return json(res, 422, { error: out.error });
+  return json(res, 200, { ok: true, config: out?.config || null, dropped_criteria: out?.dropped_criteria || [], replaced_criteria: out?.replaced_criteria || [] });
+}
+
 if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
   const username = url.searchParams.get('username') || '';
   const agentSecret = process.env.AGENT_SECRET || '';
@@ -711,6 +760,30 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
   try {
     if (fs.existsSync(stagesFile)) currentStages = JSON.parse(fs.readFileSync(stagesFile, 'utf8')).value;
   } catch {}
+  // Prefill from HH (issue #126). The editor used to demand a vacancy title and a
+  // context the recruiter had to type by hand, and refuse to save without them — while
+  // HH already knows both. Fill them in server-side, but only into fields that are
+  // still empty, and never fail the page over it.
+  const prefill = { vacancyTitle: activeVacancy?.title || '', vacancyContext: '' };
+  if (activeVacancy?.id) {
+    try {
+      const tokenFile = path.join(tokensRoot(), String(username), 'hh');
+      if (fs.existsSync(tokenFile)) {
+        const tokenData = readHhTokenFile(tokenFile);
+        // Hard 6s cap: HH being slow must not hold the editor hostage.
+        const vac = await Promise.race([
+          hhFetch(`/vacancies/${activeVacancy.id}`, tokenData),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('hh timeout')), 6000)),
+        ]);
+        prefill.vacancyContext = (vac.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000);
+        if (vac.name) prefill.vacancyTitle = vac.name;
+      }
+    } catch { /* HH offline — editor opens with whatever the recruiter types */ }
+  }
+  if (currentConfig) {
+    if (currentConfig.vacancy_title) prefill.vacancyTitle = '';
+    if (currentConfig.vacancy_context) prefill.vacancyContext = '';
+  }
   const callbackBase = (process.env.AGENT_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
   const html = atsEditorHtml(currentConfig, currentStages, {
     callbackBase,
@@ -719,6 +792,7 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
     vacancies: activeVacancies,
     activeVacancyId: activeVacancy?.id || '',
     isDraft,
+    prefill,
   });
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   return res.end(html);
@@ -979,6 +1053,10 @@ const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancy
     const resp = { ok: true, message };
     if (plan) { resp.funnel_action = plan.action; resp.funnel_reason = plan.reason; }
     if (!guard.ok) resp.guard_warning = guard.reason;
+    // Vacancy without ATS criteria is a legitimate state (issue #126): the letter is
+    // written and saved, but the background loop skips this vacancy — tell the page
+    // so it can point the recruiter at the editor instead of failing silently.
+    if (!atsConfig) resp.no_ats_config = true;
     return json(res, 200, resp);
   } catch (e) {
     console.error('[hh/generate-message] error:', e.message);
