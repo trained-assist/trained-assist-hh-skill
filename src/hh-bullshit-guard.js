@@ -6,6 +6,7 @@
 // free-ladder). This module no longer resolves or reads any API key.
 
 const { hhLlm, ladderToken } = require('./hh-llm');
+const { asksKnownFact } = require('./hh-known-facts');
 
 // ─── Regex checks ─────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ template_garbage = текст явно является незаполненны
  * @returns {Promise<{ ok: boolean, reason?: string, checks: object }>}
  */
 async function bullshitGuard(messageText, conversationHistory = [], options = {}) {
-  const checks = { empty: false, placeholder: false, invented_time: false, repeated_question: false, repeated_intro: false, template_garbage: false };
+  const checks = { empty: false, placeholder: false, invented_time: false, known_fact: false, repeated_question: false, repeated_intro: false, template_garbage: false };
 
   if (!messageText || messageText.trim().length === 0) {
     checks.empty = true;
@@ -107,6 +108,18 @@ async function bullshitGuard(messageText, conversationHistory = [], options = {}
   if (hasPlaceholder(messageText)) {
     checks.placeholder = true;
     return { ok: false, reason: 'незаполненный placeholder в тексте', checks };
+  }
+
+  // «Не переспрашивай то, что уже есть в резюме» (живой дефект 02.10.2026: письмо
+  // попросило уточнить имя, хотя имя было в резюме первой строкой). Regex-гейт, идёт
+  // до LLM-проверки — он бесплатный и не может пропустить отправку. Работает только
+  // когда у вызывающего пути есть текст резюме (иначе сравнивать не с чем).
+  if (options.resumeText) {
+    const known = asksKnownFact(messageText, options.resumeText);
+    if (known) {
+      checks.known_fact = known.key;
+      return { ok: false, reason: `переспрашиваем уже известное (${known.label}: ${known.value})`, checks };
+    }
   }
 
   // Informational only, not blocking: a recruiter typing their own real availability

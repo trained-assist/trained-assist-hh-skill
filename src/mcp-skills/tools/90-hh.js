@@ -10,6 +10,7 @@ const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-mes
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
+const { asksKnownFact } = require('../../hh-known-facts');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
 const { ladderChat, ladderToken } = require('../../llm-ladder');
@@ -2183,8 +2184,34 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
   // planOut is an out-param on purpose: all four call sites of this function treat
   // the result as a string, and changing the return shape would ripple into each of
   // them for no gain. Callers that display the step read planOut.
+  // This path (batch drafts for the review page) never runs bullshitGuard — a full
+  // LLM judge per candidate would double the cost of a batch — so the free
+  // deterministic gate from src/hh-known-facts.js runs alone here: a letter that asks
+  // for a fact the resume already states gets one retry, then goes out as written
+  // (same visible outcome as a guard warning elsewhere).
+  let out = String(text || '').trim();
+  const known = asksKnownFact(out, candidateContext);
+  if (known) {
+    try {
+      const retried = await generateConversation({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `${userMsg}\n\n(Предыдущая попытка отклонена автопроверкой: переспрашиваем уже известное — `
+            + `${known.label}: ${known.value}. Напиши новый вариант без этого вопроса.)` },
+        ],
+        temperature: 0.7,
+        maxTokens: 1000,
+        source: 'hh-generate-message',
+      });
+      const retryText = String(retried || '').trim();
+      if (retryText && !asksKnownFact(retryText, candidateContext)) out = retryText;
+    } catch (e) {
+      console.warn('[hh/generate-message] known-facts retry failed:', e.message);
+    }
+  }
+
   if (planOut) { planOut.action = plan?.action || type; planOut.reason = plan?.reason || null; planOut.by = plan?.by || 'forced'; }
-  return text;
+  return out;
 }
 
 // ── Per-candidate history ───────────────────────────────────────────────────

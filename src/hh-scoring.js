@@ -447,7 +447,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         // that tells the model what was wrong. Without it, a repeated intro landed on
         // the review page undetected (this path never ran the guard at all).
         const allowSpecificTime = hasRealAvailability(atsConfig?.interview_config);
-        let guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
+        let guard = await bullshitGuard(message, thread, { username, allowSpecificTime, resumeText });
         if (!guard.ok) {
           console.warn(`[hh-drafts] neg=${neg.id} failed guard (${guard.reason}), regenerating once`);
           const retryMessages = [
@@ -462,7 +462,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
             const retried = await generateConversation({ messages: retryMessages, temperature: 0.7, maxTokens: 600, source: 'hh-drafts' });
             if (retried && !hasGarbage(retried)) {
               message = retried.trim();
-              guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
+              guard = await bullshitGuard(message, thread, { username, allowSpecificTime, resumeText });
             }
           } catch (e) {
             console.warn(`[hh-drafts] retry failed for ${neg.id}: ${e.message}`);

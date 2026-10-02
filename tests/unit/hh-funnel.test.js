@@ -634,7 +634,11 @@ describe('funnel — «что уточняем»: only missing must-haves, pass 
     expect(msg).toContain('ask_skills/clarify_answer');
   });
 
-  it('bumps the logic version so drafts written by funnel-v1 go stale', () => {
-    expect(FUNNEL_LOGIC_VERSION).toBe('funnel-v2');
+  // Требование сдвинулось вместе с версией: версия должна быть ТЕКУЩЕЙ, иначе
+  // кэш черновиков не инвалидируется. funnel-v2 → funnel-v3 (02.10.2026): в письмо
+  // добавлен блок «Факты из резюме» и гейт «не переспрашивай» — старые черновики
+  // с дефектом обязаны устареть.
+  it('bumps the logic version so drafts written by older logic go stale', () => {
+    expect(FUNNEL_LOGIC_VERSION).toBe('funnel-v3');
   });
 });

@@ -959,12 +959,12 @@ const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancy
     let message = plan?.action === 'send_test'
       ? (buildTestTaskMessage(atsConfig?.test_task) || await callLlm(userMsg))
       : await callLlm(userMsg);
-    let guard = await bullshitGuard(message, msgs, { username, allowSpecificTime });
+    let guard = await bullshitGuard(message, msgs, { username, allowSpecificTime, resumeText: fullResumeText });
     if (!guard.ok) {
       console.warn(`[hh/generate-message] draft failed guard, regenerating: user=${username} neg=${negotiation_id} reason="${guard.reason}"`);
       const retryMsg = `${userMsg}\n\n(Предыдущая попытка была отклонена автопроверкой: "${guard.reason}". Не повторяй эту ошибку — напиши новый вариант без неё.)`;
       message = await callLlm(retryMsg);
-      guard = await bullshitGuard(message, msgs, { username, allowSpecificTime });
+      guard = await bullshitGuard(message, msgs, { username, allowSpecificTime, resumeText: fullResumeText });
     }
 
     if (!history.ats_result) history.ats_result = {};

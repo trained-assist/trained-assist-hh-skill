@@ -36,7 +36,11 @@ const { hhLlm, ladderToken } = require('./hh-llm');
 // гоняем». The rule changed: we ask ONLY about must-haves missing from the
 // candidate's data, and a passing verdict means no questions at all — the next
 // step of the process (propose_test → send_test → invite_call).
-const FUNNEL_LOGIC_VERSION = 'funnel-v2';
+// funnel-v3 (02.10.2026): the writer now receives a «Факты из резюме» block and a
+// do-not-re-ask rule, and the send guard knows how to block a letter that asks for
+// them anyway (src/hh-known-facts.js). Drafts written by the older prompt keep the
+// defect, so the signature bump retires them on the next background pass.
+const FUNNEL_LOGIC_VERSION = 'funnel-v3';
 
 // The fixed step set. `wait` is a first-class outcome on purpose: a candidate who
 // has not answered needs silence, not a second letter.

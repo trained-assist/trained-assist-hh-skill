@@ -19,6 +19,7 @@
 
 const { createHash } = require('crypto');
 const { FUNNEL_LOGIC_VERSION, buildActionInstruction, ACTION_INSTRUCTION } = require('./hh-funnel');
+const { factsLine } = require('./hh-known-facts');
 
 const HISTORY_WINDOW = 8;
 
@@ -115,6 +116,14 @@ function buildDraftUserMessage({
   const parts = [`Кандидат: ${firstName}`, ''];
   const intro = messageType === 'initial';
   if (intro) parts.push(`Резюме:\n${resumeText || '(резюме недоступно — напиши общее приглашение)'}\n\n`);
+  else {
+    // For everything but the first letter the resume used to be dropped entirely, so
+    // the writer could not know the candidate's name, city or salary expectations and
+    // asked for them — «уточните, пожалуйста, имя» (02.10.2026). A compact facts line
+    // costs a few tokens and closes that hole without re-sending the whole resume.
+    const facts = factsLine(resumeText) || factsLine(candidateContext);
+    if (facts) parts.push(`Факты из резюме (уже известны):\n${facts}\n\n`);
+  }
   if (candidateContext) parts.push(`Контекст:\n${candidateContext}\n\n`);
   const atsLine = buildAtsLine(atsResult);
   if (atsLine) parts.push(atsLine);
@@ -139,6 +148,12 @@ function buildDraftUserMessage({
   // the funnel action above decides, this text only shapes the recruiter's voice.
   if (vacancyInstruction) {
     parts.push('\n\nИнструкция для этой вакансии:\n' + vacancyInstruction);
+  }
+  // The writer-side twin of the guard in src/hh-bullshit-guard.js (checks.known_fact):
+  // письмо не должно спрашивать ответы, которые уже лежат в резюме.
+  if (factsLine(resumeText) || factsLine(candidateContext)) {
+    parts.push('\n\nНе переспрашивай у кандидата то, что уже названо в резюме или в блоке «Факты из резюме» — '
+      + 'имя, город, зарплата, график, контакты. Это данные для письма, а не вопросы кандидату.');
   }
   if (messageType !== 'rejection') {
     parts.push('\n\nЕсли предлагаешь созвон — называй дату И время («в четверг в 15:00»). '
