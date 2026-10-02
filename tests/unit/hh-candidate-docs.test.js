@@ -264,3 +264,22 @@ describe('healManifest + дедуп + удаление (#107)', () => {
     expect(out.doc.id).toBeTruthy();
   });
 });
+
+describe('имя не блокирует + переименование (UX #107)', () => {
+  it('addDocument без имени → «Кандидат», renameCandidate правит', async () => {
+    const out = await docs.addDocument({ username: 'u1', filename: 'a.txt', buffer: Buffer.from('текст') });
+    const m = docs.readManifest('u1', out.candidate_id);
+    expect(m.name).toBe('Кандидат');
+    expect(out.candidate_id).toMatch(/^candidate-/);
+
+    const r = docs.renameCandidate({ username: 'u1', candidateId: out.candidate_id, name: '  Татьяна Потапова  ' });
+    expect(r.ok).toBe(true);
+    expect(docs.readManifest('u1', out.candidate_id).name).toBe('Татьяна Потапова');
+    expect(docs.readManifest('u1', out.candidate_id).candidate_id).toBe(out.candidate_id); // id стабилен
+  });
+
+  it('rename: пустое имя и неизвестный кандидат — error', async () => {
+    expect(docs.renameCandidate({ username: 'u1', candidateId: 'x', name: '   ' }).error).toBeTruthy();
+    expect(docs.renameCandidate({ username: 'u1', candidateId: 'nope', name: 'Y' }).error).toMatch(/не найден/);
+  });
+});
