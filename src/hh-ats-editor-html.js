@@ -426,6 +426,36 @@ function init() {
     renderAll();
     applyHhPrefill();
   }
+  // The banner "letters stopped updating" on the review page links here with extract=1.
+  // The extraction runs FROM the editor, not from the review page: the public edge
+  // only exposes part of the HH routes, and this page already talks to the agent over
+  // the channel that works (CALLBACK_BASE = AGENT_PUBLIC_URL). Called from the review
+  // page the same request came back 401 before it ever reached the route.
+  if (new URLSearchParams(location.search).get('extract') === '1' && !initConfig) {
+    extractCriteriaFromVacancy();
+  }
+}
+
+async function extractCriteriaFromVacancy() {
+  if (!CALLBACK_BASE || !VACANCY_ID) return;
+  toast('⏳ Собираю критерии из текста вакансии…', 'success');
+  try {
+    const r = await fetch(CALLBACK_BASE + '/hh/ats-extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, vacancy_id: VACANCY_ID }),
+    });
+    const data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
+    if (data.config) {
+      loadFromConfig({ ...data.config, vacancy_title: data.config.vacancy_title || HH_PREFILL.vacancyTitle, vacancy_context: data.config.vacancy_context || HH_PREFILL.vacancyContext }, stages);
+      updateJsonPreview();
+    }
+    const dropped = (data.dropped_criteria || []).length;
+    toast('✅ Критерии собраны' + (dropped ? ', убрано неизмеримых: ' + dropped : '') + '. Проверь и нажми Save Funnel.', 'success');
+  } catch (e) {
+    toast('❌ Не удалось собрать критерии: ' + e.message, 'error');
+  }
 }
 
 // ── Template selector ─────────────────────────────────────────────────────────

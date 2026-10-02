@@ -47,10 +47,11 @@ describe('review page says WHY letters stop updating (issue #126, slice 4)', () 
     const html = generateReviewPageHtml([neg()], 'Финансовый советник', USERNAME, '', dataRoot(), { vacancyId: VACANCY });
     expect(html).toContain('id="no-ats-banner"');
     expect(html).toMatch(/Письма этой вакансии не обновляются/);
-    // The fix has to be reachable from the page, not only from chat.
-    expect(html).toContain('id="extractCriteriaBtn"');
-    expect(html).toMatch(/\/hh\/ats-editor\?username=/);
-    expect(scriptOf(html)).toContain("/hh/ats-extract");
+    // The fix has to be reachable from the page, not only from chat. The extraction
+    // itself runs in the editor: the public edge only proxies part of the HH routes,
+    // so a fetch straight from this page would be 401 before reaching the agent.
+    expect(html).toMatch(/\/hh\/ats-editor\?username=[^"]*&extract=1/);
+    expect(html).toMatch(/Собрать критерии из текста вакансии/);
   });
 
   it('the banner disappears once criteria exist — it is not a permanent nag', () => {

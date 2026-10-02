@@ -62,29 +62,40 @@ test('a failed generation shows the error and leaves the page usable (#126)', as
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('the no-criteria banner explains the freeze and offers a fix from the page (#126)', async ({ page }) => {
+test('the no-criteria banner links into the editor with extract=1 (#126)', async ({ page }) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-banner-'));
   try {
-    await page.route('**/hh/ats-extract', async route => {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, config: { required: [{ name: 'AUM от 1 млн USD', weight: 2 }] }, dropped_criteria: [] }) });
-    });
     await page.setContent(reviewPage(dir, THREAD));
 
     const banner = page.locator('#no-ats-banner');
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('не обновляются');
-    const btn = page.locator('#extractCriteriaBtn');
-    await expect(btn).toBeVisible();
-    await expect(banner.locator('a[href*="/hh/ats-editor"]')).toBeVisible();
-
-    // Pressing it really calls the extraction route (and only then) — not a dead button —
-    // and on success hands the recruiter the editor with the draft loaded.
-    let called = 0;
-    page.on('request', r => { if (r.url().includes('/hh/ats-extract')) called++; });
-    await page.route('**/hh/ats-editor**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>editor</body></html>' }));
-    await btn.click();
-    await page.waitForURL(/\/hh\/ats-editor/);
-    expect(called).toBe(1);
-    expect(page.url()).toContain('vacancy_id=137012564');
+    // The extraction runs in the editor: the public edge only proxies part of the HH
+    // routes, so a fetch straight from this page is 401 before reaching the agent.
+    const collect = banner.locator('a[href*="extract=1"]');
+    await expect(collect).toBeVisible();
+    await expect(collect).toContainText('Собрать критерии');
+    expect(collect).toHaveAttribute('href', /vacancy_id=137012564/);
+    await expect(banner.locator('a[href*="/hh/ats-editor"]')).toHaveCount(2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the editor collects criteria on ?extract=1 and loads them into the form (#126)', async ({ page }) => {
+  const { atsEditorHtml } = require('../../src/hh-ats-editor-html');
+  const html = atsEditorHtml(null, null, { callbackBase: 'https://hh.test/agent', username: 'alice', pageToken: 'tok', vacancies: [{ id: 'v1', title: 'Финансовый советник' }], activeVacancyId: 'v1' });
+  // The page must carry ?extract=1 in its real URL — init() reads location.search.
+  await page.route('**/hh/ats-editor*', route => route.fulfill({ status: 200, contentType: 'text/html', body: html }));
+  await page.route('**/hh/ats-extract', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ok: true,
+      config: { vacancy_title: 'Финансовый советник', vacancy_context: 'private banking', required: [{ name: 'AUM от 1 млн USD на клиента', weight: 2 }], preferred: [], pass_threshold: 6.5, review_threshold: 4.0, filters: {}, interview_config: {} },
+      dropped_criteria: ['аналитический склад ума'],
+    }) });
+  });
+  await page.goto('https://hh.test/hh/ats-editor?username=alice&token=t&vacancy_id=v1&extract=1');
+  // The fetched criteria land in the form and the recruiter is told to review them.
+  await expect(page.locator('#fTitle')).toHaveValue('Финансовый советник');
+  await expect(page.locator('#fContext')).toHaveValue('private banking');
+  await expect(page.locator('#toast')).toContainText('Критерии собраны');
+  await expect(page.locator('#toast')).toContainText('убрано неизмеримых: 1');
 });
