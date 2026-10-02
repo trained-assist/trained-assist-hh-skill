@@ -8,6 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import nock from 'nock';
 
 const require = createRequire(import.meta.url);
 const { handleHhPublic, handleHhAuthed } = require('../../src/hh-routes.js');
@@ -789,6 +790,94 @@ describe('ats-config per-vacancy instructions (epic #112)', () => {
       expect(d.text).toContain('тестовое задание');
     } finally {
       if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    }
+  });
+});
+
+// Issue #126 — the live failure the owner reported: on vacancy 137012564 (no ATS config
+// file) the recruiter pressed "✦ Сгенерировать", the model wrote a good letter, and then
+// the route died on `historySignature(..., null)` AFTER the write — so the letter was
+// lost and the page swallowed the 500 into "nothing changed".
+describe('POST /hh/generate-message on a vacancy without ATS criteria (issue #126)', () => {
+  const tok = () => require('crypto').createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+
+  function stubLadder(answer) {
+    nock('https://llm-ladder.trainedassist.store')
+      .persist().post('/v1/chat/completions')
+      .reply(200, (_uri, body) => {
+        // The guard judge must answer its own JSON shape; the writer needs prose.
+        if (String(body.messages?.[0]?.content || '').includes('Проверь новое сообщение')) {
+          return { choices: [{ message: { content: JSON.stringify({ repeated_question: false, repeated_intro: false, template_garbage: false }) } }], model: body.model };
+        }
+        return { choices: [{ message: { content: answer } }], model: body.model };
+      });
+  }
+
+  it('saves the letter and flags the missing criteria instead of failing', async () => {
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    const savedLadder = process.env.LLM_LADDER_TOKEN;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token';
+    const candDir = path.join(root, 'data', 'hh', 'alice', 'candidates');
+    fs.mkdirSync(candDir, { recursive: true });
+    fs.writeFileSync(path.join(candDir, 'neg1.json'), JSON.stringify({
+      messages: [
+        { role: 'employer', text: 'Здравствуйте!', hh_id: '1' },
+        { role: 'applicant', text: '500 клиентов, 6 млн', hh_id: '2' },
+      ],
+    }));
+    stubLadder('Леван, спасибо за цифры — картина ясна. Давайте созвонимся на этой неделе.');
+    try {
+      const u = new URL('http://x/hh/generate-message');
+      const res = fakeRes();
+      await handleHhPublic(req('POST', u.pathname, {
+        username: 'alice', token: tok(), negotiation_id: 'neg1', candidate_name: 'Бахтадзе Леван', vacancy_id: 'V1',
+      }), u, res, ctx());
+
+      expect(res.status).toBe(200);
+      const d = JSON.parse(res.body);
+      expect(d.ok).toBe(true);
+      expect(d.message).toContain('спасибо за цифры');
+      // The page needs this flag to warn instead of leaving stale letters unexplained.
+      expect(d.no_ats_config).toBe(true);
+      // …and the letter must actually be on disk — that was the real loss.
+      const saved = JSON.parse(fs.readFileSync(path.join(candDir, 'neg1.json'), 'utf8'));
+      expect(saved.ats_result.draft_message).toContain('спасибо за цифры');
+      expect(saved.ats_result.draft_history_sig).toMatch(/^funnel-v\d/);
+    } finally {
+      nock.cleanAll();
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+      if (savedLadder === undefined) delete process.env.LLM_LADDER_TOKEN; else process.env.LLM_LADDER_TOKEN = savedLadder;
+    }
+  });
+
+  it('a vacancy WITH criteria does not get the warning flag', async () => {
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    const savedLadder = process.env.LLM_LADDER_TOKEN;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token';
+    const ctxDir = path.join(root, 'users', 'alice', 'contexts', 'hh');
+    fs.mkdirSync(ctxDir, { recursive: true });
+    fs.writeFileSync(path.join(ctxDir, 'ats_config:V1.json'), JSON.stringify({
+      value: { vacancy_title: 'Финансовый советник', vacancy_context: 'private banking', required: [{ name: 'AUM от 1 млн USD на клиента', weight: 2 }] },
+      updated_at: new Date().toISOString(),
+    }));
+    const candDir = path.join(root, 'data', 'hh', 'alice', 'candidates');
+    fs.mkdirSync(candDir, { recursive: true });
+    fs.writeFileSync(path.join(candDir, 'neg2.json'), JSON.stringify({ messages: [{ role: 'employer', text: 'Здравствуйте!', hh_id: '3' }] }));
+    stubLadder('Леван, вернёмся к разговору на следующей неделе.');
+    try {
+      const u = new URL('http://x/hh/generate-message');
+      const res = fakeRes();
+      await handleHhPublic(req('POST', u.pathname, {
+        username: 'alice', token: tok(), negotiation_id: 'neg2', candidate_name: 'Бахтадзе Леван', vacancy_id: 'V1',
+      }), u, res, ctx());
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.body).no_ats_config).toBeUndefined();
+    } finally {
+      nock.cleanAll();
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+      if (savedLadder === undefined) delete process.env.LLM_LADDER_TOKEN; else process.env.LLM_LADDER_TOKEN = savedLadder;
     }
   });
 });

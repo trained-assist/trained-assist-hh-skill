@@ -115,12 +115,16 @@ const TEMPLATES = {
 };
 
 function atsEditorHtml(currentConfig, currentStages, opts = {}) {
-  const { callbackBase = '', username = '', pageToken = '', vacancies = [], activeVacancyId = '', isDraft = false } = opts;
+  const { callbackBase = '', username = '', pageToken = '', vacancies = [], activeVacancyId = '', isDraft = false, prefill = {} } = opts;
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const vacancyToken = pageToken;
   const templatesJson = JSON.stringify(TEMPLATES);
   const initConfigJson = JSON.stringify(currentConfig || null);
   const initStagesJson = JSON.stringify(currentStages || null);
+  // HH text for fields the recruiter has not filled yet (issue #126). The server
+  // already blanked the ones the saved config provides, so this never overwrites
+  // anything the recruiter typed.
+  const prefillJson = JSON.stringify({ vacancyTitle: prefill.vacancyTitle || '', vacancyContext: prefill.vacancyContext || '' });
   const isLive = Boolean(callbackBase);
 
   return `<!DOCTYPE html>
@@ -212,6 +216,7 @@ main{max-width:960px;margin:0 auto;padding:28px 20px;display:flex;flex-direction
 .validation-box{border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.6;display:none}
 .validation-box.ok{background:rgba(39,201,123,.1);border:1px solid rgba(39,201,123,.25);color:var(--green)}
 .validation-box.err{background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.25);color:var(--red)}
+.validation-box.warn{background:rgba(240,180,41,.1);border:1px solid rgba(240,180,41,.3);color:#f0b429}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;box-shadow:var(--shadow);transition:opacity .3s;z-index:200;max-width:300px}
 .toast.hidden{opacity:0;pointer-events:none}
 .toast.success{border-color:rgba(39,201,123,.4);color:var(--green)}
@@ -388,6 +393,7 @@ const CALLBACK_BASE = '${callbackBase}';
 const HH_USER = '${username}';
 const HH_PAGE_TOKEN = '${pageToken}';
 const VACANCY_ID = ${JSON.stringify(activeVacancyId || null)};
+const HH_PREFILL = ${prefillJson};
 
 let initConfig = ${initConfigJson};
 let initStages = ${initStagesJson};
@@ -400,6 +406,16 @@ let preferred = [];
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+function applyHhPrefill() {
+  // Issue #126: title/context are known to HH, so the recruiter is not asked to retype
+  // them. Only fills blanks — anything the recruiter typed (or the saved config has)
+  // stays untouched, and the fields are still editable.
+  const t = document.getElementById('fTitle');
+  const c = document.getElementById('fContext');
+  if (t && !t.value.trim() && HH_PREFILL.vacancyTitle) t.value = HH_PREFILL.vacancyTitle;
+  if (c && !c.value.trim() && HH_PREFILL.vacancyContext) c.value = HH_PREFILL.vacancyContext;
+}
+
 function init() {
   if (initConfig) {
     loadFromConfig(initConfig, initStages || []);
@@ -408,6 +424,7 @@ function init() {
     required = [{ name: '', weight: 2.0 }];
     preferred = [{ name: '', weight: 1.0 }];
     renderAll();
+    applyHhPrefill();
   }
 }
 
@@ -649,10 +666,9 @@ document.getElementById('validateBtn').addEventListener('click', validate);
 
 function validate() {
   const config = buildConfig();
+  // Blockers: the config cannot mean anything without them — saving produces a
+  // silently broken funnel (thresholds inverted, no stages).
   const errors = [];
-  if (!config.vacancy_title) errors.push('Укажи название вакансии.');
-  if (!config.vacancy_context) errors.push('Укажи контекст вакансии.');
-  if (config.required.length === 0) errors.push('Нужен хотя бы один обязательный навык.');
   if (config.pass_threshold <= config.review_threshold) errors.push('Pass threshold должен быть выше review threshold.');
   if (config.pass_threshold < 1 || config.pass_threshold > 10) errors.push('Pass threshold: от 1 до 10.');
   if (config.review_threshold < 0 || config.review_threshold >= config.pass_threshold) errors.push('Review threshold: от 0 до pass threshold.');
@@ -661,15 +677,29 @@ function validate() {
   if (config.interview_config.invite_call_enabled && !config.interview_config.availability && !config.interview_config.booking_url) {
     errors.push('Чтобы разрешить авто-приглашение на звонок с конкретным временем — укажи доступность рекрутера или ссылку на запись.');
   }
+  // Warnings (issue #126): these used to BLOCK the save, which meant a recruiter who
+  // only wanted to set the recruiter availability could not save at all — and with no
+  // config on disk the background loop skips the vacancy entirely, so letters stopped
+  // updating (see hh-negotiations.js). An intentionally thin config is a legitimate
+  // starting point; say what it costs instead of refusing.
+  const warnings = [];
+  if (!config.vacancy_title) warnings.push('Название вакансии не задано — подставится из HH при сохранении.');
+  if (!config.vacancy_context) warnings.push('Контекст вакансии пуст — оценка будет только по резюме кандидата.');
+  if (config.required.length === 0) warnings.push('Нет обязательных навыков — оценка не будет различать кандидатов по требованиям.');
 
   const box = document.getElementById('validationBox');
   box.style.display = 'block';
-  if (errors.length === 0) {
+  const errHtml = errors.map(e => '• ' + e).join('<br>');
+  const warnHtml = warnings.map(w => '• ' + w).join('<br>');
+  if (errors.length > 0) {
+    box.className = 'validation-box err';
+    box.innerHTML = errHtml + (warnHtml ? '<br><br>Также:<br>' + warnHtml : '');
+  } else if (warnings.length > 0) {
+    box.className = 'validation-box warn';
+    box.innerHTML = '⚠ Сохранить можно, но:<br>' + warnHtml;
+  } else {
     box.className = 'validation-box ok';
     box.textContent = '✓ Конфиг валиден. Всё готово для сохранения.';
-  } else {
-    box.className = 'validation-box err';
-    box.innerHTML = errors.map(e => '• ' + e).join('<br>');
   }
   return errors.length === 0;
 }

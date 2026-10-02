@@ -100,3 +100,55 @@ describe('ATS editor page (#121)', () => {
     expect(calledButUndefined(inlineScript(bare))).toEqual([]);
   });
 });
+
+// Issue #126, slice 5: the editor used to REFUSE to save a config without a vacancy
+// title / context / required skills. The recruiter only wanted to set the recruiter
+// availability — and since no config file existed, the background scorer skipped the
+// vacancy and letters froze. Those three became warnings; thresholds and stages stay
+// blockers (a config with them is meaningless, not merely thin).
+describe('ATS editor validation (issue #126)', () => {
+  const editor = (config = {}) => atsEditorHtml(config, ['Скрининг', 'Интервью'], {
+    callbackBase: 'https://host/agent', username: 'u', pageToken: 'tok',
+    vacancies: [{ id: '1', title: 'Финансовый советник' }], activeVacancyId: '1',
+  });
+  const scriptOf = (html) => inlineScript(html);
+
+  it('empty title / context / required no longer block the save', () => {
+    const s = scriptOf(editor({}));
+    expect(s).toContain('const warnings = [];');
+    // The three old blockers must NOT be in the errors list any more.
+    expect(s).not.toMatch(/errors\.push\('Укажи название вакансии\.'\)/);
+    expect(s).not.toMatch(/errors\.push\('Укажи контекст вакансии\.'\)/);
+    expect(s).not.toMatch(/errors\.push\('Нужен хотя бы один обязательный навык\.'\)/);
+    expect(s).toMatch(/warnings\.push\('Название вакансии не задано/);
+    expect(s).toMatch(/warnings\.push\('Контекст вакансии пуст/);
+    expect(s).toMatch(/warnings\.push\('Нет обязательных навыков/);
+    // Save is gated on errors only, so a thin config saves.
+    expect(s).toMatch(/return errors\.length === 0;/);
+  });
+
+  it('genuinely broken configs still block: inverted thresholds and empty stages', () => {
+    const s = scriptOf(editor({}));
+    expect(s).toMatch(/errors\.push\('Pass threshold должен быть выше review threshold\.'\)/);
+    expect(s).toMatch(/errors\.push\('Нужно минимум 2 этапа подбора\.'\)/);
+    expect(s).toMatch(/errors\.push\('Review threshold: от 0 до pass threshold\.'\)/);
+  });
+
+  it('fills blank title/context from HH text but never overwrites what the recruiter typed', () => {
+    const withPrefill = atsEditorHtml({ vacancy_title: '', vacancy_context: '' }, ['Скрининг', 'Интервью'], {
+      callbackBase: 'https://host/agent', username: 'u', pageToken: 'tok',
+      activeVacancyId: '1', prefill: { vacancyTitle: 'Финансовый советник', vacancyContext: 'Private banking, AUM' },
+    });
+    const s = scriptOf(withPrefill);
+    expect(s).toContain('"vacancyTitle":"Финансовый советник"');
+    expect(s).toContain('"vacancyContext":"Private banking, AUM"');
+    expect(s).toMatch(/if \(t && !t\.value\.trim\(\) && HH_PREFILL\.vacancyTitle\)/);
+    expect(s).toMatch(/if \(c && !c\.value\.trim\(\) && HH_PREFILL\.vacancyContext\)/);
+  });
+
+  it('survives a page served with no HH prefill at all', () => {
+    const bare = atsEditorHtml(null, null, { callbackBase: 'https://host/agent', username: 'u', pageToken: 't' });
+    expect(calledButUndefined(inlineScript(bare))).toEqual([]);
+    expect(inlineScript(bare)).toContain('"vacancyTitle":""');
+  });
+});

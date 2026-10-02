@@ -271,6 +271,24 @@ describe('draft cache: the vacancy must-haves are part of the signature', () => 
     expect(criteriaSignature(undefined)).toBe('');
   });
 
+  // Issue #126: readAtsConfig() returns null when the vacancy has no criteria file.
+  // The old default only covered undefined, so the signature threw AFTER the letter
+  // was written and the letter was lost. null must behave exactly like "no criteria".
+  it('null criteria (vacancy without an ATS config) never throws — issue #126', () => {
+    expect(criteriaSignature(null)).toBe('');
+    expect(() => historySignature(BAKHTADZE_HISTORY, '', null)).not.toThrow();
+    expect(historySignature(BAKHTADZE_HISTORY, '', null))
+      .toBe(historySignature(BAKHTADZE_HISTORY, ''));
+    expect(historySignature(BAKHTADZE_HISTORY, '', null))
+      .toBe(historySignature(BAKHTADZE_HISTORY, '', {}));
+    const h = {
+      messages: BAKHTADZE_HISTORY,
+      ats_result: { draft_message: 'Добрый день!', draft_history_sig: historySignature(BAKHTADZE_HISTORY, '') },
+    };
+    expect(() => isDraftStale(h, '', null)).not.toThrow();
+    expect(isDraftStale(h, '', null)).toBe(false);
+  });
+
   it('accepts bare string criteria and ignores blank entries', () => {
     expect(criteriaSignature({ required: ['знание WB'] }))
       .toBe(criteriaSignature({ required: [{ name: 'знание WB', weight: 2 }] }));

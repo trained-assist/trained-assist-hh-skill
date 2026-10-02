@@ -181,7 +181,13 @@ function buildDraftUserMessage({
 // was renamed — was composed against a different question set, so it must be treated as
 // stale. Only NAMES are hashed: a weight change moves the ATS score, not the wording of
 // the letter, and must not churn every cached draft.
+// readAtsConfig() returns null when the vacancy has no criteria file at all — a real
+// state (issue #126), not a coding mistake. The default parameter only covers
+// `undefined`, so `null` reached `atsConfig.required` and threw AFTER the letter was
+// written, losing it. Normalise here, at the single entry point, so every caller
+// (routes, scoring, staleness) is safe without repeating the guard.
 function criteriaSignature(atsConfig = {}) {
+  if (atsConfig == null) atsConfig = {};
   const names = list => (Array.isArray(list) ? list : [])
     .map(c => String((c && (c.name ?? c)) || '').trim()).filter(Boolean);
   const req = names(atsConfig.required);
