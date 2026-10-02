@@ -4,7 +4,7 @@ import http from 'node:http';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { uploadDocBytes, downloadDocBytes, coreBase } = require('../../src/hh-blob-client.js');
+const { uploadDocBytes, downloadDocBytes, deleteDocBytes, coreBase } = require('../../src/hh-blob-client.js');
 
 let server;
 let baseUrl;
@@ -29,6 +29,13 @@ beforeAll(async () => {
         objects.set(key, body);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, key, sha256: 'a'.repeat(64), size: body.length, generation: '1' }));
+        return;
+      }
+      if (u.pathname === '/internal/blob/delete') {
+        const key = `profiles/${u.searchParams.get('username')}/candidate-docs/${u.searchParams.get('candidate_id')}/${u.searchParams.get('doc_id')}${u.searchParams.get('ext')}`;
+        const existed = objects.delete(key);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, key, deleted: existed }));
         return;
       }
       if (u.pathname === '/internal/blob/download') {
@@ -115,5 +122,22 @@ describe('downloadDocBytes', () => {
 
   it('unreachable core → clear error', async () => {
     await expect(downloadDocBytes(DOC, { env: { AGENT_INTERNAL_URL: 'http://127.0.0.1:1', AGENT_SECRET: 's' } })).rejects.toThrow(/blob download failed/);
+  });
+});
+
+describe('deleteDocBytes', () => {
+  it('200 → {ok, deleted}', async () => {
+    const out = await deleteDocBytes(DOC, { env });
+    expect(out.ok).toBe(true);
+  });
+  it('роута нет (core старый) → понятная ошибка', async () => {
+    const srv = http.createServer((_req, res) => { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{}'); });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    try {
+      const out = await deleteDocBytes(DOC, { env: { AGENT_INTERNAL_URL: `http://127.0.0.1:${srv.address().port}`, AGENT_SECRET: 's' } });
+      expect(out.error).toMatch(/без \/internal\/blob\/delete/);
+    } finally {
+      await new Promise(r => srv.close(r));
+    }
   });
 });

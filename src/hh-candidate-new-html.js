@@ -54,7 +54,8 @@ function typeOptions(selected) {
 function docsTableHtml(manifest) {
   const rows = manifest.docs.map(d => `<tr data-doc="${escHtml(d.id)}">
 <td>${escHtml(d.filename)}<div class="reason">${d.chars ? `${d.chars} симв. текста` : d.size ? `${Math.round(d.size / 1024)} КБ` : 'ссылка'}${MEDIA_HINT[d.media_kind] ? ` · ${MEDIA_HINT[d.media_kind]}` : ''}${d.extract_error ? ` · ⚠ ${escHtml(d.extract_error)}` : ''}</div>
-${d.media_kind === 'media' ? `<button class="btn" type="button" data-transcribe="${escHtml(d.id)}" style="margin-top:6px;padding:5px 10px;font-size:12px">🎙 Расшифровать</button>` : ''}</td>
+${d.media_kind === 'media' ? `<button class="btn" type="button" data-transcribe="${escHtml(d.id)}" style="margin-top:6px;padding:5px 10px;font-size:12px">🎙 Расшифровать</button>` : ''}
+<button class="btn" type="button" data-delete="${escHtml(d.id)}" title="Удалить документ" style="margin-top:6px;margin-left:6px;padding:5px 9px;font-size:12px">🗑</button></td>
 <td><select data-set-type="${escHtml(d.id)}">${typeOptions(d.type)}</select></td>
 <td><span class="badge ${escHtml(d.detected_by)}">${escHtml(d.detected_by)}</span><div class="reason">${escHtml(d.reason || '')}</div></td>
 <td class="reason">${escHtml(d.added_at.slice(0, 10))}</td>
@@ -281,6 +282,20 @@ ${profileCard}
       if (!x.ok || x.d.error) { overlay(false); toast(x.d.error || 'Не удалось добавить'); return; }
       location.href = 'candidate-new?' + qs({ candidate_id: x.d.candidate_id });
     }).catch(function (e) { overlay(false); toast(e.message); });
+  });
+
+  document.querySelectorAll('[data-delete]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (!confirm('Удалить документ? Файл и его текст будут удалены безвозвратно.')) return;
+      btn.disabled = true;
+      overlay(true, 'Удаляю документ…');
+      post('candidate-doc-delete', { candidate_id: CAND, doc_id: btn.dataset.delete })
+        .then(function (x) {
+          if (!x.ok || x.d.error) { overlay(false); btn.disabled = false; toast(x.d.error || 'Не удалось удалить'); return; }
+          location.reload();
+        })
+        .catch(function (e) { overlay(false); btn.disabled = false; toast(e.message); });
+    });
   });
 
   document.querySelectorAll('[data-transcribe]').forEach(function (btn) {
