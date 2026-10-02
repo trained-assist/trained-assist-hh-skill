@@ -971,7 +971,7 @@ const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancy
     history.ats_result.draft_message = message;
     // Stamp the thread this draft answers, so the background auto-draft knows it is
     // still current and does not overwrite a manual draft with a stale-looking one.
-    history.ats_result.draft_history_sig = historySignature(msgs, vacancyInstruction);
+    history.ats_result.draft_history_sig = historySignature(msgs, vacancyInstruction, atsConfig);
     if (!guard.ok) history.ats_result.draft_warning = guard.reason;
     else delete history.ats_result.draft_warning;
     fs.mkdirSync(candDir, { recursive: true });
