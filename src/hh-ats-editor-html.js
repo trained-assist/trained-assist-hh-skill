@@ -489,9 +489,6 @@ function renderStages() {
   });
 }
 
-// ── Knockout ──────────────────────────────────────────────────────────────────
-
-
 // ── Required ──────────────────────────────────────────────────────────────────
 
 function addRequired() { required.push({ name: '', weight: 2.0 }); renderRequired(); }
@@ -764,7 +761,6 @@ function escHtml(str) {
 
 function renderAll() {
   renderStages();
-  renderKnockout();
   renderRequired();
   renderPreferred();
   updateJsonPreview();

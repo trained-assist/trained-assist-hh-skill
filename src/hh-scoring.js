@@ -357,7 +357,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
 
   if (!needDraft.length) return 0;
 
-  const baseSystem = buildMessageSystemPrompt({ vacancyContext: vacancyCtx, recruiterCtx, commStyle, baseOverride, vacancyInstruction });
+  const baseSystem = buildMessageSystemPrompt({ vacancyContext: vacancyCtx, recruiterCtx, commStyle, baseOverride, vacancyInstruction, atsConfig });
 
   let generated = 0;
 

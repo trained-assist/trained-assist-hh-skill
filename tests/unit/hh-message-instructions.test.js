@@ -115,3 +115,54 @@ describe('historySignature — an edited instruction invalidates cached drafts',
     expect(isDraftStale(h, INSTR)).toBe(true);
   });
 });
+// Issue #121: the writer was told "ask only about must-haves" but was never told what
+// they ARE. vacancyContext came from the raw HH description (a field the ATS editor does
+// not write), so a vacancy with 4 required criteria produced a prompt with zero of them.
+// buildMessageSystemPrompt now always appends the criteria block, from the same config
+// the planner reads.
+describe('required criteria reach the writer system prompt (#121)', () => {
+  const ARRAY_CFG = {
+    required: [
+      { name: 'опыт работы с карточками детской одежды на WB от 2 лет', weight: 3 },
+      { name: 'настройка и оптимизация внутренней рекламы WB', weight: 3 },
+    ],
+    preferred: [{ name: 'работа в MPStats или Moneyplace', weight: 1.5 }],
+  };
+  // The shape the legacy singleton on disk actually uses.
+  const ITEM_CFG = {
+    required: { item: [{ name: 'опыт работы с Wildberries от 2 лет', weight: '3' }] },
+    preferred: { item: [{ name: 'понимание товара и трендов', weight: '1.5' }] },
+  };
+
+  it('includes every required criterion, even with no vacancyContext', () => {
+    const p = buildMessageSystemPrompt({ atsConfig: ARRAY_CFG });
+    expect(p).toContain('## Обязательные требования вакансии');
+    expect(p).toContain('опыт работы с карточками детской одежды на WB от 2 лет');
+    expect(p).toContain('настройка и оптимизация внутренней рекламы WB');
+    expect(p).toContain('работа в MPStats или Moneyplace');
+  });
+
+  it('reads the legacy {item:[…]} shape the same way the planner does', () => {
+    const p = buildMessageSystemPrompt({ atsConfig: ITEM_CFG });
+    expect(p).toContain('опыт работы с Wildberries от 2 лет');
+    expect(p).toContain('понимание товара и трендов');
+  });
+
+  it('keeps the block when the config is empty — an empty list is a fact, not a hole', () => {
+    const p = buildMessageSystemPrompt({});
+    expect(p).toContain('## Обязательные требования вакансии');
+    expect(p).toContain('(не указано)');
+  });
+
+  it('the criteria block is independent of vacancyContext and precedes identity/style', () => {
+    const p = buildMessageSystemPrompt({
+      vacancyContext: 'RAW HH TEXT', recruiterCtx: 'ID', commStyle: 'STYLE',
+      vacancyInstruction: 'INSTR', atsConfig: ARRAY_CFG,
+    });
+    expect(p).toContain('RAW HH TEXT');
+    expect(p).toContain('## Обязательные требования вакансии');
+    expect(p.indexOf('## Контекст вакансии')).toBeLessThan(p.indexOf('## Обязательные требования вакансии'));
+    expect(p.indexOf('## Обязательные требования вакансии')).toBeLessThan(p.indexOf('## Идентичность рекрутера'));
+    expect(p.indexOf('## Идентичность рекрутера')).toBeLessThan(p.indexOf('## Инструкция для этой вакансии'));
+  });
+});
