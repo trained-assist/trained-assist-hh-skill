@@ -14,7 +14,8 @@
     "test:live": "node scripts/live-hh-smoke.cjs",
     "manifest": "node scripts/build-mcp-manifest.cjs",
     "manifest:check": "node scripts/build-mcp-manifest.cjs --check",
-    "build:manifest": "node scripts/build-manifest.cjs"
+    "build:manifest": "node scripts/build-manifest.cjs",
+    "check:hub": "node scripts/live-hub-check.cjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
