@@ -134,7 +134,11 @@ ${manifest.docs.length ? docsTableHtml(manifest) : '<p class="hint">Докуме
 ${error ? `<div class="card" style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:13px">${escHtml(error)}</div>` : ''}
 <div class="card">
 <h3>Материалы кандидата</h3>
-${manifest ? '' : `<label for="cand-name">Имя кандидата</label><input type="text" id="cand-name" placeholder="Например: Стогниенко Анна" required>`}
+<label for="cand-name">Имя кандидата${manifest ? '' : ' (необязательно — можно бросить файлы и указать позже)'}</label>
+<div class="linkrow">
+<div><input type="text" id="cand-name" value="${manifest ? escHtml(manifest.name || '') : ''}" placeholder="Например: Стогниенко Анна"></div>
+${manifest ? '<button class="btn" type="button" id="btn-rename" style="margin-bottom:1px">Сохранить имя</button>' : ''}
+</div>
 <div class="drop" id="drop" style="margin-top:10px">
 Перетащи файлы: резюме, сопроводительное, переписка, расшифровка интервью, портфолио, фото<br><br>
 <input type="file" id="files" multiple accept=".txt,.md,.csv,.text,.docx,.pdf,.mp4,.mov,.m4a,.wav,.mp3,.png,.jpg,.jpeg,.webp,.zip" style="display:none">
@@ -192,35 +196,42 @@ ${profileCard}
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
     var nameEl = $('cand-name');
-    if (!CAND && (!nameEl || !nameEl.value.trim())) { toast('Сначала укажи имя кандидата'); if (nameEl) nameEl.focus(); return; }
+    // Имя больше не блокирует загрузку (#107-UX): пустое → «Кандидат», правится потом
     overlay(true, 'Загружаю и классифицирую документы…');
     var chain = Promise.resolve(); var gotId = CAND;
     files.forEach(function (f) {
       chain = chain.then(function () {
-        var isVideo = /\.(mp4|mov|mkv|webm|m4a|wav|mp3)$/i.test(f.name);
-        if (f.size > (isVideo ? 30 : 15) * 1048576) {
-          toast(f.name + ' — слишком большой, добавь ссылкой'); return;
+        if (f.size > 256 * 1048576) {
+          toast(f.name + ' — больше 256 МБ, добавь ссылкой на Google Drive'); return;
         }
-          var useRaw = f.size > 1048576; // >1 МБ — сырыми байтами в GCS (#105), без base64
+        var useRaw = f.size > 1048576; // >1 МБ — сырыми байтами в GCS (#105), без base64; старые лимиты 15/30 МБ сняты
         var upload = useRaw
           ? function (buf) {
               var q = new URLSearchParams({ username: AUTH.username, token: AUTH.token, filename: f.name });
               if (gotId) q.set('candidate_id', gotId);
               else if (nameEl && nameEl.value.trim()) q.set('candidate_name', nameEl.value.trim());
+              var base64Fallback = function () {
+                return post('candidate-doc', {
+                  candidate_id: gotId || undefined,
+                  candidate_name: (!gotId && nameEl) ? nameEl.value.trim() : undefined,
+                  filename: f.name, data_base64: b64(buf),
+                });
+              };
               return fetch('candidate-doc-raw?' + q.toString(), {
                 method: 'POST',
                 headers: { 'Content-Type': f.type || 'application/octet-stream' },
                 body: new Uint8Array(buf),
                 signal: AbortSignal.timeout(300000),
               }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+                .then(function (x) {
+                  // Любой отказ сырого пути (ядро старое/недоступно/5xx) — терпимо
+                  // падаем на base64, если размер в его пределах
+                  if ((!x.ok || (x.d && x.d.error)) && f.size <= 31457280) return base64Fallback();
+                  return x;
+                })
                 .catch(function (e) {
-                  // Ядро недоступно/старое (нет /internal/blob) — терпимо падаем на base64
                   if (f.size > 31457280) throw e; // >30 МБ base64 не спасёт
-                  return post('candidate-doc', {
-                    candidate_id: gotId || undefined,
-                    candidate_name: (!gotId && nameEl) ? nameEl.value.trim() : undefined,
-                    filename: f.name, data_base64: b64(buf),
-                  });
+                  return base64Fallback();
                 });
             }
           : function (buf) {
@@ -245,7 +256,6 @@ ${profileCard}
     var url = $('link-url').value.trim();
     if (!url) { toast('Вставь ссылку'); return; }
     var nameEl = $('cand-name');
-    if (!CAND && (!nameEl || !nameEl.value.trim())) { toast('Сначала укажи имя кандидата'); return; }
     overlay(true, 'Добавляю ссылку…');
     post('candidate-doc', {
       candidate_id: CAND || undefined,
@@ -272,7 +282,6 @@ ${profileCard}
     var v = ta.value.trim();
     if (!v) { toast('Вставь текст'); return; }
     var nameEl = $('cand-name');
-    if (!CAND && (!nameEl || !nameEl.value.trim())) { toast('Сначала укажи имя кандидата'); return; }
     overlay(true, 'Добавляю текст…');
     post('candidate-doc', {
       candidate_id: CAND || undefined,
@@ -365,6 +374,20 @@ ${profileCard}
     pollTimer = setInterval(poll, 3000);
     setTimeout(function () { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }, 300000);
   }
+
+  var renameBtn = $('btn-rename');
+  if (renameBtn) renameBtn.addEventListener('click', function () {
+    var v = ($('cand-name').value || '').trim();
+    if (!v) { toast('Имя не может быть пустым'); return; }
+    renameBtn.disabled = true;
+    post('candidate-rename', { candidate_id: CAND, name: v })
+      .then(function (x) {
+        renameBtn.disabled = false;
+        if (!x.ok || x.d.error) { toast(x.d.error || 'Не удалось переименовать'); return; }
+        toast('Имя сохранено');
+      })
+      .catch(function (e) { renameBtn.disabled = false; toast(e.message); });
+  });
 
   var profBtn = $('btn-profile');
   if (profBtn) profBtn.addEventListener('click', function () {

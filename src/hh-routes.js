@@ -1642,6 +1642,18 @@ if (req.method === 'POST' && url.pathname === '/hh/candidate-doc-raw') {
   }
 }
 
+// ── Переименование кандидата: имя необязательно при загрузке, правится потом ──
+if (req.method === 'POST' && url.pathname === '/hh/candidate-rename') {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, token, candidate_id: candId, name } = body || {};
+  if (!hhHub.SAFE_ID.test(String(username || '')) || !hhHub.SAFE_ID.test(String(candId || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const out = hhCandidateDocs.renameCandidate({ username, candidateId: candId, name });
+  if (out.error) return json(res, out.error.includes('не найден') ? 404 : 400, out);
+  return json(res, 200, out);
+}
+
 // ── Удаление документа кандидата (#107): GCS (если там) → локальные байты/.txt → манифест ──
 if (req.method === 'POST' && url.pathname === '/hh/candidate-doc-delete') {
   let body;
