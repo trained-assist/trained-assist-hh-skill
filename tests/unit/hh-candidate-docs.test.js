@@ -194,3 +194,73 @@ describe('externalStore — файл уходит в GCS, локально ос�
     }
   });
 });
+
+describe('healManifest + дедуп + удаление (#107)', () => {
+  it('старые записи (до фиксов): extract_error у медиа убирается, media_kind проставляется', async () => {
+    const out = await docs.addDocument({ username: 'u1', candidateName: 'Татьяна', filename: 'old.m4a', buffer: Buffer.from([1]), manualType: 'interview' });
+    // имитируем запись, сделанную ДО фиксов (#87): без media_kind, со старой ошибкой
+    const m = docs.readManifest('u1', out.candidate_id);
+    delete m.docs[0].media_kind;
+    m.docs[0].extract_error = 'Формат .m4a не поддерживается — конвертируй в .txt/.md или вставь текстом.';
+    docs.writeManifest('u1', out.candidate_id, m);
+
+    const healed = docs.readManifest('u1', out.candidate_id);
+    expect(healed.docs[0].media_kind).toBe('media');
+    expect(healed.docs[0].extract_error).toBeUndefined();
+
+    const err = await docs.extractProfile({ username: 'u1', candidateId: out.candidate_id });
+    expect(err.error).not.toContain('Формат .m4a не поддерживается');
+    expect(err.error).toContain('Расшифровать');
+  });
+
+  it('повторная загрузка того же контента — дубль не создаётся; явный тип правит', async () => {
+    const buf = Buffer.from('один и тот же файл');
+    const a = await docs.addDocument({ username: 'u1', candidateId: 'c-d', filename: 'cv.txt', buffer: buf });
+    const b = await docs.addDocument({ username: 'u1', candidateId: 'c-d', filename: 'cv.txt', buffer: buf });
+    expect(b.duplicate).toBe(true);
+    expect(b.doc.id).toBe(a.doc.id);
+    expect(docs.readManifest('u1', 'c-d').docs).toHaveLength(1);
+
+    // правила и так дают cover_letter (короткий текст) — правим в РАЗНЫЙ тип
+    const c = await docs.addDocument({ username: 'u1', candidateId: 'c-d', filename: 'cv.txt', buffer: buf, manualType: 'correspondence' });
+    expect(c.duplicate).toBe(true);
+    expect(c.doc.type).toBe('correspondence');
+    expect(c.doc.detected_by).toBe('manual');
+    expect(docs.readManifest('u1', 'c-d').docs).toHaveLength(1);
+  });
+
+  it('deleteDocument: локальный документ — байты, .txt и запись исчезают', async () => {
+    const out = await docs.addDocument({ username: 'u1', candidateId: 'c-del', filename: 'a.txt', buffer: Buffer.from('текст') });
+    const root = docs.candRoot('u1', 'c-del');
+    expect(existsSync(join(root, `${out.doc.id}.txt`))).toBe(true);
+
+    const res = await docs.deleteDocument({ username: 'u1', candidateId: 'c-del', docId: out.doc.id });
+    expect(res.ok).toBe(true);
+    expect(existsSync(join(root, `${out.doc.id}.txt`))).toBe(false);
+    expect(docs.readManifest('u1', 'c-del').docs).toHaveLength(0);
+  });
+
+  it('deleteDocument: gcs-документ — сначала ядро, при ошибке манифест не трогается', async () => {
+    const out = await docs.addDocument({
+      username: 'u1', candidateId: 'c-delg', filename: 'v.m4a', buffer: Buffer.from([9]), manualType: 'interview',
+      externalStore: async (info) => ({ backend: 'gcs', key: 'k', doc_id: info.docId, ext: info.ext }),
+    });
+    const saved = { u: process.env.AGENT_INTERNAL_URL, s: process.env.AGENT_SECRET };
+    delete process.env.AGENT_INTERNAL_URL; delete process.env.AGENT_SECRET;
+    try {
+      const res = await docs.deleteDocument({ username: 'u1', candidateId: 'c-delg', docId: out.doc.id });
+      expect(res.error).toMatch(/хранилища/);
+      expect(docs.readManifest('u1', 'c-delg').docs).toHaveLength(1); // ничего не удалено
+    } finally {
+      if (saved.u !== undefined) process.env.AGENT_INTERNAL_URL = saved.u;
+      if (saved.s !== undefined) process.env.AGENT_SECRET = saved.s;
+    }
+  });
+
+  it('deleteDocument: неизвестный документ/кандидат → error', async () => {
+    expect((await docs.deleteDocument({ username: 'u1', candidateId: 'nope', docId: 'x' })).error).toMatch(/не найден/);
+    const out = await docs.addDocument({ username: 'u1', candidateId: 'c-de', filename: 'a.txt', buffer: Buffer.from('t') });
+    expect((await docs.deleteDocument({ username: 'u1', candidateId: 'c-de', docId: 'zzz' })).error).toMatch(/не найден/);
+    expect(out.doc.id).toBeTruthy();
+  });
+});

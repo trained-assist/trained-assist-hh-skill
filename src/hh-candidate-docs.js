@@ -20,10 +20,29 @@ function manifestPath(username, candidateId) {
   return path.join(candRoot(username, candidateId), 'manifest.json');
 }
 
+// Лечение старых манифестов (записи до #87-фиксов): в файле лежит extract_error
+// «Формат .m4a не поддерживается…» и нет media_kind — из-за этого у аудио не было
+// кнопки «Расшифровать», а ошибка профиля пугала неверными советами. Читаем-лечим,
+// файл не перезаписываем (read-путь у всех потребителей: страница, профиль, тулы).
+function healManifest(manifest) {
+  if (!manifest || !Array.isArray(manifest.docs)) return manifest;
+  for (const d of manifest.docs) {
+    if (d.media_kind) continue;
+    const ext = d.ext || (String(d.filename || '').match(/\.[a-z0-9]+$/i) || [''])[0] || '';
+    const kind = require('./hh-doc-text').mediaKind(ext);
+    if (!kind) continue;
+    d.media_kind = kind;
+    // медиа/картинки/архивы текстового слоя не имеют — старая «формат не поддерживается»
+    // вводит в заблуждение (для них есть свои подсказки и кнопка расшифровки)
+    if (d.extract_error) delete d.extract_error;
+  }
+  return manifest;
+}
+
 function readManifest(username, candidateId) {
   const file = manifestPath(username, candidateId);
   if (!fs.existsSync(file)) return null;
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  try { return healManifest(JSON.parse(fs.readFileSync(file, 'utf8'))); } catch { return null; }
 }
 
 function writeManifest(username, candidateId, manifest) {
@@ -81,6 +100,22 @@ async function addDocument({ username, candidateId = null, candidateName = null,
   const id = docId();
   const ext = (String(filename).match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+  // Ретрай/двойной drop не должен плодить дубли: тот же контент уже у кандидата.
+  // Явный тип при повторе — правка, а не копия.
+  if (!sourceUrl && buffer && buffer.length) {
+    const dup = (manifest.docs || []).find(d => d.sha256 && d.sha256 === sha256);
+    if (dup) {
+      if (manualType && dup.type !== manualType) {
+        dup.type = manualType;
+        dup.type_label = require('./hh-doc-classify').TYPE_LABELS[manualType] || manualType;
+        dup.detected_by = 'manual';
+        dup.reason = 'правка типа при повторной загрузке';
+        writeManifest(username, manifest.candidate_id, manifest);
+      }
+      return { candidate_id: manifest.candidate_id, doc: dup, duplicate: true };
+    }
+  }
   const root = candRoot(username, manifest.candidate_id);
   fs.mkdirSync(root, { recursive: true });
 
@@ -197,6 +232,38 @@ function readDocBytes(username, candidateId, doc) {
   return Promise.resolve(fs.readFileSync(file));
 }
 
+// Удаление документа (#107): сначала объект в GCS (если он там — иначе осиротевший
+// байт неисправим), потом локальные байты и .txt, потом запись манифеста.
+async function deleteDocument({ username, candidateId, docId }) {
+  const manifest = readManifest(username, candidateId);
+  if (!manifest) return { error: 'Кандидат не найден.' };
+  const idx = (manifest.docs || []).findIndex(d => d.id === docId);
+  if (idx < 0) return { error: 'Документ не найден.' };
+  const doc = manifest.docs[idx];
+
+  if (doc.storage && doc.storage.backend === 'gcs') {
+    const { deleteDocBytes } = require('./hh-blob-client');
+    try {
+      const out = await deleteDocBytes({
+        username, candidateId,
+        docId: doc.storage.doc_id || doc.id,
+        ext: doc.storage.ext || doc.ext || '.bin',
+      });
+      if (out.error) return { error: `Не удалось удалить из хранилища: ${out.error}` };
+    } catch (e) {
+      return { error: `Не удалось удалить из хранилища: ${e.message}` };
+    }
+  }
+
+  const root = candRoot(username, candidateId);
+  for (const f of [`${doc.id}${doc.ext || ''}`, `${doc.id}.txt`]) {
+    try { fs.rmSync(path.join(root, f), { force: true }); } catch { /* best effort */ }
+  }
+  manifest.docs.splice(idx, 1);
+  writeManifest(username, candidateId, manifest);
+  return { ok: true, doc };
+}
+
 function setDocType({ username, candidateId, docId: id, type }) {
   const manifest = readManifest(username, candidateId);
   if (!manifest) return { error: 'Кандидат не найден.' };
@@ -279,5 +346,5 @@ async function extractProfile({ username, candidateId }) {
 
 module.exports = {
   candRoot, manifestPath, readManifest, writeManifest, ensureCandidate,
-  addDocument, setDocType, combinedText, extractProfile, llmClassifyFallback, readDocBytes,
+  addDocument, setDocType, deleteDocument, combinedText, extractProfile, llmClassifyFallback, readDocBytes, healManifest,
 };

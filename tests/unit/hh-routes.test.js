@@ -625,3 +625,47 @@ describe('candidate-doc-raw — тяжёлая загрузка в GCS (#105)', 
 
   function root0() { return root; }
 });
+
+describe('candidate-doc-delete (#107)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+
+  it('удаляет локальный документ; bad token → 403; неизвестный → 404', async () => {
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Анна',
+      filename: 'x.txt', data_base64: Buffer.from('текст').toString('base64'),
+    }), up, res, ctx());
+    const { candidate_id, doc } = JSON.parse(res.body);
+
+    let u = new URL('http://x/hh/candidate-doc-delete'); res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: 'bad', candidate_id, doc_id: doc.id }), u, res, ctx());
+    expect(res.status).toBe(403);
+
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, doc_id: doc.id }), u, res, ctx());
+    expect(res.status).toBe(200);
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'data', 'hh', 'alice', 'candidate-docs', candidate_id, 'manifest.json'), 'utf8'));
+    expect(manifest.docs).toHaveLength(0);
+
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, doc_id: 'nope1' }), u, res, ctx());
+    expect(res.status).toBe(404);
+  });
+
+  it('страница несёт кнопку удаления', async () => {
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Борис',
+      filename: 'b.txt', data_base64: Buffer.from('б').toString('base64'),
+    }), up, res, ctx());
+    const { candidate_id } = JSON.parse(res.body);
+    const u = new URL(`http://x/hh/candidate-new?username=alice&token=${tok()}&candidate_id=${candidate_id}`);
+    res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.body).toContain('data-delete');
+    expect(res.body).toContain('Удалить документ');
+  });
+});

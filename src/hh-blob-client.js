@@ -73,4 +73,26 @@ async function downloadDocBytes({ username, candidateId, docId, ext }, { env = p
   return Buffer.from(await res.arrayBuffer());
 }
 
-module.exports = { coreBase, uploadDocBytes, downloadDocBytes };
+// Идемпотентное удаление объекта; старое ядро (404 на роут) — понятная ошибка.
+async function deleteDocBytes({ username, candidateId, docId, ext }, { env = process.env, fetchImpl = fetch } = {}) {
+  const gate = requireEnv(env);
+  if (gate.error) return gate;
+  try {
+    const res = await fetchImpl(`${gate.base}/internal/blob/delete?${query({
+      username, candidate_id: candidateId, doc_id: docId, ext,
+    })}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.AGENT_SECRET}` },
+      signal: AbortSignal.timeout(60_000),
+    });
+    const data = await res.json().catch(() => ({}));
+    // Роут существует → 200/400/500; 404 = core без этого роута (handleInternal не матчит)
+    if (res.status === 404) return { error: 'ядро без /internal/blob/delete — обнови core' };
+    if (!res.ok) return { error: data.error || `blob delete failed: HTTP ${res.status}` };
+    return data;
+  } catch (e) {
+    return { error: `blob delete failed: ${e.message}` };
+  }
+}
+
+module.exports = { coreBase, uploadDocBytes, downloadDocBytes, deleteDocBytes };
