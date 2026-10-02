@@ -53,7 +53,7 @@ function typeOptions(selected) {
 
 function docsTableHtml(manifest) {
   const rows = manifest.docs.map(d => `<tr data-doc="${escHtml(d.id)}">
-<td>${escHtml(d.filename)}<div class="reason">${d.chars ? `${d.chars} симв. текста` : d.size ? `${Math.round(d.size / 1024)} КБ` : 'ссылка'}${MEDIA_HINT[d.media_kind] ? ` · ${MEDIA_HINT[d.media_kind]}` : ''}${d.extract_error ? ` · ⚠ ${escHtml(d.extract_error)}` : ''}</div>
+<td>${escHtml(d.filename)}<div class="reason">${d.chars ? `${d.chars} симв. текста` : d.size ? `${Math.round(d.size / 1024)} КБ` : 'ссылка'}${MEDIA_HINT[d.media_kind] && !d.chars ? ` · ${MEDIA_HINT[d.media_kind]}` : ''}${d.extract_error ? ` · ⚠ ${escHtml(d.extract_error)}` : ''}</div>
 ${d.media_kind === 'media' ? `<button class="btn" type="button" data-transcribe="${escHtml(d.id)}" style="margin-top:6px;padding:5px 10px;font-size:12px">🎙 Расшифровать</button>` : ''}
 <button class="btn" type="button" data-delete="${escHtml(d.id)}" title="Удалить документ" style="margin-top:6px;margin-left:6px;padding:5px 9px;font-size:12px">🗑</button></td>
 <td><select data-set-type="${escHtml(d.id)}">${typeOptions(d.type)}</select></td>
