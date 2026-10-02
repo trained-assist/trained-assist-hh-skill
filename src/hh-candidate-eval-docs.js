@@ -471,6 +471,12 @@ function photoDataUri(username, candidateId) {
   } catch { return null; }
 }
 
+// Канон v2 (#120) — рендереры поверх канонического CandidateEvaluation.
+// Живут в отдельном модуле (hh-eval-docs-v2), чтобы старый формат #91 оставался
+// нетронутым: его правки должны быть поведенчески нейтральны.
+const v2 = require('./hh-eval-docs-v2.js');
+
 module.exports = {
   buildReportData, renderCleanEvalMd, renderProfileMd, mdToHtml, wrapHtml, PRINT_CSS, photoDataUri,
+  ...v2,
 };

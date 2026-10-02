@@ -1,0 +1,99 @@
+{
+  "_comment": "Фактическая схема #89 (interviews/<slug>/interview-eval.json). Ключевые особенности: veto — boolean + veto_requirements[]; coverage.missing — массив объектов {id,kind,label,reason}; scores — целые.",
+  "slug": "ivanov",
+  "candidate": "Иванов Иван",
+  "vacancy_id": "v-node-1",
+  "roles_detected": true,
+  "thresholds": "configured",
+  "requirements": [
+    {
+      "id": "req-1",
+      "label": "Node.js",
+      "kind": "hard_skill",
+      "must_have": true,
+      "weight": 2,
+      "score": 5,
+      "evidence": "«пять лет пишу на ноде, последние два — тимлид» [реплика 7]",
+      "comment": "",
+      "reason": "системный опыт с измеримым результатом: сократил сборку с 12 до 4 минут"
+    },
+    {
+      "id": "req-2",
+      "label": "PostgreSQL",
+      "kind": "hard_skill",
+      "must_have": true,
+      "weight": 2,
+      "score": 2,
+      "evidence": "«знаю sql, но сам схему не проектировал — делал по ТЗ DBA» [реплика 9]",
+      "comment": "",
+      "reason": "теория без самостоятельной практики"
+    },
+    {
+      "id": "req-3",
+      "label": "Docker",
+      "kind": "hard_skill",
+      "must_have": false,
+      "weight": 1,
+      "score": 4,
+      "evidence": "«всё окружение на docker-compose, сам собирал» [реплика 11]",
+      "comment": "",
+      "reason": "уверенно и самостоятельно"
+    },
+    {
+      "id": "req-4",
+      "label": "Образование: высшее техническое",
+      "kind": "soft_skill",
+      "must_have": false,
+      "weight": 1,
+      "score": null,
+      "evidence": "",
+      "comment": "тема не прозвучала",
+      "reason": ""
+    },
+    {
+      "id": "req-5",
+      "label": "Управление командой",
+      "kind": "personality",
+      "must_have": false,
+      "weight": 1,
+      "score": 3,
+      "evidence": "«два года вел команду из четырёх, был онбординг новичков» [реплика 14]",
+      "comment": "",
+      "reason": "опыт есть, деталей мало"
+    }
+  ],
+  "totals": {
+    "formula": "sum_sw/sum_5w",
+    "sum_sw": 27,
+    "sum_5w": 35,
+    "percent": 77,
+    "score_10": 7.7,
+    "counted": 4,
+    "na": 1,
+    "total": 5
+  },
+  "veto": true,
+  "veto_requirements": [
+    { "id": "req-2", "label": "PostgreSQL", "score": 2 }
+  ],
+  "communication": {
+    "style": { "label": "Стиль общения", "score": 4, "evidence": "«отвечает по делу, без воды» [реплика 5]" },
+    "politeness": { "label": "Вежливость", "score": 5, "evidence": "«да, хорошо, спасибо» [реплика 6]" },
+    "vocabulary": { "label": "Словарный запас", "score": 4, "evidence": "«свободно оперирует терминами» [реплика 8]" },
+    "structure": { "label": "Структурированность", "score": 4, "evidence": "«отвечает по пунктам» [реплика 12]" }
+  },
+  "coverage": {
+    "covered": [
+      { "topic": "Node.js", "score": 5, "quote": "«пять лет на ноде» [реплика 7]" },
+      { "topic": "PostgreSQL", "score": 2, "quote": "«по ТЗ DBA» [реплика 9]" }
+    ],
+    "missing": [
+      { "id": "req-4", "kind": "soft_skill", "label": "Образование: высшее техническое", "reason": "не спрашивали" },
+      { "id": "req-6", "kind": "hard_skill", "label": "Kafka", "reason": "время интервью закончилось" }
+    ],
+    "covered_count": 4,
+    "missing_count": 2,
+    "percent": 67
+  },
+  "verdict": "ОТКЛОНИТЬ"
+}

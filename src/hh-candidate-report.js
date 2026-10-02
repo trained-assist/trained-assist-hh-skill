@@ -16,10 +16,29 @@ const path = require('path');
 const { createHash } = require('crypto');
 
 const NOTES_SUFFIX = '-report-notes.md';
+
+// Канон v2 (#120, R8): scopes (agency/vacancy/candidate/report_version) и четыре
+// секции. Старый формат (include/exclude) читается как есть и не переписывается
+// молча — иначе согласованный с клиентом стиль потерял бы историю.
 const SECTIONS = {
   include: 'Что включать',
   exclude: 'Что НЕ включать / формулировки',
   history: 'История правок',
+};
+
+const SECTIONS_V2 = {
+  requirements: 'Требования вакансии',
+  style: 'Правила оформления',
+  recruiter_notes: 'Комментарии рекрутера',
+  history: 'История правок',
+};
+
+// Заголовки нового формата; читаются оба поколения файлов.
+const V2_TO_V1 = {
+  'Требования вакансии': 'include',
+  'Правила оформления': 'include',
+  'Комментарии рекрутера': 'exclude',
+  'История правок': 'history',
 };
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -101,32 +120,95 @@ function resolveCandidate(workDir, hint) {
 // ── Notes file (markdown) ────────────────────────────────────────────────────
 
 function emptyNotes(name) {
-  return { name: name || '', include: [], exclude: [], history: [] };
+  return { name: name || '', include: [], exclude: [], history: [], v2: false, v2buckets: {} };
 }
+
+function isoDay(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Заголовок новой схемы → канонический ключ секции.
+const V2_HEADINGS = {
+  'Требования вакансии': 'requirements',
+  'Правила оформления': 'style',
+  'Комментарии рекрутера': 'recruiter_notes',
+  'История правок': 'history',
+};
+
+// «История правок» есть в обеих схемах, поэтому по ней поколение не определяется.
+// Маркер v2 — секция, которой в старой схеме нет вовсе.
+const V2_MARKER_HEADINGS = ['Требования вакансии', 'Правила оформления', 'Комментарии рекрутера'];
 
 function parseNotes(md) {
   const notes = emptyNotes();
-  const title = String(md).match(/^#\s+(?:Требования к профилю:\s*)?(.+)$/m);
+  // Пустые секции в файле записаны как «_пока пусто_» — они не дают строк-элементов,
+  // поэтому все четыре бакета создаём сразу, иначе history теряется при записи.
+  for (const key of ALL_V2_BUCKETS) notes.v2buckets[key] = [];
+  const text = String(md);
+  const v2 = V2_MARKER_HEADINGS.some(h => new RegExp(`^##\\s+${h}\\s*$`, 'm').test(text));
+  const title = text.match(/^#\s+(?:Требования к профилю:\s*)?(.+)$/m);
   if (title) notes.name = title[1].trim();
   let bucket = null;
-  for (const line of String(md).split('\n')) {
+
+  for (const line of text.split('\n')) {
     const h = line.match(/^##\s+(.+?)\s*$/);
     if (h) {
-      bucket = Object.keys(SECTIONS).find(k => SECTIONS[k].toLowerCase() === h[1].toLowerCase()) || null;
+      const raw = h[1].trim();
+      // Сначала новая схема (R8), иначе старая — файл может быть любого поколения.
+      if (Object.prototype.hasOwnProperty.call(V2_HEADINGS, raw)) {
+        bucket = V2_HEADINGS[raw];
+      } else {
+        bucket = Object.keys(SECTIONS).find(k => SECTIONS[k].toLowerCase() === raw.toLowerCase()) || null;
+      }
       continue;
     }
     const b = line.match(/^\s*[-*]\s+(.+?)\s*$/);
-    if (b && bucket) notes[bucket].push(b[1]);
+    if (b && bucket) {
+      const item = b[1];
+      if (v2) {
+        notes.v2buckets[bucket] = notes.v2buckets[bucket] || [];
+        notes.v2buckets[bucket].push(item);
+      }
+      if (!v2 && Object.prototype.hasOwnProperty.call(notes, bucket)) notes[bucket].push(item);
+    }
+  }
+
+  notes.v2 = v2;
+  if (v2) {
+    // Старые бакеты остаются заполненными из v2-секций, чтобы старый рендер 97
+    // продолжил работать с тем же файлом без изменений на его стороне.
+    for (const [heading, key] of Object.entries(V2_TO_V1)) {
+      const v2Key = V2_HEADINGS[heading];
+      for (const item of notes.v2buckets[v2Key] || []) notes[key].push(item);
+    }
   }
   return notes;
 }
 
 function renderNotes(notes) {
+  // Файл не переводится на новую схему молча: пока в нём старые секции, он остаётся
+  // старым. Переход — явное действие (rewriteNotesV2), чтобы рекрутер увидел diff.
+  if (!notes.v2) {
+    const block = (key) => {
+      const items = notes[key].length ? notes[key].map(i => `- ${i}`).join('\n') : '_пока пусто_';
+      return `## ${SECTIONS[key]}\n${items}`;
+    };
+    return [`# Требования к профилю: ${notes.name}`, '', block('include'), '', block('exclude'), '', block('history'), ''].join('\n');
+  }
+
+  const buckets = notes.v2buckets || {};
   const block = (key) => {
-    const items = notes[key].length ? notes[key].map(i => `- ${i}`).join('\n') : '_пока пусто_';
-    return `## ${SECTIONS[key]}\n${items}`;
+    const items = buckets[key] && buckets[key].length ? buckets[key].map(i => `- ${i}`).join('\n') : '_пока пусто_';
+    return `## ${SECTIONS_V2[key]}\n${items}`;
   };
-  return [`# Требования к профилю: ${notes.name}`, '', block('include'), '', block('exclude'), '', block('history'), ''].join('\n');
+  return [
+    `# Требования к профилю: ${notes.name}`, '',
+    block('requirements'), '',
+    block('style'), '',
+    block('recruiter_notes'), '',
+    block('history'), '',
+  ].join('\n');
 }
 
 function readNotes(workDir, slug) {
@@ -185,6 +267,118 @@ function logHistory(workDir, slug, entry, now = new Date()) {
   if (!notes) return;
   notes.history.push(`${ddmm(now)} — ${entry}`);
   writeNotes(workDir, slug, notes);
+}
+
+// ── report-notes v2 (R8) ──────────────────────────────────────────────────────
+// Все четыре секции файла (включая историю — она только пишется, не пополняется
+// правилами), и отдельно — те, куда можно добавлять правило.
+const ALL_V2_BUCKETS = ['requirements', 'style', 'recruiter_notes', 'history'];
+
+// Переводит существующий файл на новую схему. Старые бакеты раскладываются по
+// секциям осмысленно: include-строки — это требования и правила оформления,
+// exclude — комментарии рекрутера. Вызывается явно, не миграцией при чтении.
+function rewriteNotesV2(workDir, slug) {
+  const notes = readNotes(workDir, slug);
+  if (!notes) return null;
+  if (notes.v2) return notes;
+
+  const buckets = { requirements: [], style: [], recruiter_notes: [], history: [] };
+  for (const item of notes.include) {
+    // «от первого/третьего лица», «стиль», «без баллов» — правило оформления,
+    // а не требование к кандидату.
+    if (/первого лица|третьего лица|голос|стиль|оформлен|без балл|без оценок|толщин/i.test(item)) buckets.style.push(item);
+    else buckets.requirements.push(item);
+  }
+  for (const item of notes.exclude) buckets.recruiter_notes.push(item);
+  for (const item of notes.history) buckets.history.push(item);
+
+  notes.v2 = true;
+  notes.v2buckets = buckets;
+  writeNotes(workDir, slug, notes);
+  return notes;
+}
+
+const V2_SECTIONS = ['requirements', 'style', 'recruiter_notes'];
+
+// Добавить правило в секцию v2. Канон приводит файл к новой схеме при первом же
+// добавлении — иначе рекрутер правил не сможет записать вообще.
+function addNoteV2(workDir, slug, text, { section = 'recruiter_notes', now = new Date(), nameForNew = '' } = {}) {
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  if (!clean) throw new Error('empty requirement');
+  if (!V2_SECTIONS.includes(section)) throw new Error(`unknown section: ${section}`);
+
+  const notes = readNotes(workDir, slug);
+  const base = notes && notes.v2 ? notes : rewriteNotesV2(workDir, slug) || emptyNotes(nameForNew || slug);
+  if (!notes) writeNotes(workDir, slug, base);
+
+  const buckets = base.v2buckets || (base.v2buckets = { requirements: [], style: [], recruiter_notes: [], history: [] });
+  for (const key of ALL_V2_BUCKETS) if (!buckets[key]) buckets[key] = [];
+  if (!buckets[section]) buckets[section] = [];
+
+  const duplicate = buckets[section].some(i => i.toLowerCase() === clean.toLowerCase());
+  if (!duplicate) {
+    buckets[section].push(clean);
+    buckets.history.push(`${isoDay(now)} — добавлено (${section}): ${clean}`);
+    writeNotes(workDir, slug, base);
+  }
+  setLastCandidate(workDir, slug);
+  return { slug, section, duplicate };
+}
+
+// Отмена правила: строка остаётся в файле, в историю пишется «отменено» с причиной.
+// Активным правилом считается то, для которого в истории нет отмены.
+function cancelNoteV2(workDir, slug, text, { reason = '', now = new Date() } = {}) {
+  const target = String(text).replace(/\s+/g, ' ').trim().toLowerCase();
+  const notes = readNotes(workDir, slug);
+  if (!notes || !notes.v2) return { slug, cancelled: false, reason: 'файл в старом формате' };
+
+  const buckets = notes.v2buckets || {};
+  let found = null;
+  for (const section of V2_SECTIONS) {
+    if ((buckets[section] || []).some(i => i.toLowerCase() === target)) found = section;
+  }
+  if (!found) return { slug, cancelled: false, reason: 'правило не найдено' };
+
+  const already = cancelledNotes(notes).has(target);
+  const entry = `${isoDay(now)} — отменено (${found}): ${text}${reason ? ` (причина: ${reason})` : ''}`;
+  buckets.history = (buckets.history || []).filter(h => !h.includes(`отменено (${found}): ${text}`));
+  buckets.history.push(entry);
+  writeNotes(workDir, slug, notes);
+  return { slug, cancelled: true, section: found, already };
+}
+
+// Множество текстов правил, отменённых по истории.
+function cancelledNotes(notes) {
+  const out = new Set();
+  const buckets = (notes && notes.v2buckets) || {};
+  for (const line of buckets.history || []) {
+    const m = line.match(/—\s*отменено(?:\s*\([^)]*\))?:\s*(.+?)(?:\s*\(причина:.*)?$/);
+    if (m) out.add(m[1].trim().toLowerCase());
+  }
+  return out;
+}
+
+// Активные правила: всё, кроме отменённых.
+function activeNotes(notes) {
+  const cancelled = cancelledNotes(notes);
+  const buckets = (notes && notes.v2buckets) || {};
+  const out = {};
+  for (const section of V2_SECTIONS) {
+    out[section] = (buckets[section] || []).filter(i => !cancelled.has(String(i).trim().toLowerCase()));
+  }
+  return out;
+}
+
+function ensureNotesV2(workDir, slug, name) {
+  const notes = readNotes(workDir, slug);
+  if (!notes) {
+    const fresh = emptyNotes(name || slug);
+    fresh.v2 = true;
+    fresh.v2buckets = { requirements: [], style: [], recruiter_notes: [], history: [] };
+    writeNotes(workDir, slug, fresh);
+    return fresh;
+  }
+  return notes.v2 ? notes : rewriteNotesV2(workDir, slug);
 }
 
 // Quoted phrases in negative rules are hard bans: «Не писать «рассматривает удалённый формат»».
@@ -332,11 +526,103 @@ function loadReportData(workDir, slug) {
   try { return JSON.parse(fs.readFileSync(dataPath(workDir, slug), 'utf8')); } catch { return null; }
 }
 
+// ── ReportDraft v2 (R3: одна версия данных для MD, HTML и PDF) ─────────────────
+// Единый черновик: 97 (`candidate_report_*`) — редактор, рендер v2 читает тот же
+// draft. Два независимых рендера рассинхронизировались бы на первой же правке.
+
+const AUDIENCES = ['internal', 'client'];
+
+const DRAFT_SCOPES = ['agency', 'vacancy', 'candidate', 'report_version'];
+
+// Поля, которые видны ТОЛЬКО внутренней аудитории. Клиентский рендер обязан
+// отбрасывать их по этому списку — а не «забывать» про каждый по отдельности.
+const INTERNAL_ONLY_FIELDS = [
+  'score', 'scores', 'expert_check', 'evidence', 'risk_log', 'risks',
+  'contradictions', 'questions_next_stage', 'correspondence', 'internal_notes',
+  'evaluation', 'percent', 'score10', 'veto',
+];
+
+function emptyDraft(name = '') {
+  return {
+    version: 2,
+    audience: 'internal',
+    scopes: { agency: null, vacancy: null, candidate: null, report_version: 'v2' },
+    candidate_name: name,
+    position: null,
+    client_name: null,
+    // Каноническая оценка — единственный источник баллов.
+    evaluation: null,
+    // Одобренные рекрутером поля (R2: голос от первого/третьего лица — явный выбор).
+    summary: null,
+    desired_role: null,
+    work_format: null,
+    experience: [],
+    education: [],
+    courses: [],
+    skills: [],
+    languages: [],
+    location: null,
+    fit: [],
+    client_risks: [],
+    salary_expectations: null,
+    recruiter_conclusion: null,
+    tests: [],
+    appendices: [],
+    photo_url: null,
+    // Происхождение полей: 'derived' — выведено рендером, 'edited' — правка руками.
+    // Регенерация не перезаписывает 'edited' (R: ручные правки сохраняются).
+    fields: {},
+  };
+}
+
+// Поле помечается отредактированным, когда рекрутер поменял его руками.
+function markEdited(draft, field) {
+  if (!draft || !field) return draft;
+  draft.fields = draft.fields || {};
+  draft.fields[field] = 'edited';
+  return draft;
+}
+
+// Достаёт поля рендера, изменённые руками, — их регенерация не трогает.
+function editedFields(draft) {
+  const f = (draft && draft.fields) || {};
+  return Object.keys(f).filter(k => f[k] === 'edited');
+}
+
+function setAudience(draft, audience) {
+  if (!AUDIENCES.includes(audience)) throw new Error(`unknown audience: ${audience}`);
+  draft.audience = audience;
+  return draft;
+}
+
+function setScope(draft, scope, value) {
+  if (!DRAFT_SCOPES.includes(scope)) throw new Error(`unknown scope: ${scope}`);
+  draft.scopes = draft.scopes || {};
+  draft.scopes[scope] = value;
+  return draft;
+}
+
+// Собирает draft из канонической оценки + данных кандидата. Ничего не выдумывает:
+// отсутствующее поле остаётся пустым и в документе читается как «не указано».
+function draftFromEvaluation(evaluation, { candidateName = null, position = null, clientName = null, audience = 'internal' } = {}) {
+  const draft = emptyDraft(candidateName || '');
+  if (!AUDIENCES.includes(audience)) throw new Error(`unknown audience: ${audience}`);
+  draft.audience = audience;
+  draft.position = position;
+  draft.client_name = clientName;
+  draft.evaluation = evaluation || null;
+  return draft;
+}
+
 module.exports = {
-  SECTIONS,
+  SECTIONS, SECTIONS_V2, V2_SECTIONS, AUDIENCES, DRAFT_SCOPES, INTERNAL_ONLY_FIELDS,
   reportsDir, slugify, publishSlug, notesPath, htmlPath,
   listCandidates, resolveCandidate, getLastCandidate, setLastCandidate,
   parseNotes, renderNotes, readNotes, writeNotes, ensureNotes, classifyNote, addNote, logHistory,
+  // report-notes v2
+  addNoteV2, cancelNoteV2, cancelledNotes, activeNotes, rewriteNotesV2, ensureNotesV2, isoDay,
+  // ReportDraft v2
+  emptyDraft, draftFromEvaluation, markEdited, editedFields, setAudience, setScope,
   forbiddenPhrases, findViolations,
   renderProfileHtml, saveReport, loadReportData,
 };
