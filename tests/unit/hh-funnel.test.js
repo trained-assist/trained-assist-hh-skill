@@ -277,7 +277,7 @@ describe('funnel — the writer renders the step, it does not choose it', () => 
       action: 'propose_test',
       testTask: 'Откройте витрину и сверьте с гайдом.',
     });
-    expect(userMsg).toContain('Задача письма: спросить, готов ли кандидат');
+    expect(userMsg).toContain('спросить, готов ли кандидат');
     // The step's own task text must be visible to the writer but must not be
     // mistaken for the letter itself.
     expect(userMsg).toContain('Откройте витрину и сверьте с гайдом.');
@@ -518,11 +518,123 @@ describe('funnel — the planner cannot refuse a passing candidate', () => {
     expect(plan.action).not.toBe('send_test');
   });
 
-  it('leaves a legitimate step alone', () => {
-    const guarded = guardPlannerAction({ action: 'ask_skills', reason: 'спросить' }, {
+  it('redirects ask_skills for a passing candidate — the «что уточняем» rule (02.10.2026)', () => {
+    // Used to be «leaves a legitimate step alone»: asking a candidate who already
+    // clears the must-haves is exactly the filler-question defect the owner
+    // reported (vacancy 138004863, negotiation 5620089198, 9.5/ПРОПУСТИТЬ).
+    const noTest = guardPlannerAction({ action: 'ask_skills', reason: 'уточнить' }, {
       history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5 },
     });
-    expect(guarded.action).toBe('ask_skills');
+    expect(noTest.action).toBe('invite_call');
+    expect(noTest.guarded).toBe('ask_skills');
+
+    const withTest = guardPlannerAction({ action: 'ask_skills', reason: 'уточнить' }, {
+      history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5, test_task: 'Задание 1.' },
+    });
+    expect(withTest.action).toBe('propose_test');
+    expect(withTest.guarded).toBe('ask_skills');
+  });
+
+  it('leaves a legitimate step alone', () => {
+    // clarify_answer is still legitimate for a passing candidate: it re-asks what
+    // we already asked, it does not invent new questions.
+    const guarded = guardPlannerAction({ action: 'clarify_answer', reason: 'уточнить' }, {
+      history: [], atsResult: PASSING, atsConfig: { pass_threshold: 7.5 },
+    });
+    expect(guarded.action).toBe('clarify_answer');
     expect(guarded.guarded).toBeUndefined();
+  });
+});
+
+// ── Owner's rule 02.10.2026: what we clarify, and when we stop ──────────────
+//
+// Live defect: vacancy 138004863, negotiation 5620089198 — Екатерина, 9.5/10,
+// verdict ПРОПУСТИТЬ, gaps «пересечение периодов» / «rich-контент отдельно не
+// выделен» (not must-haves) — and the draft asked three clarification questions
+// plus her name and a call time: «спрашиваем просто так, у кандидата всё есть,
+// а мы его гоняем». The rule: clarify ONLY must-haves missing from the data;
+// verdict ПРОПУСТИТЬ ⇒ no questions at all → next step of the process.
+
+describe('funnel — «что уточняем»: only missing must-haves, pass → next step', () => {
+  const PASS = {
+    verdict: 'ПРОПУСТИТЬ',
+    score: 9.5,
+    matched: ['снижение ДРР с 10% до 4,5%'],
+    gaps: ['Совпадение периодов в Mimibaby и Monifique — стоит уточнить параллельную занятость'],
+  };
+  const WB_CONFIG = {
+    pass_threshold: 7.5,
+    test_task: 'Тестовое задание (на 1–2 часа).\nЗадание 1. Сверьте витрину с гайдом.',
+    required: [{ name: 'настройка и оптимизация внутренней рекламы WB', weight: 3 }],
+    preferred: [{ name: 'проверка гипотез по карточкам', weight: 1 }],
+  };
+
+  it('first contact with a passing verdict goes straight to the test task — no questions (rule, no LLM)', () => {
+    const step = deterministicStep({
+      history: [{ role: 'applicant', text: 'Здравствуйте, откликаюсь на вакансию', timestamp: iso(1000) }],
+      atsResult: PASS,
+      atsConfig: WB_CONFIG,
+    });
+    expect(step).toMatchObject({ action: 'propose_test', by: 'rule' });
+  });
+
+  it('an empty thread with a passing verdict also proposes the test, not ask_skills', () => {
+    const step = deterministicStep({ history: [], atsResult: PASS, atsConfig: WB_CONFIG });
+    expect(step?.action).toBe('propose_test');
+  });
+
+  it('pass without a test task in the process falls through to the planner', () => {
+    const step = deterministicStep({ history: [], atsResult: PASS, atsConfig: { pass_threshold: 7.5 } });
+    expect(step).toBeNull();
+  });
+
+  it('a candidate who did not pass is left to the planner — and the planner sees must-haves only', async () => {
+    let seen = '';
+    const plan = await planNextStep({
+      history: [{ role: 'applicant', text: 'отклик', timestamp: iso(1000) }],
+      atsResult: { verdict: 'УТОЧНИТЬ', score: 6, gaps: ['нет подтверждённых метрик'] },
+      atsConfig: WB_CONFIG,
+      apiKey: 'k',
+      llmFn: async (_key, messages) => {
+        seen = messages[1].content;
+        return JSON.stringify({ action: 'ask_skills', reason: 'нет мастхева', missing_skills: ['настройка и оптимизация внутренней рекламы WB'] });
+      },
+    });
+    expect(plan.action).toBe('ask_skills');
+    expect(seen).toContain('Обязательные требования (мастхевы');
+    expect(seen).toContain('настройка и оптимизация внутренней рекламы WB');
+    expect(seen).toContain('Желательные (не уточнять');
+    expect(seen).toContain('Порог прохода: 7.5');
+    expect(seen).toContain('вопросов к нему не задавай');
+  });
+
+  it('the writer for ask_skills is limited to the list — no name, no time, no nice-to-haves', () => {
+    const instruction = buildActionInstruction('ask_skills', { missingSkills: ['SEO-оптимизация карточки'] });
+    expect(instruction).toContain('ТОЛЬКО по этому списку');
+    expect(instruction).toContain('не имя');
+    expect(instruction).toContain('SEO-оптимизация карточки');
+  });
+
+  it('the writer for propose_test opens with the match conclusion and asks nothing else', () => {
+    const instruction = buildActionInstruction('propose_test');
+    expect(instruction).toContain('мы изучили профиль');
+    expect(instruction).toContain('Больше НИЧЕГО не спрашивай');
+    expect(instruction).toContain('Сам текст задания НЕ приводи');
+  });
+
+  it('the funnel action outranks style question mandates in the writer prompt', () => {
+    const msg = buildDraftUserMessage({
+      messageType: 'initial',
+      firstName: 'Екатерина',
+      history: [],
+      action: 'propose_test',
+      testTask: 'Задание 1.',
+    });
+    expect(msg).toContain('приоритетно над наборами правил стиля');
+    expect(msg).toContain('ask_skills/clarify_answer');
+  });
+
+  it('bumps the logic version so drafts written by funnel-v1 go stale', () => {
+    expect(FUNNEL_LOGIC_VERSION).toBe('funnel-v2');
   });
 });

@@ -30,17 +30,23 @@ const { hhLlm, ladderToken } = require('./hh-llm');
 // Bump when the decision rules or the action set change: drafts are cached per
 // candidate and a stale draft written by older logic would otherwise live forever
 // (issue #71 — isDraftStale only compared the thread, not the logic version).
-const FUNNEL_LOGIC_VERSION = 'funnel-v1';
+// funnel-v2 (02.10.2026): the owner reviewed a letter sent to a 9.5/ПРОПУСТИТЬ
+// candidate (vacancy 138004863, negotiation 5620089198) that asked three
+// clarification questions "просто так" — «у кандидата всё есть, а мы его
+// гоняем». The rule changed: we ask ONLY about must-haves missing from the
+// candidate's data, and a passing verdict means no questions at all — the next
+// step of the process (propose_test → send_test → invite_call).
+const FUNNEL_LOGIC_VERSION = 'funnel-v2';
 
 // The fixed step set. `wait` is a first-class outcome on purpose: a candidate who
 // has not answered needs silence, not a second letter.
 const ACTIONS = {
   ask_skills:
-    'Спросить про обязательные и желательные навыки, которых нет в резюме, — те, что стоят баллы в скоринге.',
+    'Спросить про ОБЯЗАТЕЛЬНЫЕ требования (мастхевы), которых нет в резюме и ответах кандидата. Желательные навыки и «стоит уточнить» — не уточняем.',
   clarify_answer:
     'Ответ кандидата невнятный («да», «ок», «согласен», ответ не по теме или на один вопрос из нескольких) — уточнить, что именно он имел в виду.',
   propose_test:
-    'Кандидат подтвердил навыки и условия, скор высокий — спросить, готов ли он выполнить тестовое задание.',
+    'Кандидат проходит отбор (мастхевы закрыты) — предложить следующий шаг процесса: короткое тестовое задание, спросить, готов ли его выполнить.',
   send_test:
     'Кандидат согласился на тестовое задание — отправить его текст.',
   invite_call:
@@ -62,20 +68,23 @@ const PLANNER_SYSTEM = `Ты — планировщик шага перепис�
 Действия (выбери ровно одно):
 ${VALID_ACTIONS.map(a => `- ${a}: ${ACTIONS[a]}`).join('\n')}
 
-Правила:
-- Если кандидат ещё ничего не получал от нас — ask_skills.
+Правила (правило «что уточняем»):
+- Уточнять можно ТОЛЬКО обязательные требования (мастхевы) из блока «Обязательные требования», которых НЕТ в резюме и в ответах кандидата. Желательные, «стоит уточнить» и прочие детали — не повод задавать вопрос.
+- Не переспрашивай то, что видно в резюме/профиле HH или уже подтверждено в переписке (включая имя, опыт и цифры).
+- Если вердикт «ПРОПУСТИТЬ» — вопросов НЕТ вообще: обязательные закрыты, идём дальше по процессу: сначала propose_test (тестовое есть и ещё не предлагалось), после согласия — send_test, затем invite_call. Не «уточним ещё пару деталей».
+- Если кандидат ещё ничего не получал от нас: при вердикте «ПРОПУСТИТЬ» — propose_test (или invite_call, если тестового нет); иначе — ask_skills строго по нехваткам обязательных.
 - Если мы уже задавали вопросы про навыки, а он не ответил или ответил ерундой — clarify_answer.
-- Если он подтвердил навыки, скор высокий, а тестовое задание ещё не предлагалось — propose_test.
+- Если он подтвердил навыки/условия и готов — propose_test.
 - Если он сказал, что готов выполнить тестовое, а само задание ещё не отправлялось — send_test.
-- Если тестовое уже отправлено и сдано (или вакансия без тестового задания) и скор высокий — invite_call.
+- Если тестовое уже отправлено и сдано (или вакансия без тестового задания) и вердикт «ПРОПУСТИТЬ» — invite_call.
 - Если последнее сообщение наше и кандидат не отвечает долго (больше 2 дней) — followup. Если прошло меньше — wait.
-- Если скор низкий и пробелы критичные — reject.
+- Если вердикт «ОТКЛОНИТЬ» и пробелы критичные — reject.
 - Никогда не выбирай действие, которое уже было выполнено ранее в этой переписке.
 - Никогда не предлагай тестовое задание, если в вакансии его нет.
 
 Формат ответа:
 {"action":"<одно из действий>","reason":"<одно предложение почему>","missing_skills":["<навык, которого не хватает>"]}
-Поле missing_skills заполняй только для ask_skills (что спросить), иначе пустой массив.`;
+Поле missing_skills заполняй только для ask_skills — и ТОЛЬКО из обязательных требований, иначе пустой массив.`;
 
 
 const DAY_MS = 86400000;
@@ -155,8 +164,25 @@ function deterministicStep({ history = [], atsResult = null, atsConfig = {}, now
     return { action: 'followup', reason: 'Кандидат не ответил больше двух дней — короткое напоминание.', by: 'rule' };
   }
 
-  if (!last) {
-    return { action: 'ask_skills', reason: 'Переписка ещё не начата — первое сообщение с уточняющими вопросами.', by: 'rule' };
+  // First contact: we have never written to this candidate (empty thread, or only
+  // their response to the vacancy). Whether there is anything to ask is decided by
+  // the ATS verdict, not by habit — the owner's rule (02.10.2026, WB vacancy):
+  // «спрашиваем просто так — у кандидата всё есть, а мы его гоняем».
+  // A passing candidate gets the next step of the process with no questions;
+  // an unpassed one gets questions, and the planner asks only about must-haves.
+  if (!hasEmployerMessage(history)) {
+    if (atsResult?.verdict === 'ПРОПУСТИТЬ') {
+      if (testTask && !testTaskWasSent(history, testTask)) {
+        return { action: 'propose_test', reason: 'Кандидат проходит отбор, мы ещё не писали и тестовое не предлагалось — предлагаем следующий шаг процесса.', by: 'rule' };
+      }
+      // Pass without a test task (or one already sent in a thread we never wrote
+      // in): invite_call vs conditions is the planner's call, not a guess here.
+      return null;
+    }
+    if (atsResult?.score == null) {
+      return { action: 'ask_skills', reason: 'Мы ещё не писали и кандидат не оценён — первое письмо с вопросами по обязательным требованиям.', by: 'rule' };
+    }
+    return null; // scored but did not pass → the planner asks about missing must-haves
   }
 
   return null;
@@ -170,13 +196,29 @@ function renderThread(history = [], limit = 8) {
   }).join('\n') || '(переписки ещё не было)';
 }
 
+// required/preferred come in several shapes across configs (plain array, legacy
+// required_skills, portrait {item:[…]}) — the planner only needs the names.
+function criteriaNames(list) {
+  const arr = Array.isArray(list) ? list : (Array.isArray(list?.item) ? list.item : []);
+  return arr
+    .map(c => (typeof c === 'string' ? c : (c?.name || c?.skill || c?.criterion)))
+    .filter(Boolean);
+}
+
 function buildPlannerMessage({ history, atsResult, atsConfig, resumeText = '' } = {}) {
   const gaps = (atsResult?.gaps || []).join(', ') || 'нет';
   const matched = (atsResult?.matched || []).join(', ') || 'нет';
   const testTask = String(atsConfig?.test_task || '').trim();
+  // Same resolution the scorer uses (pass_threshold || thresholds.strong), not 6.5:
+  // showing the model a wrong pass line is how a passing candidate reads as failing.
+  const passLine = Number(atsConfig?.pass_threshold ?? atsConfig?.thresholds?.strong ?? 6.5);
+  const required = criteriaNames(atsConfig?.required);
+  const preferred = criteriaNames(atsConfig?.preferred);
   return `Вакансия: ${atsConfig?.vacancy_title || 'не указана'}
-Скор кандидата: ${atsResult?.score ?? 'н/д'} из 10. Порог прохода: ${atsConfig?.pass_threshold ?? '?'}. Вердикт скоринга: ${atsResult?.verdict || 'н/д'}.
-Вердикт «ПРОПУСТИТЬ» означает, что кандидат ПРОХОДИТ отбор. Не предлагай отказ, если вердикт не «ОТКЛОНИТЬ».
+Скор кандидата: ${atsResult?.score ?? 'н/д'} из 10. Порог прохода: ${passLine}. Вердикт скоринга: ${atsResult?.verdict || 'н/д'}.
+Вердикт «ПРОПУСТИТЬ» означает, что кандидат ПРОХОДИТ отбор — вопросов к нему не задавай, иди дальше по процессу. Не предлагай отказ, если вердикт не «ОТКЛОНИТЬ».
+Обязательные требования (мастхевы — уточнять можно только их): ${required.join(', ') || 'нет'}
+Желательные (не уточнять, пока обязательные не подтверждены): ${preferred.join(', ') || 'нет'}
 Совпадения: ${matched}
 Пробелы: ${gaps}
 Тестовое задание в вакансии: ${testTask ? 'есть' : 'НЕТ — не предлагать его'}
@@ -273,6 +315,23 @@ function guardPlannerAction(plan, { history = [], atsResult = null, atsConfig = 
     };
   }
 
+  // «Что уточняем» (owner's rule, 02.10.2026): a candidate with verdict
+  // ПРОПУСТИТЬ already clears the must-haves — new questions are the defect the
+  // owner reported («спрашиваем просто так»). deterministicStep covers first
+  // contact; this catches the model choosing ask_skills anyway.
+  if (plan.action === 'ask_skills' && atsResult?.verdict === 'ПРОПУСТИТЬ') {
+    const testTask = String(atsConfig.test_task || '').trim();
+    const next = testTask && !testTaskWasSent(history, testTask) ? 'propose_test' : 'invite_call';
+    return {
+      ...plan,
+      action: next,
+      reason: `Планировщик предложил уточнения при вердикте ПРОПУСТИТЬ (${plan.reason}) — вместо вопросов предлагаем следующий шаг процесса.`,
+      missing_skills: [],
+      by: 'rule',
+      guarded: 'ask_skills',
+    };
+  }
+
   // The assignment may only go out when the config actually carries it: an empty
   // test_task would send a letter about an assignment that does not exist.
   if (plan.action === 'send_test' && !String(atsConfig.test_task || '').trim()) {
@@ -294,21 +353,26 @@ function guardPlannerAction(plan, { history = [], atsResult = null, atsConfig = 
 const ACTION_INSTRUCTION = {
   ask_skills:
     'Задача письма: спросить про навыки, которых нет в резюме и которые стоят баллы. Список — в блоке «Нужно уточнить». '
-    + 'Спроси про каждый по отдельности, живым языком, и объясни зачем спрашиваешь (одно предложение). '
+    + 'Спрашивай ТОЛЬКО по этому списку — это нехватки обязательных требований. Ничего сверх: не имя, не «когда удобно», '
+    + 'не желательные навыки и не условия — это следующие шаги процесса. '
+    + 'Спроси про каждый пункт по отдельности, живым языком, и объясни зачем спрашиваешь (одно предложение). '
     + 'Не представляйся заново, если уже представлялся.',
   clarify_answer:
     'Задача письма: ответ кандидата невнятный. Обязательные три шага: 1) коротко поблагодари за ответ; '
     + '2) спроси своими словами, что именно он имел в виду; 3) перечисли вопросы заново списком, каждый с новой строки. '
     + 'Не представляйся заново.',
   propose_test:
-    'Задача письма: спросить, готов ли кандидат выполнить тестовое задание. Скажи, сколько времени оно занимает, '
-    + 'и предложи удобный срок ответа. Сам текст задания НЕ приводи — он придёт следующим письмом, '
-    + 'после того как кандидат согласится.',
+    'Задача письма: сначала один вывод — мы изучили профиль кандидата, обязательные требования закрыты, он проходит дальше. '
+    + 'Затем спросить, готов ли кандидат выполнить тестовое задание. Скажи, сколько времени оно занимает, '
+    + 'и предложи удобный срок ответа. Больше НИЧЕГО не спрашивай — ни имени, ни времени созвона, ни условий, '
+    + 'ни дополнительных уточнений: ровно один шаг — готовность к тестовому. '
+    + 'Сам текст задания НЕ приводи — он придёт следующим письмом, после того как кандидат согласится.',
   send_test:
     'Задача письма: подтвердить, что отправляем задание, и спросить удобный срок. Текст задания приложен ниже — '
     + 'он отправляется отдельным письмом дословно.',
   invite_call:
     'Задача письма: предложить короткий созвон. Одно-два предложения о том, что обсудим, и вопрос об удобном времени. '
+    + 'Больше ничего не спрашивай — ни навыков, ни имени, ни условий. '
     + 'Конкретное время называй только из блока «Доступность» — и всегда с датой И временем; нет слотов — спроси, когда удобно. '
     + 'Не представляйся заново.',
   confirm_conditions:
