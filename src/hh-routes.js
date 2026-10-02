@@ -1686,6 +1686,89 @@ if (req.method === 'GET' && url.pathname === '/hh/candidate-report.pdf') {
   return res.end(out.pdf);
 }
 
+// ── Канон v2 (#120): два документа из канонической оценки ───────────────────────
+// Внутренняя оценка — всё (баллы 1–5, evidence, экспертная проверка, риски).
+// Клиентский профиль — только одобренные поля, брендированный HTML, фото.
+// Оба формата — из одного канонического объекта, поэтому данные не расходятся.
+if (req.method === 'GET' && url.pathname === '/hh/candidate-report-v2') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  const which = url.searchParams.get('which') || 'profile';
+  const format = url.searchParams.get('format') || 'html';
+  const fail = (status, msg) => json(res, status, { error: msg });
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(candidateId)) return fail(400, 'Invalid scope');
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return fail(403, 'Invalid token');
+
+  const built = evalDocs.buildReportDataV2FromFiles({
+    username, candidateId,
+    vacancyId: url.searchParams.get('vacancy_id') || null,
+    evalSlug: url.searchParams.get('eval_slug') || null,
+    negId: url.searchParams.get('neg_id') || null,
+    prefer: url.searchParams.get('prefer') || 'interview',
+  });
+  if (built.error) return fail(404, built.error);
+
+  const { evaluation, draft } = built;
+  const name = draft?.candidate_name || candidateId;
+
+  if (format === 'md') {
+    const md = which === 'eval'
+      ? evalDocs.renderCleanEvalMdV2(evaluation, { candidateName: name })
+      : evalDocs.renderClientProfileMdV2(draft);
+    res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="v2-${which}-${candidateId}.md"` });
+    return res.end(md);
+  }
+
+  const toolbar = `<div class="no-print" style="margin:0 0 14px;display:flex;gap:8px;font-family:system-ui;font-size:13px">
+<a href="candidate-report-v2?username=${encodeURIComponent(username)}&token=${given}&candidate_id=${encodeURIComponent(candidateId)}&which=${which}&format=md">⬇ Скачать MD</a>
+<a href="candidate-report-v2.pdf?username=${encodeURIComponent(username)}&token=${given}&candidate_id=${encodeURIComponent(candidateId)}&which=${which}">⬇ Скачать PDF</a>
+<a href="candidate-new?username=${encodeURIComponent(username)}&token=${given}&candidate_id=${encodeURIComponent(candidateId)}">← К кандидату</a>
+</div>`;
+
+  // Внутренняя оценка — MD → HTML через общий конвертер (print-CSS уже внутри).
+  // Клиентский профиль — брендированный HTML из того же draft (R3: одна версия данных).
+  const html = which === 'eval'
+    ? evalDocs.wrapHtml(`Внутренняя оценка — ${name}`, toolbar + evalDocs.mdToHtml(evalDocs.renderCleanEvalMdV2(evaluation, { candidateName: name })))
+    : evalDocs.renderClientHtmlV2(draft, {
+        branding: evalDocs.loadBranding ? evalDocs.loadBranding(path.join(usersRoot(), username)) : undefined,
+        photoDataUri: evalDocs.photoDataUri(username, candidateId),
+      });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  return res.end(html);
+}
+
+if (req.method === 'GET' && url.pathname === '/hh/candidate-report-v2.pdf') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candidateId = url.searchParams.get('candidate_id') || '';
+  const which = url.searchParams.get('which') || 'profile';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(candidateId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+
+  const built = evalDocs.buildReportDataV2FromFiles({
+    username, candidateId,
+    vacancyId: url.searchParams.get('vacancy_id') || null,
+    evalSlug: url.searchParams.get('eval_slug') || null,
+    negId: url.searchParams.get('neg_id') || null,
+    prefer: url.searchParams.get('prefer') || 'interview',
+  });
+  if (built.error) return json(res, 404, built.error);
+
+  const { evaluation, draft } = built;
+  const name = draft?.candidate_name || candidateId;
+  const html = which === 'eval'
+    ? evalDocs.wrapHtml(`Внутренняя оценка — ${name}`, evalDocs.mdToHtml(evalDocs.renderCleanEvalMdV2(evaluation, { candidateName: name })))
+    : evalDocs.renderClientHtmlV2(draft, {
+        branding: evalDocs.loadBranding ? evalDocs.loadBranding(path.join(usersRoot(), username)) : undefined,
+        photoDataUri: evalDocs.photoDataUri(username, candidateId),
+      });
+  const out = reportPdf.htmlToPdf(html);
+  if (!out.ok) return json(res, 422, { error: out.error, hint: 'Открой HTML-версию и используй печать браузера — колонтитулов не будет.' });
+  res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="v2-${which}-${candidateId}.pdf"` });
+  return res.end(out.pdf);
+}
+
 // ── Фото кандидата (#91): загрузка в манифест + отдача для страницы/PDF ────────
 if (req.method === 'POST' && url.pathname === '/hh/candidate-photo') {
   let body;
