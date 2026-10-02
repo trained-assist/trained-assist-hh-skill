@@ -72,7 +72,9 @@ function ensureCandidate(username, candidateId, name) {
   if (existing) return existing;
   return writeManifest(username, id, {
     candidate_id: id,
-    name: name || id,
+    // Имя необязательно: файлы можно бросать раньше (владимир: «хотелось сначала
+    // другое») — дефолт позже правится кнопкой «Сохранить имя».
+    name: (name && String(name).trim()) || 'Кандидат',
     created_at: new Date().toISOString(),
     docs: [],
     profile: null,
@@ -264,6 +266,18 @@ async function deleteDocument({ username, candidateId, docId }) {
   return { ok: true, doc };
 }
 
+// Переименование кандидата (#107/#108-UX): id не меняется (ссылки/манифесты живут),
+// меняется только отображаемое имя.
+function renameCandidate({ username, candidateId, name }) {
+  const manifest = readManifest(username, candidateId);
+  if (!manifest) return { error: 'Кандидат не найден.' };
+  const clean = String(name || '').trim().slice(0, 200);
+  if (!clean) return { error: 'Имя не может быть пустым.' };
+  manifest.name = clean;
+  writeManifest(username, candidateId, manifest);
+  return { ok: true, name: clean };
+}
+
 function setDocType({ username, candidateId, docId: id, type }) {
   const manifest = readManifest(username, candidateId);
   if (!manifest) return { error: 'Кандидат не найден.' };
@@ -346,5 +360,5 @@ async function extractProfile({ username, candidateId }) {
 
 module.exports = {
   candRoot, manifestPath, readManifest, writeManifest, ensureCandidate,
-  addDocument, setDocType, deleteDocument, combinedText, extractProfile, llmClassifyFallback, readDocBytes, healManifest,
+  addDocument, setDocType, renameCandidate, deleteDocument, combinedText, extractProfile, llmClassifyFallback, readDocBytes, healManifest,
 };

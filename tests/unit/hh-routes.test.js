@@ -334,7 +334,9 @@ describe('candidate-new routes (#87)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toContain('cv.txt');
     expect(res.body).toContain('btn-profile');
-    expect(res.body).not.toContain('Имя кандидата');
+    // имя теперь показывается всегда: пресет + кнопка переименования
+    expect(res.body).toContain('btn-rename');
+    expect(res.body).toContain('Сохранить имя');
   });
 });
 
@@ -667,5 +669,39 @@ describe('candidate-doc-delete (#107)', () => {
     await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
     expect(res.body).toContain('data-delete');
     expect(res.body).toContain('Удалить документ');
+  });
+});
+
+describe('candidate-rename (UX #107)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+
+  it('200 happy / 403 bad token / 400 пустое имя / 404 нет кандидата', async () => {
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), filename: 'n.txt', data_base64: Buffer.from('т').toString('base64'),
+    }), up, res, ctx());
+    const { candidate_id } = JSON.parse(res.body);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'data', 'hh', 'alice', 'candidate-docs', candidate_id, 'manifest.json'), 'utf8')).name).toBe('Кандидат');
+
+    const u = new URL('http://x/hh/candidate-rename');
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: 'bad', candidate_id, name: 'X' }), u, res, ctx());
+    expect(res.status).toBe(403);
+
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, name: 'Новое имя' }), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).name).toBe('Новое имя');
+
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, name: '  ' }), u, res, ctx());
+    expect(res.status).toBe(400);
+
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'nope-1', name: 'Y' }), u, res, ctx());
+    expect(res.status).toBe(404);
   });
 });
