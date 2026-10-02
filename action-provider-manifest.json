@@ -695,6 +695,24 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "hh_set_publish_domain",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Адрес без пути и параметров, например https://coldsearch.myagency.ru. Пустая строка — сбросить домен на общий."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": true,
+      "retrySafety": "unsafe"
+    },
+    {
       "name": "hh_candidate_profile",
       "inputSchema": {
         "type": "object",

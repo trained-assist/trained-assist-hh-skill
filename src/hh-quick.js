@@ -5,6 +5,7 @@ const { usersRoot } = require('./data-paths.js');
 
 const path = require('path');
 const os = require('os');
+const { publicPageBase, HH_PAGES_ENV, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 
 const { readHhToken, readHhContext, writeHhContext, hhFetch, hhPost } = require('./hh-utils');
 
@@ -144,8 +145,11 @@ async function hhNewResponses(userId, workDir) {
 // HH_PLATFORM_URL overrides AGENT_PUBLIC_URL for HH-specific pages (review, ATS editor).
 // Use it on GCP VM to point HH links at the RU VM (platform.recruiter-assistant.ru)
 // while keeping AGENT_PUBLIC_URL for other GCP-hosted services.
-function hhBase() {
-  return (process.env.HH_PLATFORM_URL || process.env.AGENT_PUBLIC_URL || 'https://platform.recruiter-assistant.ru').replace(/\/$/, '');
+// Per-user override (Cold Search Stage 4) sits on top: a recruiter's own publish
+// domain wins for every HH page link generated for them. Page links ONLY —
+// server-to-server calls use internalApiBase() and never see this override.
+function hhBase(username) {
+  return publicPageBase(username, HH_PAGES_ENV, 'https://platform.recruiter-assistant.ru');
 }
 
 // HMAC-SHA256(AGENT_SECRET, username).slice(0,16) — short, deterministic, not guessable.
@@ -161,7 +165,7 @@ function hhReviewToken(userId) {
 function hhAtsEditor(userId) {
   const token = hhReviewToken(userId);
   const tokenParam = token ? `&token=${token}` : '';
-  return `🎯 Candidate Funnel Editor:\n${hhBase()}/hh/ats-editor?username=${encodeURIComponent(userId)}${tokenParam}`;
+  return `🎯 Candidate Funnel Editor:\n${hhBase(userId)}/hh/ats-editor?username=${encodeURIComponent(userId)}${tokenParam}`;
 }
 
 // "открой портрет вакансии" — no API call
@@ -170,7 +174,7 @@ function hhVacancyNew(userId, vacancyId) {
   const q = new URLSearchParams({ username: String(userId) });
   if (token) q.set('token', token);
   if (vacancyId && vacancyId !== 'draft') q.set('vacancy_id', vacancyId);
-  return `${hhBase()}/hh/vacancy-new?${q.toString()}`;
+  return `${hhBase(userId)}/hh/vacancy-new?${q.toString()}`;
 }
 
 // Bare /hh/review URL, optionally scoped to a vacancy (step 3's tab switcher handles
@@ -193,7 +197,7 @@ function hhReviewPage(userId, vacancyId) {
 function hhWherePrompt(userId) {
   const token = hhReviewToken(userId);
   const tokenParam = token ? `&token=${token}` : '';
-  const editorUrl = `${hhBase()}/hh/ats-editor?username=${encodeURIComponent(userId)}${tokenParam}`;
+  const editorUrl = `${hhBase(userId)}/hh/ats-editor?username=${encodeURIComponent(userId)}${tokenParam}`;
   return [
     '📍 Где настройки воронки:\n',
     '🎯 Критерии, пороги, этапы — визуальный редактор:',
@@ -210,7 +214,7 @@ function hhWherePrompt(userId) {
 function hhShowAtsConfig(userId) {
   const token = hhReviewToken(userId);
   const tokenParam = token ? '&token=' + token : '';
-  const url = hhBase() + '/hh/ats-editor?username=' + encodeURIComponent(userId) + tokenParam;
+  const url = hhBase(userId) + '/hh/ats-editor?username=' + encodeURIComponent(userId) + tokenParam;
   // Try to read local ATS config and summarise it
   try {
     const { readHhContext: _rhc } = require('./hh-utils');
@@ -228,7 +232,7 @@ function hhShowAtsConfig(userId) {
 function hhStylePage(userId) {
   const token = hhReviewToken(userId);
   const tokenParam = token ? `&token=${token}` : '';
-  return `✍️ Страница обновления стиля общения:\n${hhBase()}/hh/style?username=${encodeURIComponent(userId)}${tokenParam}\n\nОткрой ссылку и вставь примеры своих сообщений кандидатам — извлеку правила стиля и сохраню.`;
+  return `✍️ Страница обновления стиля общения:\n${hhBase(userId)}/hh/style?username=${encodeURIComponent(userId)}${tokenParam}\n\nОткрой ссылку и вставь примеры своих сообщений кандидатам — извлеку правила стиля и сохраню.`;
 }
 
 // "покажи портрет" / "полнота вакансии" / "чего не хватает" — локально, без HH API.

@@ -10,6 +10,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { dataRoot, tokensRoot, usersRoot } = require('./data-paths.js');
+const { publicPageBase, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 const userWorkDir = (username) => path.join(usersRoot(), String(username));
 
 const { sendRejection, REJECT_REASON_ACTION } = require('./hh-rejection');
@@ -112,7 +113,7 @@ function pageAuthOk(req, username, token) {
 // straight into the right tab. Omitted (falsy) → no param, unchanged for
 // single-vacancy callers.
 function proactiveUrl(username, vacancyId) {
-  const base = (process.env.HH_COLD_SEARCH_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+  const base = publicPageBase(username, COLD_SEARCH_ENV, 'https://recruiter-assistant.ru');
   const token = proactiveHmac(username);
   const vacancyParam = vacancyId ? `&vacancy_id=${encodeURIComponent(vacancyId)}` : '';
   return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;
@@ -1192,7 +1193,7 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
   if (file) {
     try { results = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return proactiveErrPage('Ошибка чтения данных.'); }
   }
-  const callbackBase = (process.env.HH_COLD_SEARCH_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+  const callbackBase = publicPageBase(username, COLD_SEARCH_ENV, 'https://recruiter-assistant.ru');
   const { loadCandidateComments, loadAllCandidates, candidateMatchesVacancy, candidateStatusOf } = require('./hh-proactive-search');
   const pageComments = loadCandidateComments(username, vacancyId);
   // Render from the unified all-candidates store (search + manual, accumulated
@@ -1272,7 +1273,7 @@ if (req.method === 'POST' && url.pathname === '/hh/playbook-run') {
   const taskId = result.task.id;
   const statusPath = hhHub.planStatusPath(username, token, taskId);
   // Telegram push runs alongside the answer; it never fails the launch.
-  hhHub.notifyLaunch({ notifyProfile: ctx.notifyProfile, username, goal: goalText, statusUrl: hhHub.publicBase() + statusPath })
+  hhHub.notifyLaunch({ notifyProfile: ctx.notifyProfile, username, goal: goalText, statusUrl: hhHub.publicBase(username) + statusPath })
     .catch(e => console.warn('[hh/playbook-run] notify error:', e.message));
   console.log(`[hh/playbook-run] user=${username} vacancy=${vacancy_id} task=${taskId}`);
   return json(res, 200, { task_id: taskId, status: result.task.status, status_url: statusPath });
