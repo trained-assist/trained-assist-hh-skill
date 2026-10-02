@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 import { Readable } from 'node:stream';
+import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -90,6 +91,22 @@ describe('hh-routes', () => {
     expect(JSON.parse(res.body)).toEqual({ candidate: 'Bob' });
   });
 });
+
+// Герметизация от локального llm-ladder токена: ladderToken() первым смотрит env,
+// потом $AGENT_TOKENS_DIR — при прямом запуске (вне изоляции) там может лежать
+// реальный токен машины. Пустой временный ренут-дир делает «токена нет» детерминированным.
+function withNoLadderToken(fn) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'no-ladder-'));
+  const saved = { d: process.env.AGENT_TOKENS_DIR, r: process.env.AGENT_TOKENS_ROOT };
+  process.env.AGENT_TOKENS_DIR = tmp;
+  process.env.AGENT_TOKENS_ROOT = tmp;
+  const restore = () => {
+    if (saved.d === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = saved.d;
+    if (saved.r === undefined) delete process.env.AGENT_TOKENS_ROOT; else process.env.AGENT_TOKENS_ROOT = saved.r;
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
+  };
+  return Promise.resolve().then(fn).finally(restore);
+}
 
 describe('hh portrait routes (#85)', () => {
   const tok = () => {
@@ -296,7 +313,7 @@ describe('candidate-new routes (#87)', () => {
     delete process.env.LLM_LADDER_TOKEN;
     const u = new URL('http://x/hh/candidate-docs'); res = fakeRes();
     try {
-      await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, action: 'extract_profile' }), u, res, ctx());
+      await withNoLadderToken(() => handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id, action: 'extract_profile' }), u, res, ctx()));
     } finally {
       if (saved !== undefined) process.env.LLM_LADDER_TOKEN = saved;
     }
@@ -421,7 +438,7 @@ describe('eval-run routes (#90)', () => {
     delete process.env.LLM_LADDER_TOKEN;
     const u = new URL('http://x/hh/eval-run'); const res = fakeRes();
     try {
-      await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'c-1' }), u, res, ctx());
+      await withNoLadderToken(() => handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'c-1' }), u, res, ctx()));
     } finally {
       if (saved !== undefined) process.env.LLM_LADDER_TOKEN = saved;
     }
@@ -529,4 +546,82 @@ describe('ручной текст и расшифровка медиа (#87 фи
     expect(res.status).toBe(422);
     expect(JSON.parse(res.body).error).toContain('Deepgram');
   });
+});
+
+describe('candidate-doc-raw — тяжёлая загрузка в GCS (#105)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+  let core, coreUrl, savedEnv;
+
+  function rawReq(url, buf, contentType) {
+    const r = Readable.from([Buffer.isBuffer(buf) ? buf : Buffer.from(buf)]);
+    r.method = 'POST'; r.url = url; r.headers = { 'content-type': contentType || 'application/octet-stream' };
+    return r;
+  }
+
+  beforeEach(async () => {
+    // фейк ядра: принимает upload, отдаёт download (in-process loopback)
+    const store = new Map();
+    core = http.createServer((req, res) => {
+      const u = new URL(req.url, 'http://x');
+      const chunks = [];
+      req.on('data', c => chunks.push(c));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        if (u.pathname === '/internal/blob/upload') {
+          const key = `profiles/${u.searchParams.get('username')}/candidate-docs/${u.searchParams.get('candidate_id')}/${u.searchParams.get('doc_id')}${u.searchParams.get('ext')}`;
+          store.set(key, body);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, key, sha256: 'c'.repeat(64), size: body.length, generation: '7' }));
+          return;
+        }
+        res.writeHead(404).end('{}');
+      });
+    });
+    await new Promise(r => core.listen(0, '127.0.0.1', r));
+    coreUrl = `http://127.0.0.1:${core.address().port}`;
+    savedEnv = process.env.AGENT_INTERNAL_URL;
+    process.env.AGENT_INTERNAL_URL = coreUrl;
+  });
+
+  afterEach(async () => {
+    await new Promise(r => core.close(r));
+    if (savedEnv === undefined) delete process.env.AGENT_INTERNAL_URL;
+    else process.env.AGENT_INTERNAL_URL = savedEnv;
+  });
+
+  it('upload → документ с storage=gcs, байтов локально нет', async () => {
+    const payload = Buffer.from('тяжёлый m4a content '.repeat(10));
+    const u = new URL(`http://x/hh/candidate-doc-raw?${new URLSearchParams({ username: 'alice', token: tok(), candidate_name: 'Татьяна Потапова', filename: 'audio1519171140.m4a' })}`);
+    const res = fakeRes();
+    await handleHhPublic(rawReq(u.pathname + u.search, payload, 'audio/mp4'), u, res, ctx());
+    expect(res.status).toBe(200);
+    const out = JSON.parse(res.body);
+    expect(out.ok).toBe(true);
+    expect(out.doc.storage.backend).toBe('gcs');
+    expect(out.doc.storage.key).toContain('candidate-docs/');
+    expect(out.doc.media_kind).toBe('media');
+    expect(out.doc.type).toBe('interview'); // правила: аудио/видео → интервью
+
+    const root = path.join(root0(), 'data', 'hh', 'alice', 'candidate-docs', out.candidate_id);
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+    expect(manifest.docs[0].storage.backend).toBe('gcs');
+    expect(fs.readdirSync(root).some(f => f.endsWith('.m4a'))).toBe(false);
+  });
+
+  it('auth и пустое тело отклоняются', async () => {
+    let u = new URL('http://x/hh/candidate-doc-raw?username=alice&token=bad&filename=x.m4a');
+    let res = fakeRes();
+    await handleHhPublic(rawReq(u.pathname + u.search, Buffer.from('x')), u, res, ctx());
+    expect(res.status).toBe(403);
+
+    u = new URL(`http://x/hh/candidate-doc-raw?${new URLSearchParams({ username: 'alice', token: tok(), filename: 'x.m4a' })}`);
+    res = fakeRes();
+    await handleHhPublic(rawReq(u.pathname + u.search, Buffer.alloc(0)), u, res, ctx());
+    expect(res.status).toBe(400);
+  });
+
+  function root0() { return root; }
 });

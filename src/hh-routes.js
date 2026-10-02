@@ -1583,6 +1583,65 @@ if (req.method === 'GET' && url.pathname === '/hh/candidate-photo') {
   }
 }
 
+// ── Тяжёлая загрузка сырыми байтами (#105): JSON-base64 давал лимит 30 МБ и
+// дублирование ×1.33 — файл >1 МБ уходит через /hh/candidate-doc-raw в GCS ядра
+// (без GCS-SDK в скилле); ядро недоступно/старое → клиент падает на base64-путь.
+if (req.method === 'POST' && url.pathname === '/hh/candidate-doc-raw') {
+  const username = url.searchParams.get('username') || '';
+  const given = url.searchParams.get('token') || '';
+  const candId = url.searchParams.get('candidate_id') || '';
+  const candName = url.searchParams.get('candidate_name') || '';
+  const filename = url.searchParams.get('filename') || '';
+  const type = url.searchParams.get('type') || '';
+  const fail = (status, msg) => json(res, status, { error: msg });
+  if (!hhHub.SAFE_ID.test(username)) return fail(400, 'Invalid scope');
+  if (candId && !hhHub.SAFE_ID.test(candId)) return fail(400, 'Invalid scope');
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return fail(403, 'Invalid token');
+  if (type && !CANDIDATE_DOC_TYPES.includes(type)) return fail(400, 'Неизвестный тип документа.');
+
+  const BLOB_MAX = 256 * 1024 * 1024;
+  let buffer;
+  try {
+    buffer = await new Promise((resolve, reject) => {
+      const chunks = [];
+      let total = 0;
+      req.on('data', c => { total += c.length; if (total > BLOB_MAX) { req.destroy(); return reject(new Error('too large')); } chunks.push(c); });
+      req.on('end', () => resolve(Buffer.concat(chunks)));
+      req.on('error', reject);
+    });
+  } catch (e) {
+    return fail(e.message === 'too large' ? 413 : 400, e.message === 'too large' ? 'Файл больше 256 МБ — отдай ссылкой на Google Drive.' : `чтение тела: ${e.message}`);
+  }
+  if (!buffer.length) return fail(400, 'Пустой файл.');
+
+  try {
+    const out = await hhCandidateDocs.addDocument({
+      username,
+      candidateId: candId || null,
+      candidateName: candName || null,
+      filename: String(filename || 'файл').slice(0, 200),
+      buffer,
+      manualType: type || null,
+      externalStore: async ({ candidateId, docId, ext, buffer: buf, contentType }) => {
+        const up = await require('./hh-blob-client').uploadDocBytes({
+          username, candidateId, docId, ext, buffer: buf, contentType,
+        }, { env: { ...process.env, PORT: PORT ?? process.env.PORT } });
+        if (up.error) throw new Error(up.error);
+        return { backend: 'gcs', key: up.key, doc_id: docId, ext, sha256: up.sha256, generation: up.generation ?? null };
+      },
+    });
+    if (out.doc && out.doc.type === 'other') {
+      try { await hhCandidateDocs.llmClassifyFallback({ username, candidateId: out.candidate_id, docId: out.doc.id }); } catch { /* best effort */ }
+    }
+    const fresh = hhCandidateDocs.readManifest(username, out.candidate_id);
+    const doc = fresh?.docs.find(d => d.id === out.doc.id) || out.doc;
+    return json(res, 200, { ok: true, candidate_id: out.candidate_id, doc, storage: doc.storage || null });
+  } catch (e) {
+    console.error(`[hh/candidate-doc-raw] user=${username}:`, e.message);
+    return fail(502, e.message);
+  }
+}
+
 // ── Расшифровка загруженного аудио/видео кандидата (#87 → #88): файл уже на
 // сервере, тул читает его из candidate-docs, Deepgram без URL.
 if (req.method === 'POST' && url.pathname === '/hh/interview-transcribe') {

@@ -353,7 +353,7 @@ async function downloadSource(source) {
 
 // Загруженный кандидатом файл из candidate-docs (#87): окно «Новый кандидат»
 // кладёт аудио/видео на сервер — расшифровка идёт прямо с него, без URL.
-function loadUploadedDoc(userId, args) {
+async function loadUploadedDoc(userId, args) {
   const candidateId = String(args.candidate_id || '').trim();
   const docId = String(args.doc_id || '').trim();
   if (!candidateId && !docId) return null;
@@ -368,8 +368,18 @@ function loadUploadedDoc(userId, args) {
     throw new Error(`«${doc.filename}» не аудио/видео — расшифровать нечего. Для текста есть поле «Вставить текстом».`);
   }
   const file = path.join(cand.candRoot(userId, candidateId), `${doc.id}${ext}`);
-  if (!fs.existsSync(file)) throw new Error(`Файл «${doc.filename}» не найден на диске (${file}).`);
-  const buffer = fs.readFileSync(file);
+  let buffer;
+  if (doc.storage && doc.storage.backend === 'gcs') {
+    // Файл живёт в GCS (#105) — ядро отдаёт байты по /internal/blob/download
+    try {
+      buffer = await cand.readDocBytes(userId, candidateId, doc);
+    } catch (e) {
+      throw new Error(`Не удалось получить «${doc.filename}» из хранилища: ${e.message}`);
+    }
+  } else {
+    if (!fs.existsSync(file)) throw new Error(`Файл «${doc.filename}» не найден на диске (${file}) — загрузи заново.`);
+    buffer = fs.readFileSync(file);
+  }
   if (!buffer.length) throw new Error(`Файл «${doc.filename}» пустой (0 байт)`);
   return {
     buffer,
@@ -445,7 +455,7 @@ module.exports = {
         const userId = String(ctx.userId || process.env.USER_ID || '');
         const source = String(args.source_url || '').trim();
         const rawText = typeof args.text === 'string' ? args.text.trim() : '';
-        const uploaded = loadUploadedDoc(userId, args); // null, если candidate_id/doc_id не переданы
+        const uploaded = await loadUploadedDoc(userId, args); // null, если candidate_id/doc_id не переданы
 
         const given = [source, rawText, uploaded].filter(Boolean).length;
         if (given > 1) throw new Error('Передай РОВНО один источник: source_url, text или загруженный файл (candidate_id + doc_id).');

@@ -340,3 +340,41 @@ describe('hh_interview_transcribe — загруженный файл канди
     await expect(transcribe({ doc_id: 'x' })).rejects.toThrow(/candidate_id, и doc_id/);
   });
 });
+
+describe('hh_interview_transcribe — документ из GCS (#105)', () => {
+  const candDocs = require('../../src/hh-candidate-docs.js');
+  const http = require('node:http');
+
+  it('gcs-документ: байты приходят через /internal/blob/download, локального файла нет', async () => {
+    // 1) документ со storage=gcs (без локальных байтов)
+    const doc = await candDocs.addDocument({
+      username: USER, candidateId: 'c-gcs', candidateName: 'Татьяна Потапова',
+      filename: 'rec.m4a', buffer: Buffer.from('placeholder'), manualType: 'interview',
+      externalStore: async (info) => ({ backend: 'gcs', key: 'k', doc_id: info.docId, ext: info.ext }),
+    });
+    expect(doc.doc.storage.backend).toBe('gcs');
+
+    // 2) фейк ядра отдаёт настоящие байты
+    const core = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      res.end(Buffer.from('m4a-from-gcs'));
+    });
+    await new Promise(r => core.listen(0, '127.0.0.1', r));
+    const saved = { url: process.env.AGENT_INTERNAL_URL, secret: process.env.AGENT_SECRET };
+    process.env.AGENT_INTERNAL_URL = `http://127.0.0.1:${core.address().port}`;
+    process.env.AGENT_SECRET = 'sec';
+
+    const bodies = mockDeepgram({ contentType: 'audio/mp4' });
+    try {
+      const res = await transcribe({ candidate_id: 'c-gcs', doc_id: doc.doc.id, slug: 'c-gcs' });
+      expect(res.slug).toBe('c-gcs');
+      expect(bodies).toEqual(['m4a-from-gcs']); // именно байты из GCS ушли в Deepgram
+      const meta = JSON.parse(read(join(interviewsDir(), 'c-gcs', 'meta.json')));
+      expect(meta.source).toBe(`uploaded:c-gcs/${doc.doc.id}`);
+    } finally {
+      await new Promise(r => core.close(r));
+      if (saved.url === undefined) delete process.env.AGENT_INTERNAL_URL; else process.env.AGENT_INTERNAL_URL = saved.url;
+      if (saved.secret === undefined) delete process.env.AGENT_SECRET; else process.env.AGENT_SECRET = saved.secret;
+    }
+  });
+});

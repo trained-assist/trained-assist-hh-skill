@@ -69,7 +69,14 @@ function classifyStored(doc, text) {
   return classifyDoc({ filename: doc.filename, text, ext: doc.ext });
 }
 
-async function addDocument({ username, candidateId = null, candidateName = null, filename, buffer, manualType = null, sourceUrl = null }) {
+const CONTENT_TYPES_BY_EXT = {
+  '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4a': 'audio/mp4', '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
+  '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.zip': 'application/zip',
+};
+
+async function addDocument({ username, candidateId = null, candidateName = null, filename, buffer, manualType = null, sourceUrl = null, externalStore = null }) {
   const manifest = ensureCandidate(username, candidateId, candidateName);
   const id = docId();
   const ext = (String(filename).match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
@@ -99,7 +106,20 @@ async function addDocument({ username, candidateId = null, candidateName = null,
     detected = classifyStored({ filename, ext }, text);
   }
 
-  if (!sourceUrl) fs.writeFileSync(path.join(root, `${id}${ext || '.bin'}`), buffer);
+  let storage = null;
+  if (!sourceUrl) {
+    if (externalStore) {
+      // Тяжёлый файл уходит в GCS через ядро (#105): локально остаётся только .txt
+      const info = await externalStore({
+        candidateId: manifest.candidate_id, docId: id, ext: ext || '.bin', buffer,
+        contentType: CONTENT_TYPES_BY_EXT[(ext || '').toLowerCase()] || 'application/octet-stream',
+      });
+      if (!info || info.error) throw new Error((info && info.error) || 'загрузка в хранилище не удалась');
+      storage = info;
+    } else {
+      fs.writeFileSync(path.join(root, `${id}${ext || '.bin'}`), buffer);
+    }
+  }
   if (text) fs.writeFileSync(path.join(root, `${id}.txt`), text);
 
   const doc = {
@@ -116,6 +136,7 @@ async function addDocument({ username, candidateId = null, candidateName = null,
     chars: text.length,
     media_kind: mediaKindName || undefined,
     extract_error: extractError || undefined,
+    storage: storage || undefined,
     added_at: new Date().toISOString(),
   };
   manifest.docs.push(doc);
@@ -156,6 +177,24 @@ async function llmClassifyFallback({ username, candidateId, docId: id }) {
   doc.reason = String(out.reason || 'LLM-классификатор').slice(0, 120);
   writeManifest(username, candidateId, manifest);
   return { ok: true, doc };
+}
+
+// Байты документа: локальный файл либо GCS (#105). Возвращает Buffer (Promise).
+function readDocBytes(username, candidateId, doc) {
+  if (doc && doc.storage && doc.storage.backend === 'gcs') {
+    const { downloadDocBytes } = require('./hh-blob-client');
+    return downloadDocBytes({
+      username,
+      candidateId,
+      docId: doc.storage.doc_id || doc.id,
+      ext: doc.storage.ext || doc.ext || '.bin',
+    });
+  }
+  const file = path.join(candRoot(username, candidateId), `${doc.id}${doc.ext || ''}`);
+  if (!fs.existsSync(file)) {
+    return Promise.reject(new Error(`Файл «${doc.filename}» не найден на диске — загрузи его заново.`));
+  }
+  return Promise.resolve(fs.readFileSync(file));
 }
 
 function setDocType({ username, candidateId, docId: id, type }) {
@@ -240,5 +279,5 @@ async function extractProfile({ username, candidateId }) {
 
 module.exports = {
   candRoot, manifestPath, readManifest, writeManifest, ensureCandidate,
-  addDocument, setDocType, combinedText, extractProfile, llmClassifyFallback,
+  addDocument, setDocType, combinedText, extractProfile, llmClassifyFallback, readDocBytes,
 };
