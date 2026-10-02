@@ -17,6 +17,7 @@ const { tokensRoot } = require('./data-paths.js');
 const path = require('path');
 const os = require('os');
 const { createHmac } = require('crypto');
+const { publicPageBase, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 // Credential store (trained-assist-agent#1939): this state file lives under
 // agent-tokens, so the migration encrypts it — read/write it through the store
 // (legacy plaintext transparent, v2 envelope decrypted, stub never returned,
@@ -94,7 +95,7 @@ function shouldRun(state, nowMs) {
 // straight into the right tab. Omitted (falsy) → no param, unchanged for
 // single-vacancy callers.
 function proactiveUrlFor(username, vacancyId) {
-  const base = (process.env.HH_COLD_SEARCH_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+  const base = publicPageBase(username, COLD_SEARCH_ENV, 'https://recruiter-assistant.ru');
   const token = createHmac('sha256', process.env.AGENT_SECRET || '').update(String(username)).digest('hex').slice(0, 16);
   const vacancyParam = vacancyId ? `&vacancy_id=${encodeURIComponent(vacancyId)}` : '';
   return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;

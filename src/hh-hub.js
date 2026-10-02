@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { dataRoot, tokensRoot } = require('./data-paths.js');
+const { publicPageBase, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 const { readActiveVacancies } = require('./hh-utils');
 const { readVacancyState } = require('./hh-vacancy');
 
@@ -108,9 +109,10 @@ function planStatusPath(username, token, taskId) {
   return `/hh/plan?${q.toString()}`;
 }
 
-function publicBase() {
-  // Same host as the /hh/review and /hh/proactive links the bot mints (spec §7).
-  return (process.env.HH_COLD_SEARCH_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+function publicBase(username) {
+  // Same host as the /hh/review and /hh/proactive links the bot mints (spec §7),
+  // including a per-user publish override when one is configured.
+  return publicPageBase(username, COLD_SEARCH_ENV, 'https://recruiter-assistant.ru');
 }
 
 // Compile + activate the launch playbook through the host MCP tool runner.

@@ -14,6 +14,7 @@ const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
 const { ladderChat, ladderToken } = require('../../llm-ladder');
 const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
+const { publicPageBase, internalApiBase, savePublishDomain, loadPublishDomain, clearPublishDomain, HH_PAGES_ENV } = require('../../hh-publish-domain');
 
 const USER_ID = process.env.USER_ID || '';
 
@@ -665,7 +666,10 @@ module.exports = {
         const activeVacancies = addActiveVacancy(value);
 
         // Kick off background negotiations sync so /hh/review is instant on first open
-        const agentBase = (process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, '');
+        // Server-to-server call INTO the agent: infrastructure base only. A
+        // per-user page-publish domain must never redirect this (the first
+        // attempt at per-tenant publishing did exactly that).
+        const agentBase = internalApiBase();
         fetch(`${agentBase}/hh/sync-negotiations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1123,7 +1127,7 @@ module.exports = {
           // scoring reads. Criteria/weights are reviewed and finalized in /hh/ats-editor,
           // not by the chat LLM re-writing context on the recruiter's behalf.
           writeContext('hh', activeVacancy?.id ? `ats_config_draft:${activeVacancy.id}` : 'ats_config_draft', config);
-          const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
+          const agentBase = publicPageBase(USER_ID, HH_PAGES_ENV, 'http://localhost:3001');
           const agentSecret = process.env.AGENT_SECRET || '';
           const editorToken = agentSecret
             ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
@@ -1726,9 +1730,7 @@ module.exports = {
           enriched.push({ ...c, draft_message: draft, already_sent: alreadySent });
         }
 
-        const callbackBase = process.env.AGENT_PUBLIC_URL
-          ? process.env.AGENT_PUBLIC_URL.replace(/\/$/, '')
-          : 'http://localhost:3001';
+        const callbackBase = publicPageBase(USER_ID, HH_PAGES_ENV, 'http://localhost:3001');
         const html = generateReviewHtml(enriched, vacancy_name, {
           callbackBase,
           username: USER_ID,
@@ -1881,7 +1883,7 @@ module.exports = {
       description: 'Open the ATS Template Editor — a visual web page for designing the recruiting pipeline stages and ATS scoring config. Saves to context on click. Returns the URL to open in a browser.',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
-        const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
+        const agentBase = publicPageBase(USER_ID, HH_PAGES_ENV, 'http://localhost:3001');
         const agentSecret = process.env.AGENT_SECRET || '';
         const editorToken = agentSecret
           ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)
@@ -1891,6 +1893,53 @@ module.exports = {
           ok: true,
           url,
           note: `Открой ссылку в браузере: ${url}`,
+        };
+      },
+    },
+
+    // ── Per-user publish domain (Cold Search Stage 4) ────────────────────────
+
+    hh_set_publish_domain: {
+      description:
+        'Показать или задать свой домен публикации для страниц, которые агент генерирует для тебя ' +
+        '(Cold Search, ревью кандидатов, ATS-редактор, страница вакансии). Без domain — показать текущий. ' +
+        'Серверные вызовы агента (например /hh/sync-negotiations) на этот домен НЕ переключаются — ' +
+        'они всегда идут на внутренний адрес платформы. DNS/TLS для домена настраивается отдельно.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          domain: {
+            type: 'string',
+            description: 'Адрес без пути и параметров, например https://coldsearch.myagency.ru. Пустая строка — сбросить домен на общий.',
+          },
+        },
+      },
+      handler: async ({ domain } = {}) => {
+        if (domain === undefined || domain === null) {
+          const current = loadPublishDomain(USER_ID);
+          return {
+            domain: current,
+            source: current ? 'profile' : 'default',
+            note: current
+              ? `Твои страницы публикуются на ${current}. Без этого домена использовался бы общий адрес платформы.`
+              : 'Свой домен не задан — страницы идут на общий адрес платформы. Передай domain, чтобы задать свой.',
+          };
+        }
+        if (String(domain).trim() === '') {
+          clearPublishDomain(USER_ID);
+          return { cleared: true, domain: null, note: 'Свой домен сброшен — страницы снова идут на общий адрес платформы.' };
+        }
+        let saved;
+        try {
+          saved = savePublishDomain(USER_ID, domain);
+        } catch (e) {
+          // Validation error: nothing was written, the caller keeps the old value.
+          return { ok: false, error: e.message, domain: loadPublishDomain(USER_ID) };
+        }
+        return {
+          ok: true,
+          domain: saved,
+          note: `Страницы для тебя теперь публикуются на ${saved}. Серверные вызовы агента продолжают идти на внутренний адрес.`,
         };
       },
     },

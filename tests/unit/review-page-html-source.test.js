@@ -28,9 +28,15 @@ describe('generateReviewHtml source — callback embedding', () => {
     expect(src).not.toContain('HH_SECRET');
   });
 
-  it('hh_draft_review_page passes callbackBase from AGENT_PUBLIC_URL', () => {
-    expect(src).toContain('AGENT_PUBLIC_URL');
+  // Changed requirement: the review page callback is a PAGE link, so it follows the
+  // per-user publish domain (public page base), not AGENT_PUBLIC_URL read inline.
+  // The old assertion pinned the literal env name and would have passed a
+  // regression that fed the tenant domain into the server-to-server sync call.
+  it('hh_draft_review_page passes callbackBase from the public page base', () => {
+    expect(src).toContain('publicPageBase(USER_ID, HH_PAGES_ENV');
     expect(src).toContain('callbackBase');
+    // …while the internal sync call stays on the internal base.
+    expect(src).toContain('const agentBase = internalApiBase();');
   });
 });
 

@@ -5,6 +5,7 @@
 
 const path = require('path');
 const { ladderToken } = require('../../hh-llm');
+const { publicPageBase, HH_PAGES_ENV } = require('../../hh-publish-domain');
 const { checkCriteria } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const {
@@ -73,7 +74,7 @@ function mergePatch(portrait, patch) {
 }
 
 function editorUrlFor(vacancyId) {
-  const agentBase = (process.env.AGENT_PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '');
+  const agentBase = publicPageBase(USER_ID, HH_PAGES_ENV, 'http://localhost:3001');
   const agentSecret = process.env.AGENT_SECRET || '';
   const token = agentSecret
     ? require('crypto').createHmac('sha256', agentSecret).update(USER_ID).digest('hex').slice(0, 16)

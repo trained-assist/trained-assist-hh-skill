@@ -718,6 +718,25 @@
       "retrySafety": "idempotent"
     },
     {
+      "name": "hh_set_publish_domain",
+      "description": "Показать или задать свой домен публикации для страниц, которые агент генерирует для тебя (Cold Search, ревью кандидатов, ATS-редактор, страница вакансии). Без domain — показать текущий. Серверные вызовы агента (например /hh/sync-negotiations) на этот домен НЕ переключаются — они всегда идут на внутренний адрес платформы. DNS/TLS для домена настраивается отдельно.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Адрес без пути и параметров, например https://coldsearch.myagency.ru. Пустая строка — сбросить домен на общий."
+          }
+        }
+      },
+      "allowedTriggers": [
+        "user"
+      ],
+      "effect": "write",
+      "requiresApproval": true,
+      "retrySafety": "unsafe"
+    },
+    {
       "name": "hh_candidate_profile",
       "description": "Generate a clean markdown candidate profile for showing to a client/hiring manager. Takes negotiation_id and optional vacancy context.",
       "inputSchema": {

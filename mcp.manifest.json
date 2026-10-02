@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "db41f025c321767bab981b8d069f7e3461761f76",
+      "revision": "efe1af8de54261e046b4ecebce07d66e401d9f06",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "be2b556f70091a0ef71743f3f917caee699f0827f02a92a7e3a125c1aee6271f",
+      "artifactDigest": "e891f6ce7ce00f2eeb58f88b034b625e0ddfd09a5eed82741fd42b7d537575f1",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -707,6 +707,24 @@
             "effect": "write",
             "requiresApproval": false,
             "retrySafety": "idempotent"
+          },
+          {
+            "name": "hh_set_publish_domain",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "domain": {
+                  "type": "string",
+                  "description": "Адрес без пути и параметров, например https://coldsearch.myagency.ru. Пустая строка — сбросить домен на общий."
+                }
+              }
+            },
+            "allowedTriggers": [
+              "user"
+            ],
+            "effect": "write",
+            "requiresApproval": true,
+            "retrySafety": "unsafe"
           },
           {
             "name": "hh_candidate_profile",

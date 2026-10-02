@@ -1,5 +1,6 @@
 'use strict';
 const { tokensRoot, usersRoot } = require('../../data-paths.js');
+const { publicPageBase, COLD_SEARCH_ENV } = require('../../hh-publish-domain');
 
 const fs = require('fs');
 const path = require('path');
@@ -28,7 +29,7 @@ function proactiveHmac(username) {
 // pattern as hhReviewUrl (src/hh-quick.js) — so the tab switcher can deep-link into
 // the right tab. Omitted (falsy) → no param, unchanged for single-vacancy callers.
 function proactiveUrl(username, vacancyId) {
-  const base = (process.env.HH_COLD_SEARCH_PUBLIC_URL || 'https://recruiter-assistant.ru').replace(/\/$/, '');
+  const base = publicPageBase(username, COLD_SEARCH_ENV, 'https://recruiter-assistant.ru');
   const token = proactiveHmac(username);
   const vacancyParam = vacancyId ? `&vacancy_id=${encodeURIComponent(vacancyId)}` : '';
   return `${base}/hh/proactive?username=${encodeURIComponent(username)}&token=${token}${vacancyParam}`;
