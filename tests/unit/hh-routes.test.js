@@ -60,6 +60,19 @@ describe('hh-routes', () => {
     expect(res.headers['Access-Control-Allow-Origin']).toBe('*');
   });
 
+  it('answers CORS preflight for /hh/ats-extract (issue #126, live 401 in the editor)', async () => {
+    // Without this the browser preflight fails before reaching the route: the extraction
+    // was moved INTO the editor precisely because the public edge blocks the path, and
+    // the editor still talks to the agent cross-origin (AGENT_PUBLIC_URL vs the page
+    // origin). A 204 here is what lets that fetch happen at all.
+    const u = new URL('http://x/hh/ats-extract');
+    const res = fakeRes();
+    await handleHhPublic(req('OPTIONS', u.pathname), u, res, ctx());
+    expect(res.status).toBe(204);
+    expect(res.headers['Access-Control-Allow-Origin']).toBe('*');
+    expect(res.headers['Access-Control-Allow-Methods']).toContain('POST');
+  });
+
   it('shows an error page, not candidates, for a review link with a wrong token', async () => {
     const u = new URL('http://x/hh/review?username=alice&token=wrong'); const res = fakeRes();
     await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
