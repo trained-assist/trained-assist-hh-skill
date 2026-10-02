@@ -175,15 +175,34 @@ function buildDraftUserMessage({
 // The instruction hash (epic #112) does the same for a recruiter editing the
 // per-vacancy message instructions: drafts written under the old wording would
 // otherwise stay cached until the candidate wrote something new.
-function historySignature(history = [], vacancyInstruction = '') {
+// The must-haves of the vacancy are the third input that shapes a letter: the writer
+// is told to ask only about them and (since #122) is handed their list in the system
+// prompt. A draft written before the recruiter filled them in — or before a criterion
+// was renamed — was composed against a different question set, so it must be treated as
+// stale. Only NAMES are hashed: a weight change moves the ATS score, not the wording of
+// the letter, and must not churn every cached draft.
+function criteriaSignature(atsConfig = {}) {
+  const names = list => (Array.isArray(list) ? list : [])
+    .map(c => String((c && (c.name ?? c)) || '').trim()).filter(Boolean);
+  const req = names(atsConfig.required);
+  const pref = names(atsConfig.preferred);
+  if (!req.length && !pref.length) return '';
+  return createHash('sha256').update(JSON.stringify({ required: req, preferred: pref })).digest('hex').slice(0, 16);
+}
+
+function historySignature(history = [], vacancyInstruction = '', atsConfig = {}) {
   const msgs = (history || []).filter(m => m && String(m.text || '').trim());
   const base = msgs.length
     ? `${FUNNEL_LOGIC_VERSION}:${msgs.length}:${msgs[msgs.length - 1].hh_id || msgs[msgs.length - 1].timestamp || ''}`
     : `${FUNNEL_LOGIC_VERSION}:empty`;
   const text = String(vacancyInstruction || '').trim();
-  // Keep the empty-instruction signature byte-identical to the pre-#112 one so
-  // existing cached drafts are not invalidated for the sake of a re-deploy.
-  return text ? `${base}:i${createHash('sha256').update(text).digest('hex').slice(0, 16)}` : base;
+  // Keep both optional segments byte-identical to their pre-#122 shape when they are
+  // absent, so a vacancy with no criteria / no instructions is not invalidated by a
+  // re-deploy.
+  let sig = text ? `${base}:i${createHash('sha256').update(text).digest('hex').slice(0, 16)}` : base;
+  const crit = criteriaSignature(atsConfig);
+  if (crit) sig += `:c${crit}`;
+  return sig;
 }
 
 // Actions that legitimately produce NO letter. Without the skip signature the
@@ -191,9 +210,9 @@ function historySignature(history = [], vacancyInstruction = '') {
 // silent candidate — 'no draft' is a decision, not missing work.
 const NO_LETTER_ACTIONS = ['wait', 'reject'];
 
-function isDraftStale(history = {}, vacancyInstruction = '') {
+function isDraftStale(history = {}, vacancyInstruction = '', atsConfig = {}) {
   const ats = history?.ats_result || {};
-  const sig = historySignature(history.messages || [], vacancyInstruction);
+  const sig = historySignature(history.messages || [], vacancyInstruction, atsConfig);
   if (NO_LETTER_ACTIONS.includes(ats.funnel_action)) {
     return ats.draft_skip_sig !== sig;
   }
@@ -216,5 +235,6 @@ module.exports = {
   buildAtsLine,
   renderHistory,
   historySignature,
+  criteriaSignature,
   isDraftStale,
 };

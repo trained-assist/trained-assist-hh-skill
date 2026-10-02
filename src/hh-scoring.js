@@ -352,7 +352,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     // it as-is and the recruiter can send one click away. Regenerate whenever the
     // candidate said something new (live case: neg 5610867713, drafted at 12:15 against
     // a thread that had already changed at 12:03 and was cached from then on).
-    return isDraftStale(h, vacancyInstruction);
+    return isDraftStale(h, vacancyInstruction, atsConfig);
   });
 
   if (!needDraft.length) return 0;
@@ -395,7 +395,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         if (plan.action === 'wait' || plan.action === 'reject') {
           // Record WHY there is no draft, against the same thread signature — so the
           // next cycle knows this was decided, not forgotten.
-          history.ats_result.draft_skip_sig = historySignature(thread, vacancyInstruction);
+          history.ats_result.draft_skip_sig = historySignature(thread, vacancyInstruction, atsConfig);
           if (plan.action === 'reject') delete history.ats_result.draft_message;
           saveCandidateHistory(username, neg.id, history);
           return;
@@ -407,7 +407,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           const verbatim = buildTestTaskMessage(atsConfig?.test_task);
           if (verbatim) {
             history.ats_result.draft_message = verbatim;
-            history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction);
+            history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction, atsConfig);
             delete history.ats_result.draft_warning;
             saveCandidateHistory(username, neg.id, history);
             generated++;
@@ -472,7 +472,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         history.ats_result.draft_message = message;
         // Stamp the thread this draft was written against — without it the next scoring
         // pass cannot tell a fresh draft from one that predates the candidate's answer.
-        history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction);
+        history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction, atsConfig);
         if (!guard.ok) history.ats_result.draft_warning = guard.reason;
         else delete history.ats_result.draft_warning;
         saveCandidateHistory(username, neg.id, history);

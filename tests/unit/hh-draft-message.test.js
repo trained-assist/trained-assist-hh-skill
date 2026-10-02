@@ -28,6 +28,7 @@ const {
   detectMessageType,
   buildDraftUserMessage,
   historySignature,
+  criteriaSignature,
   isDraftStale,
 } = require('../../src/hh-draft-message');
 const { DEFAULT_MESSAGE_BASE } = require('../../src/hh-message-prompts');
@@ -224,6 +225,56 @@ describe('draft cache: a new candidate answer invalidates the stored draft', () 
 
   it('a legacy draft with no signature at all is regenerated once', () => {
     expect(isDraftStale(historyWith(BAKHTADZE_HISTORY, { draft_message: 'Добрый день!' }))).toBe(true);
+  });
+});
+
+// Issue #121 follow-up: since #122 the writer prompt carries the vacancy's must-haves
+// («Обязательные требования» block), so the criteria are an INPUT of the letter. A
+// draft written before the recruiter filled them in answers a different question set —
+// until the criteria entered the signature, all 181 cached drafts of vacancy 138004863
+// stayed cached forever and the fix was invisible in production.
+describe('draft cache: the vacancy must-haves are part of the signature', () => {
+  const CFG_A = { required: [{ name: 'опыт WB от 2 лет', weight: 3 }], preferred: [{ name: 'MPStats', weight: 1 }] };
+  const CFG_B = { required: [{ name: 'опыт WB от 2 лет', weight: 3 }, { name: 'CTR/ДРР', weight: 2 }], preferred: [] };
+  const history = { messages: [{ role: 'applicant', text: 'ок', hh_id: '1' }], ats_result: { draft_message: 'Добрый день!' } };
+
+  it('a draft written under a different must-have list is stale', () => {
+    const h = { ...history, ats_result: { ...history.ats_result, draft_history_sig: historySignature(history.messages, '', CFG_A) } };
+    expect(isDraftStale(h, '', CFG_B)).toBe(true);
+  });
+
+  it('the same must-haves keep the draft fresh (no churn on a re-deploy)', () => {
+    const h = { ...history, ats_result: { ...history.ats_result, draft_history_sig: historySignature(history.messages, '', CFG_A) } };
+    expect(isDraftStale(h, '', CFG_A)).toBe(false);
+  });
+
+  it('a weight change alone does NOT invalidate — it moves the score, not the wording', () => {
+    const cfg1 = { required: [{ name: 'опыт WB', weight: 1 }] };
+    const cfg2 = { required: [{ name: 'опыт WB', weight: 3 }] };
+    expect(historySignature(history.messages, '', cfg1)).toBe(historySignature(history.messages, '', cfg2));
+  });
+
+  it('criteria may arrive after the draft was written (the live 138004863 case)', () => {
+    const sig = historySignature(history.messages, '');
+    const withCfg = historySignature(history.messages, '', CFG_A);
+    expect(sig).not.toBe(withCfg);
+    const h = { ...history, ats_result: { ...history.ats_result, draft_history_sig: sig } };
+    expect(isDraftStale(h, '', CFG_A)).toBe(true);
+  });
+
+  it('an empty criteria list keeps the pre-#122 signature byte-for-byte', () => {
+    expect(historySignature(history.messages, 'инструкция')).toBe(
+      historySignature(history.messages, 'инструкция', {}),
+    );
+    expect(criteriaSignature({})).toBe('');
+    expect(criteriaSignature({ required: [], preferred: [] })).toBe('');
+    expect(criteriaSignature(undefined)).toBe('');
+  });
+
+  it('accepts bare string criteria and ignores blank entries', () => {
+    expect(criteriaSignature({ required: ['знание WB'] }))
+      .toBe(criteriaSignature({ required: [{ name: 'знание WB', weight: 2 }] }));
+    expect(criteriaSignature({ required: ['', null, { name: '  ' }] })).toBe('');
   });
 });
 
