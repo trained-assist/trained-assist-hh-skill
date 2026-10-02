@@ -10,7 +10,7 @@ const { dataRoot } = require('./data-paths.js');
 const { extractTextFromBuffer } = require('./hh-doc-text');
 const { classifyDoc, llmClassifyChunk, TYPE_LABELS } = require('./hh-doc-classify');
 const { slugify } = require('./hh-candidate-report');
-const { ladderToken } = require('./hh-llm');
+const { ladderToken, hhLlmJson } = require('./hh-llm');
 
 function candRoot(username, candidateId) {
   return path.join(dataRoot(), 'hh', String(username), 'candidate-docs', candidateId);
@@ -90,6 +90,54 @@ function classifyStored(doc, text) {
   return classifyDoc({ filename: doc.filename, text, ext: doc.ext });
 }
 
+const MAX_VISION_IMAGE = 4 * 1024 * 1024;
+const MAX_TEXT = 60_000;
+
+// Изображение резюме/скан не имеет текстового слоя — «очевидность» видна только
+// глазами. Единственная доступная пара глаз в стеке — vision-модель лестницы
+// (gemini-flash): она и тип документа называет, и текст переносит (владимир:
+// «поменял тип на резюме — всё равно нет текстовых документов» — тип ≠ текст).
+// Любая ошибка/отсутствие токена/картинка больше лимита → null, работает прежние
+// правила (image → фото). Возвращает {type, reason, text} | null.
+async function visionClassifyDocument(buffer, contentType) {
+  if (!ladderToken()) return null;
+  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_VISION_IMAGE) return null;
+  const dataUri = `data:${contentType || 'image/jpeg'};base64,${buffer.toString('base64')}`;
+  try {
+    const out = await hhLlmJson({
+      messages: [
+        {
+          role: 'system',
+          content: 'Смотришь на изображение документа кандидата. Ответь СТРОГО JSON: {"type":"...","reason":"...","text":"..."}\n'
+            + 'type — одно из: resume (резюме: опыт, даты, навыки), cover_letter (письмо о себе), correspondence (переписка), interview (расшифровка интервью), portfolio, photo (обычное фото людей/предметов без текста), other.\n'
+            + 'reason — одна короткая фраза по-русски, почему так.\n'
+            + 'text — полный переносимый текст документа (резюме/письмо/документ с текстом); для photo и безтекстовых картинок — пустая строка.\n'
+            + 'Ничего кроме JSON.',
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Классифицируй документ и извлеки текст, если он есть.' },
+            { type: 'image_url', image_url: { url: dataUri } },
+          ],
+        },
+      ],
+      purpose: 'default',
+      temperature: 0,
+      maxTokens: 4000,
+      timeoutMs: 45_000,
+      source: 'hh-doc-vision',
+    });
+    const type = require('./hh-doc-classify').TYPES.includes(out?.type) ? out.type : null;
+    if (process.env.HH_DOCS_DEBUG) console.warn('[vision] out=', JSON.stringify(out).slice(0, 200), 'typeOk=', !!type);
+    if (!type) return null;
+    return { type, reason: String(out.reason || '').slice(0, 160), text: typeof out.text === 'string' ? out.text.slice(0, MAX_TEXT) : '' };
+  } catch (e) {
+    if (process.env.HH_DOCS_DEBUG) console.warn('[vision] error=', e && e.message);
+    return null;
+  }
+}
+
 const CONTENT_TYPES_BY_EXT = {
   '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
@@ -124,11 +172,17 @@ async function addDocument({ username, candidateId = null, candidateName = null,
   let text = '';
   let extractError = null;
   let mediaKindName = null;
+  let vision = null;
   if (!sourceUrl) {
-    // Фото/аудио/видео/архив — не пытаемся «выжать» текст (раньше это давало
+    // Фото/аудио/видео/архив — не пытаемся «выжать» текст бинарём (раньше это давало
     // пугающее «формат не поддерживается» на абсолютно ожидаемых файлах).
+    // Изображения — отдельный случай: vision-модель «видит» резюме-картинку,
+    // определяет тип и переносит текст (правило: тип ≠ текст, нужен текст).
     mediaKindName = require('./hh-doc-text').mediaKind(ext);
-    if (!mediaKindName) {
+    if (mediaKindName === 'image') {
+      vision = await visionClassifyDocument(buffer, CONTENT_TYPES_BY_EXT[ext.toLowerCase()] || 'image/jpeg');
+      if (vision && vision.text) text = vision.text;
+    } else if (!mediaKindName) {
       // extractTextFromBuffer смотрит расширение имени — даём синтетическое с тем же ext
       const extracted = extractTextFromBuffer(buffer, ext ? `doc${ext}` : String(filename || 'file'));
       if (extracted.ok) text = extracted.text;
@@ -138,7 +192,10 @@ async function addDocument({ username, candidateId = null, candidateName = null,
 
   let detected;
   if (manualType) {
+    // Ручной тип главнее; текст из vision при этом всё равно берём (он уже в `text`)
     detected = { type: manualType, detected_by: 'manual', reason: 'выбрано при загрузке' };
+  } else if (vision && vision.type) {
+    detected = { type: vision.type, detected_by: 'llm', reason: vision.reason || 'vision-модель по изображению' };
   } else {
     detected = classifyStored({ filename, ext }, text);
   }
@@ -194,7 +251,6 @@ async function llmClassifyFallback({ username, candidateId, docId: id }) {
   const chunk = llmClassifyChunk(fs.readFileSync(txtFile, 'utf8'));
   if (!chunk.trim() || !ladderToken()) return null;
 
-  const { hhLlmJson } = require('./hh-llm');
   const out = await hhLlmJson({
     messages: [
       { role: 'system', content: 'Классифицируй документ кандидата. Типы: resume (есть история опыта с датами/компаниями), cover_letter (просто о себе/письмо без истории), correspondence (переписка), interview (расшифровка интервью), portfolio, photo, other. Ответь ТОЛЬКО JSON: {"type":"...","reason":"одна короткая фраза"}' },
@@ -318,9 +374,40 @@ const PROFILE_SYSTEM = `Ты извлекаешь профиль кандида�
   "summary": "3-4 предложения о кандидате от первого лица"
 }`;
 
+// У существующих картинок без текста (загружены до vision-фикса или vision упал)
+// при генерации профиля даём второй шанс: распознать текст по изображению и
+// сохранить рядом .txt. Идемпотентно: chars>0 → пропуск.
+async function visionBackfillImages(username, candidateId, manifest) {
+  if (!ladderToken()) return false;
+  let changed = false;
+  for (const d of manifest.docs || []) {
+    if (d.chars || d.media_kind !== 'image' || d.source_url) continue;
+    let buf;
+    try { buf = await readDocBytes(username, candidateId, d); } catch { continue; }
+    const v = await visionClassifyDocument(buf, CONTENT_TYPES_BY_EXT[String(d.ext || '').toLowerCase()] || 'image/jpeg');
+    if (!v) continue;
+    if (v.text && v.text.trim()) {
+      const file = path.join(candRoot(username, candidateId), `${d.id}.txt`);
+      fs.writeFileSync(file, v.text);
+      d.chars = v.text.length;
+      changed = true;
+    }
+    if (d.detected_by !== 'manual' && v.type && v.type !== d.type) {
+      d.type = v.type;
+      d.type_label = require('./hh-doc-classify').TYPE_LABELS[v.type] || v.type;
+      d.detected_by = 'llm';
+      d.reason = v.reason || 'vision-модель по изображению';
+      changed = true;
+    }
+  }
+  if (changed) writeManifest(username, candidateId, manifest);
+  return changed;
+}
+
 async function extractProfile({ username, candidateId }) {
   const manifest = readManifest(username, candidateId);
   if (!manifest) return { error: 'Кандидат не найден.' };
+  try { await visionBackfillImages(username, candidateId, manifest); } catch { /* best effort */ }
   const text = combinedText(username, candidateId);
   if (!text.trim()) {
     // Почему нет текста — по каждому файлу, с действием вместо общей фразы.
@@ -360,5 +447,5 @@ async function extractProfile({ username, candidateId }) {
 
 module.exports = {
   candRoot, manifestPath, readManifest, writeManifest, ensureCandidate,
-  addDocument, setDocType, renameCandidate, deleteDocument, combinedText, extractProfile, llmClassifyFallback, readDocBytes, healManifest,
+  addDocument, setDocType, renameCandidate, deleteDocument, visionClassifyDocument, combinedText, extractProfile, llmClassifyFallback, readDocBytes, healManifest,
 };

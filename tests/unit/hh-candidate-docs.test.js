@@ -4,22 +4,36 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createRequire } from 'module';
+import nock from 'nock';
 
 const require = createRequire(import.meta.url);
 const docs = require('../../src/hh-candidate-docs.js');
 
 let dataDir;
 let savedEnv;
+let tokensDir;
+let savedTokens;
 
 beforeEach(() => {
   dataDir = mkdtempSync(join(tmpdir(), 'hh-cand-docs-'));
+  tokensDir = mkdtempSync(join(tmpdir(), 'hh-cand-docs-tokens-'));
   savedEnv = process.env.AGENT_DATA_DIR;
+  savedTokens = { d: process.env.AGENT_TOKENS_DIR, r: process.env.AGENT_TOKENS_ROOT };
   process.env.AGENT_DATA_DIR = dataDir;
+  // герметично от реального ~/agent-tokens/llm-ladder/token (vision-тесты ставят
+  // env-токен сами; остальные должны видеть «токена нет» и ходить по правилам)
+  process.env.AGENT_TOKENS_DIR = tokensDir;
+  process.env.AGENT_TOKENS_ROOT = tokensDir;
 });
 afterEach(() => {
   if (savedEnv === undefined) delete process.env.AGENT_DATA_DIR;
   else process.env.AGENT_DATA_DIR = savedEnv;
+  if (savedTokens) {
+    if (savedTokens.d === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens.d;
+    if (savedTokens.r === undefined) delete process.env.AGENT_TOKENS_ROOT; else process.env.AGENT_TOKENS_ROOT = savedTokens.r;
+  }
   rmSync(dataDir, { recursive: true, force: true });
+  rmSync(tokensDir, { recursive: true, force: true });
 });
 
 const RESUME = Buffer.from('Опыт работы\n2023 – 2025 ООО «Пример», маркетолог\nНавыки: Excel', 'utf8');
@@ -281,5 +295,96 @@ describe('имя не блокирует + переименование (UX #107
   it('rename: пустое имя и неизвестный кандидат — error', async () => {
     expect(docs.renameCandidate({ username: 'u1', candidateId: 'x', name: '   ' }).error).toBeTruthy();
     expect(docs.renameCandidate({ username: 'u1', candidateId: 'nope', name: 'Y' }).error).toMatch(/не найден/);
+  });
+});
+
+describe('vision-классификация изображений (#107 → резюме-картинка)', () => {
+  const LADDER = 'https://llm-ladder.trainedassist.store';
+  let savedToken;
+
+  function nockVision(visionJson, { fail = false } = {}) {
+    return nock(LADDER).post('/v1/chat/completions').reply(200, (_u, body) => {
+      nock.__lastBody = JSON.stringify(body);
+      if (fail) return { error: { message: 'boom' } };
+      const hasImage = JSON.stringify(body).includes('data:image');
+      const content = hasImage ? visionJson : JSON.stringify({ summary: 'профиль' });
+      return { choices: [{ message: { content } }], model: 'gemini-flash' };
+    });
+  }
+
+  beforeEach(() => {
+    savedToken = process.env.LLM_LADDER_TOKEN;
+    process.env.LLM_LADDER_TOKEN = 'test-vision-token';
+    nock.cleanAll();
+  });
+  afterEach(() => {
+    if (savedToken === undefined) delete process.env.LLM_LADDER_TOKEN;
+    else process.env.LLM_LADDER_TOKEN = savedToken;
+    nock.cleanAll();
+    delete nock.__lastBody;
+  });
+
+  it('картинка-резюме: vision определяет resume и переносит текст → .txt рядом', async () => {
+    nockVision(JSON.stringify({ type: 'resume', reason: 'визуально резюме с опытом и датами', text: 'Татьяна Потапова — Wealth Advisor\nОпыт: 09.2024 — 06.2026 SKYFORT CAPITAL' }));
+    const out = await docs.addDocument({
+      username: 'u1', candidateName: 'Татьяна', filename: 'photo_2026-10-02 09.59.21.jpeg',
+      buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), // jpeg-заголовок
+    });
+    expect(out.doc.type).toBe('resume');
+    expect(out.doc.detected_by).toBe('llm');
+    expect(out.doc.reason).toContain('резюме');
+    expect(out.doc.chars).toBeGreaterThan(50);
+    expect(out.doc.media_kind).toBe('image'); // медиа-факт сохранён
+    expect(existsSync(join(docs.candRoot('u1', out.candidate_id), `${out.doc.id}.txt`))).toBe(true);
+    // в запрос действительно ушла картинка, а не пустой текст
+    expect(nock.__lastBody).toContain('data:image/jpeg;base64,');
+    expect(docs.combinedText('u1', out.candidate_id)).toContain('SKYFORT');
+  });
+
+  it('ручной тип главнее, но текст vision всё равно берётся', async () => {
+    nockVision(JSON.stringify({ type: 'photo', reason: 'какое-то фото', text: 'Текст с картинки, который остался' }));
+    const out = await docs.addDocument({
+      username: 'u1', candidateId: 'c-v2', filename: 'x.jpeg',
+      buffer: Buffer.from([0xff, 0xd8, 1]), manualType: 'resume',
+    });
+    expect(out.doc.type).toBe('resume');
+    expect(out.doc.detected_by).toBe('manual');
+    expect(out.doc.chars).toBeGreaterThan(0); // текст из vision сохранён
+  });
+
+  it('vision недоступен (нет токена) → прежние правила: image → фото', async () => {
+    delete process.env.LLM_LADDER_TOKEN;
+    const out = await docs.addDocument({
+      username: 'u1', candidateId: 'c-v3', filename: 'p.jpeg', buffer: Buffer.from([0xff, 0xd8]),
+    });
+    expect(out.doc.type).toBe('photo');
+    expect(out.doc.detected_by).toBe('rules');
+    expect(out.doc.chars).toBe(0);
+  });
+
+  it('extractProfile: догоняет текст у старых картинок (backfill) и строит профиль', async () => {
+    // документ «до vision»: создаём БЕЗ токена → правила, текста нет
+    delete process.env.LLM_LADDER_TOKEN;
+    const up = await docs.addDocument({
+      username: 'u1', candidateId: 'c-v4', candidateName: 'Анна', filename: 'old-cv.jpeg',
+      buffer: Buffer.from([0xff, 0xd8]), manualType: 'resume',
+    });
+    expect(up.doc.chars).toBe(0);
+    process.env.LLM_LADDER_TOKEN = 'test-vision-token';
+
+    // вызова будет два: backfill (vision, в теле картинка) и сам профиль
+    nock(LADDER).post('/v1/chat/completions').times(2).reply(200, (_u, body) => {
+      const hasImage = JSON.stringify(body).includes('data:image');
+      const content = hasImage
+        ? JSON.stringify({ type: 'resume', reason: 'резюме', text: 'Опыт работы 2020 – 2024, навыки: SEO' })
+        : JSON.stringify({ name: 'Анна', experience: [{ period: '2020-2024', company: 'X', role: 'PM' }], skills: ['SEO'], summary: 'Опытный PM' });
+      return { choices: [{ message: { content } }], model: 'gemini-flash' };
+    });
+
+    const out = await docs.extractProfile({ username: 'u1', candidateId: 'c-v4' });
+    expect(out.ok).toBe(true);
+    expect(out.profile.summary).toContain('Опытный');
+    const m = docs.readManifest('u1', 'c-v4');
+    expect(m.docs[0].chars).toBeGreaterThan(0);
   });
 });
