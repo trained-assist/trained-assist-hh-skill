@@ -16,3 +16,19 @@ UX-спека: `docs/specs/recruiting-web-hub-and-playbook-launch-ux.md` (traine
 - [ ] Merged
 - [ ] Core: nginx whitelist `vacancies|plan|playbook-run|ats-editor|style|sync-log` (спека §7) — отдельный PR в trained-assist-agent
 - [ ] Deployed — `curl https://recruiter-assistant.ru/hh/{vacancies,plan,ats-editor}` ≠ 401
+
+# Checklist — правило «что уточняем» в воронке (funnel-v2)
+
+Goal: уточнять в переписке только мастхевы (required), которых нет в данных кандидата;
+вердикт «ПРОПУСТИТЬ» ⇒ вопросов нет вообще → propose_test → send_test → invite_call.
+Дыра на проде: vacancy 138004863, negotiation 5620089198 — 9.5/ПРОПУСТИТЬ,
+gaps не из обязательных, черновик спросил три вопроса + имя + время («спрашиваем
+просто так, у кандидата всё есть, а мы его гоняем» — владелец, 02.10.2026).
+
+- [x] src/hh-funnel.js: правила планировщика + deterministicStep (first contact по вердикту) + гард ask_skills при ПРОПУСТИТЬ + списки must-have/preferred в сообщении планировщика + верный порог прохода
+- [x] src/hh-draft-message.js: действие воронки приоритетно над наборами правил стиля
+- [x] FUNNEL_LOGIC_VERSION → funnel-v2 (кэш черновиков инвалидируется)
+- [x] Тесты: unit 712/712, contract 17/17, guards, behavior; mcp.manifest перегенерирован
+- [ ] CI green
+- [ ] Merged
+- [ ] Deployed (sibling checkout на VM + рестарт assist-agent)

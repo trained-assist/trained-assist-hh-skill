@@ -125,6 +125,17 @@ function buildDraftUserMessage({
     ? buildActionInstruction(action, { missingSkills, testTask })
     : (TYPE_INSTRUCTION[messageType] || TYPE_INSTRUCTION.reply);
   if (instruction) parts.push(`\n\n${instruction}`);
+  // The per-recruiter style (hh-message-style) and base prompt (hh-message-base-prompt)
+  // are system-level prose that can hardcode questions — live: «ОБЯЗАТЕЛЬНО спрашивай
+  // в первом сообщении все три вопроса». The funnel already decided what this letter is
+  // for; without this line the writer let that mandate re-add questions to a
+  // propose_test letter to a candidate who already matches (owner's rule 02.10.2026:
+  // we ask only about missing must-haves, otherwise — the next process step).
+  if (action && action !== 'wait') {
+    parts.push('\n\nДействие воронки («' + action + '») приоритетно над наборами правил стиля и сценария: '
+      + 'вопросы кандидату задаются только действиями ask_skills/clarify_answer и только по списку выше. '
+      + 'Если стиль или сценарий требуют спросить что-то ещё в этом письме — не спрашивай.');
+  }
   if (messageType !== 'rejection') {
     parts.push('\n\nЕсли предлагаешь созвон — называй дату И время («в четверг в 15:00»). '
       + 'Дата без времени предложением не считается: кандидат не поймёт, во сколько звонить. '

@@ -104,6 +104,33 @@ function captureOrMock(captureRef, responseContent) {
     });
 }
 
+// Message generation makes TWO ladder calls now: the funnel planner first, the
+// writer second (src/hh-funnel.js planNextStep). Answer the planner with a valid
+// action JSON so the write step runs, persist the interceptors for both calls,
+// and let captureRef end up holding the WRITER request — that is the prompt the
+// gap assertions are about. (Since funnel-v2 the planner is no longer skipped
+// for an unscored/pass first contact, so a single-shot capture saw only it.)
+function captureWriter(captureRef, plannerAction, draftText) {
+  nock.cleanAll();
+  const reply = (_uri, body) => {
+    const data = typeof body === 'string' ? JSON.parse(body) : body;
+    captureRef.value = data;
+    const system = String(data?.messages?.[0]?.content || '');
+    const content = system.includes('планировщик')
+      ? JSON.stringify({
+        action: plannerAction,
+        reason: 'тестовый план',
+        missing_skills: plannerAction === 'ask_skills' ? ['Node.js'] : [],
+      })
+      : draftText;
+    return { choices: [{ message: { content } }], model: data.model };
+  };
+  nock('https://llm-ladder.trainedassist.store').persist()
+    .post('/v1/chat/completions').reply(200, reply);
+  nock('https://openrouter.ai').persist()
+    .post('/api/v1/chat/completions').reply(200, reply);
+}
+
 function mockOr(content) {
   nock('https://llm-ladder.trainedassist.store')
     .post('/v1/chat/completions')
@@ -313,7 +340,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
 
   it('gaps from Config A (Node.js) appear in message generation prompt', async () => {
     const capture = { value: null };
-    captureOrMock(capture, 'Добрый день, Дмитрий! Расскажите о своём опыте с Node.js — как давно работаете с ним в продакшне?');
+    captureWriter(capture, 'ask_skills', 'Добрый день, Дмитрий! Расскажите о своём опыте с Node.js — как давно работаете с ним в продакшне?');
 
     await tools().hh_generate_message.handler({
       negotiation_id: 'neg-003',
@@ -338,7 +365,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
 
   it('gaps from Config B (Go/K8s — empty) → message prompt says no gaps', async () => {
     const capture = { value: null };
-    captureOrMock(capture, 'Дмитрий, ваш стек отлично подходит! Хотели бы пообщаться подробнее?');
+    captureWriter(capture, 'invite_call', 'Дмитрий, ваш стек отлично подходит! Хотели бы пообщаться подробнее?');
 
     await tools().hh_generate_message.handler({
       negotiation_id: 'neg-003',
@@ -362,7 +389,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
 
   it('same candidate — message prompts differ between Config A and Config B evaluations', async () => {
     const captureA = { value: null };
-    captureOrMock(captureA, 'Сообщение А');
+    captureWriter(captureA, 'ask_skills', 'Сообщение А');
 
     await tools().hh_generate_message.handler({
       negotiation_id: 'neg-003',
@@ -370,7 +397,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
     });
 
     const captureB = { value: null };
-    captureOrMock(captureB, 'Сообщение Б');
+    captureWriter(captureB, 'invite_call', 'Сообщение Б');
 
     await tools().hh_generate_message.handler({
       negotiation_id: 'neg-003',
