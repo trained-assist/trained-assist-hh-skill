@@ -122,10 +122,13 @@ async function visionClassifyDocument(buffer, contentType) {
           ],
         },
       ],
-      purpose: 'default',
+      // Роль vision в таксономии лестниц (#71 в trained-assist-llm-ladder):
+      // picture = гемини-стек (multimodal). Вызов в service (текстовая mimo-голова)
+      // фейлил по всем rung'ам >60с → nginx 504 на загрузке.
+      ladder: 'picture',
       temperature: 0,
       maxTokens: 4000,
-      timeoutMs: 45_000,
+      timeoutMs: 30_000,
       source: 'hh-doc-vision',
     });
     const type = require('./hh-doc-classify').TYPES.includes(out?.type) ? out.type : null;
