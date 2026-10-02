@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { extractTextFromBuffer } = require('../../src/hh-doc-text.js');
+const { extractTextFromBuffer, mediaKind } = require('../../src/hh-doc-text.js');
 
 // Минимальный zip (метод stored) с одной записью — ровно то, что умеет парсер docx.
 function zipStore(name, data) {
@@ -71,5 +71,22 @@ describe('extractTextFromBuffer', () => {
   it('treats extensionless input with NUL bytes as binary', () => {
     const out = extractTextFromBuffer(Buffer.from([0x50, 0x4b, 0x00, 0x00]), 'noext');
     expect(out.ok).toBe(false);
+  });
+});
+
+describe('медиа и старые форматы — понятные причины, а не «конвертируй в .txt»', () => {
+  it('image / audio / archive / .doc дают осмысленные подсказки', () => {
+    expect(extractTextFromBuffer(Buffer.from([0xff, 0xd8]), 'doc.jpeg').error).toMatch(/Изображение/);
+    expect(extractTextFromBuffer(Buffer.from([0, 0]), 'doc.m4a').error).toMatch(/Расшифровать/);
+    expect(extractTextFromBuffer(Buffer.from([0, 0]), 'doc.zip').error).toMatch(/Архив/);
+    expect(extractTextFromBuffer(Buffer.from([0, 0]), 'old.doc').error).toMatch(/пересохрани/);
+  });
+
+  it('mediaKind распознаёт типы медиа', () => {
+    expect(mediaKind('.jpeg')).toBe('image');
+    expect(mediaKind('.m4a')).toBe('media');
+    expect(mediaKind('.zip')).toBe('archive');
+    expect(mediaKind('.pdf')).toBeNull();
+    expect(mediaKind('')).toBeNull();
   });
 });

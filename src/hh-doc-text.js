@@ -11,6 +11,9 @@ const { spawnSync } = require('child_process');
 const MAX_BYTES = 15 * 1024 * 1024;
 const MAX_TEXT = 500 * 1024;
 const PDF_TIMEOUT_MS = 30_000;
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.heic']);
+const AV_EXT = new Set(['.mp4', '.mov', '.m4a', '.wav', '.mkv', '.mp3', '.webm', '.avi', '.aac', '.ogg']);
+const ARCHIVE_EXT = new Set(['.zip', '.rar', '.7z', '.psd']);
 
 function fail(error) {
   return { ok: false, error };
@@ -110,6 +113,12 @@ function extractTextFromBuffer(buf, filename) {
     }
     if (ext === '.docx') return ok(docxToText(buf));
     if (ext === '.pdf') return pdfToText(buf);
+    // Медиа — не «неподдерживаемый формат», а осмысленные причины с действием:
+    const kind = mediaKind(ext);
+    if (kind === 'image') return fail('Изображение — текста внутри нет. Вставь содержимое вручную или дай PDF/docx с текстовым слоем.');
+    if (kind === 'media') return fail('Аудио/видео — текст появится после расшифровки: нажми «Расшифровать» у документа.');
+    if (kind === 'archive') return fail('Архив — достань нужные файлы и загрузи их отдельно.');
+    if (ext === '.doc') return fail('Старый формат .doc не читается — пересохрани в .docx / .pdf / .txt и загрузи снова.');
     // Без расширения — пробуем как текст; бинарь отвергаем по нулям в начале.
     if (!ext && buf.subarray(0, 1024).includes(0)) return fail('Бинарный файл без расширения — не понятно, как читать.');
     if (!ext) return ok(buf.toString('utf8'));
@@ -119,4 +128,12 @@ function extractTextFromBuffer(buf, filename) {
   }
 }
 
-module.exports = { extractTextFromBuffer, docxToText, MAX_BYTES };
+function mediaKind(ext) {
+  const e = String(ext || '').toLowerCase();
+  if (IMAGE_EXT.has(e)) return 'image';
+  if (AV_EXT.has(e)) return 'media';
+  if (ARCHIVE_EXT.has(e)) return 'archive';
+  return null;
+}
+
+module.exports = { extractTextFromBuffer, docxToText, mediaKind, MAX_BYTES };

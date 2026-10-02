@@ -101,3 +101,37 @@ describe('manifest file shape', () => {
     expect(raw.profile).toBeNull();
   });
 });
+
+describe('медиа-файлы и ручной текст (#87 фиксы из живого прогона)', () => {
+  it('аудио/видео и картинки не получают extract_error — вместо него media_kind', async () => {
+    const a = await docs.addDocument({ username: 'u1', candidateId: 'c-m', filename: 'audio1519171140.m4a', buffer: Buffer.from([0, 1]), manualType: 'interview' });
+    expect(a.doc.type).toBe('interview');
+    expect(a.doc.media_kind).toBe('media');
+    expect(a.doc.extract_error).toBeUndefined();
+
+    const j = await docs.addDocument({ username: 'u1', candidateId: 'c-m', filename: 'photo_2026-10-02.jpeg', buffer: Buffer.from([0xff, 0xd8]), manualType: 'photo' });
+    expect(j.doc.media_kind).toBe('image');
+    expect(j.doc.extract_error).toBeUndefined();
+    expect(j.doc.type).toBe('photo');
+  });
+
+  it('extractProfile при нулевом тексте объясняет по каждому файлу и что делать', async () => {
+    await docs.addDocument({ username: 'u1', candidateId: 'c-nt', candidateName: 'Татьяна', filename: 'resume.jpeg', buffer: Buffer.from([0xff, 0xd8]), manualType: 'resume' });
+    await docs.addDocument({ username: 'u1', candidateId: 'c-nt', filename: 'audio.m4a', buffer: Buffer.from([0, 1]), manualType: 'interview' });
+    const out = await docs.extractProfile({ username: 'u1', candidateId: 'c-nt' });
+    expect(out.error).toContain('resume.jpeg');
+    expect(out.error).toContain('Вставить текстом');
+    expect(out.error).toContain('audio.m4a');
+    expect(out.error).toContain('Расшифровать');
+  });
+
+  it('ручной текст — обычный документ с типом', async () => {
+    const out = await docs.addDocument({
+      username: 'u1', candidateId: 'c-t', filename: 'вставлено-вручную.txt',
+      buffer: Buffer.from('Опыт работы\n2020 – 2024 ООО Х', 'utf8'), manualType: 'resume',
+    });
+    expect(out.doc.type).toBe('resume');
+    expect(out.doc.chars).toBeGreaterThan(0);
+    expect(docs.combinedText('u1', 'c-t')).toContain('2020 – 2024');
+  });
+});

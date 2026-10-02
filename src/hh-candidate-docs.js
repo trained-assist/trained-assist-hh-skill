@@ -79,11 +79,17 @@ async function addDocument({ username, candidateId = null, candidateName = null,
 
   let text = '';
   let extractError = null;
+  let mediaKindName = null;
   if (!sourceUrl) {
-    // extractTextFromBuffer смотрит расширение имени — даём синтетическое с тем же ext
-    const extracted = extractTextFromBuffer(buffer, ext ? `doc${ext}` : String(filename || 'file'));
-    if (extracted.ok) text = extracted.text;
-    else extractError = extracted.error;
+    // Фото/аудио/видео/архив — не пытаемся «выжать» текст (раньше это давало
+    // пугающее «формат не поддерживается» на абсолютно ожидаемых файлах).
+    mediaKindName = require('./hh-doc-text').mediaKind(ext);
+    if (!mediaKindName) {
+      // extractTextFromBuffer смотрит расширение имени — даём синтетическое с тем же ext
+      const extracted = extractTextFromBuffer(buffer, ext ? `doc${ext}` : String(filename || 'file'));
+      if (extracted.ok) text = extracted.text;
+      else extractError = extracted.error;
+    }
   }
 
   let detected;
@@ -108,6 +114,7 @@ async function addDocument({ username, candidateId = null, candidateName = null,
     sha256,
     size: buffer ? buffer.length : 0,
     chars: text.length,
+    media_kind: mediaKindName || undefined,
     extract_error: extractError || undefined,
     added_at: new Date().toISOString(),
   };
@@ -195,7 +202,23 @@ async function extractProfile({ username, candidateId }) {
   const manifest = readManifest(username, candidateId);
   if (!manifest) return { error: 'Кандидат не найден.' };
   const text = combinedText(username, candidateId);
-  if (!text.trim()) return { error: 'Нет текстовых документов для извлечения (загрузи резюме/письмо/переписку).' };
+  if (!text.trim()) {
+    // Почему нет текста — по каждому файлу, с действием вместо общей фразы.
+    const HINTS = {
+      image: 'изображение — вставь текст вручную (поле «Вставить текстом») или дай PDF/docx с текстом',
+      media: 'аудио/видео — нажми «Расшифровать» у документа',
+      archive: 'архив — загрузи нужные файлы отдельно',
+    };
+    const perDoc = (manifest.docs || []).map(d => {
+      const why = d.media_kind ? (HINTS[d.media_kind] || d.media_kind) : (d.extract_error || 'нет текста');
+      return `• ${d.filename} — ${why}`;
+    });
+    return {
+      error: 'Нет текстовых документов для профиля.\n'
+        + (perDoc.length ? perDoc.join('\n') + '\n' : '')
+        + 'Что сделать: вставь текст резюме в поле «Вставить текстом», либо загрузи PDF/docx с текстовым слоем, либо расшифруй аудио/видео кнопкой «Расшифровать».',
+    };
+  }
   if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
   const { hhLlmJson } = require('./hh-llm');

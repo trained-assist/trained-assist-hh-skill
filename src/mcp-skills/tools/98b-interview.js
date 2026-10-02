@@ -42,7 +42,10 @@ const SEPARATOR = '='.repeat(60);
 // Вопросов должно быть заметно больше у одного спикера, иначе чередование
 // нечитаемо и роли не подписываем (выдумать хуже, чем не подписать).
 const MIN_QUESTION_SCORE = 3;
-const CONTENT_TYPES = { mp4: 'video/mp4', m4a: 'audio/mp4', wav: 'audio/wav' };
+const CONTENT_TYPES = {
+  mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', avi: 'video/x-msvideo',
+  m4a: 'audio/mp4', m4r: 'audio/mp4', wav: 'audio/wav', mp3: 'audio/mpeg', aac: 'audio/aac', ogg: 'audio/ogg',
+};
 
 // ── Пути ─────────────────────────────────────────────────────────────────────
 
@@ -348,6 +351,35 @@ async function downloadSource(source) {
   return { buffer, filename, contentType: contentTypeFor(url, filename, contentTypeHeader) };
 }
 
+// Загруженный кандидатом файл из candidate-docs (#87): окно «Новый кандидат»
+// кладёт аудио/видео на сервер — расшифровка идёт прямо с него, без URL.
+function loadUploadedDoc(userId, args) {
+  const candidateId = String(args.candidate_id || '').trim();
+  const docId = String(args.doc_id || '').trim();
+  if (!candidateId && !docId) return null;
+  if (!candidateId || !docId) throw new Error('Для загруженного файла нужны и candidate_id, и doc_id.');
+  const cand = require('../../hh-candidate-docs');
+  const manifest = cand.readManifest(userId, candidateId);
+  if (!manifest) throw new Error(`Кандидат «${candidateId}» не найден — сначала загрузи документы.`);
+  const doc = (manifest.docs || []).find(d => d.id === docId);
+  if (!doc) throw new Error(`Документ ${docId} не найден у кандидата «${candidateId}».`);
+  const ext = String(doc.ext || '').toLowerCase();
+  if (!['.mp4', '.mov', '.m4a', '.wav', '.mp3', '.webm', '.avi', '.aac', '.ogg', '.m4r'].includes(ext)) {
+    throw new Error(`«${doc.filename}» не аудио/видео — расшифровать нечего. Для текста есть поле «Вставить текстом».`);
+  }
+  const file = path.join(cand.candRoot(userId, candidateId), `${doc.id}${ext}`);
+  if (!fs.existsSync(file)) throw new Error(`Файл «${doc.filename}» не найден на диске (${file}).`);
+  const buffer = fs.readFileSync(file);
+  if (!buffer.length) throw new Error(`Файл «${doc.filename}» пустой (0 байт)`);
+  return {
+    buffer,
+    filename: doc.filename,
+    contentType: contentTypeFor('', doc.filename, ''),
+    candidateName: manifest.name || doc.filename,
+    sourceKey: `uploaded:${candidateId}/${docId}`,
+  };
+}
+
 // ── Deepgram ─────────────────────────────────────────────────────────────────
 
 async function deepgramListen(buffer, contentType, key) {
@@ -413,9 +445,11 @@ module.exports = {
         const userId = String(ctx.userId || process.env.USER_ID || '');
         const source = String(args.source_url || '').trim();
         const rawText = typeof args.text === 'string' ? args.text.trim() : '';
+        const uploaded = loadUploadedDoc(userId, args); // null, если candidate_id/doc_id не переданы
 
-        if (source && rawText) throw new Error('Передай source_url ИЛИ text — что-то одно.');
-        if (!source && !rawText) throw new Error('Нет источника: нужен source_url (публичная ссылка Google Drive или прямой https-URL) либо text с готовым текстом интервью.');
+        const given = [source, rawText, uploaded].filter(Boolean).length;
+        if (given > 1) throw new Error('Передай РОВНО один источник: source_url, text или загруженный файл (candidate_id + doc_id).');
+        if (!given) throw new Error('Нет источника: source_url (Google Drive / https), text с готовым транскриптом либо загруженный файл кандидата (candidate_id + doc_id).');
         if (source && !/^https?:\/\//i.test(source)) {
           throw new Error('Источник должен быть http(s)-ссылкой или text — локальные файлы (и file://) не принимаются: у сервера нет этой папки.');
         }
@@ -424,11 +458,11 @@ module.exports = {
         }
 
         const explicitName = String(args.candidate_name || '').trim();
-        const candidateName = explicitName || 'Кандидат';
-        const slug = slugName(args.slug || explicitName || fallbackSlug(source)) || 'interview';
+        const candidateName = explicitName || (uploaded ? uploaded.candidateName : 'Кандидат');
+        const slug = slugName(args.slug || explicitName || (uploaded ? candidateName : null) || fallbackSlug(source)) || 'interview';
         const dir = path.join(interviewsRoot(userId), slug);
         const metaPath = path.join(dir, 'meta.json');
-        const sourceSha = sha256Hex(`${source}\n${rawText}`);
+        const sourceSha = sha256Hex(uploaded ? uploaded.sourceKey : `${source}\n${rawText}`);
 
         // Идемпотентность: тот же источник и транскрипт на месте → кэш без сети.
         if (!args.force && fs.existsSync(metaPath)) {
@@ -459,10 +493,17 @@ module.exports = {
           if (!key) {
             throw new Error(`Deepgram: нет ключа — задай DEEPGRAM_API_KEY в env либо положи ключ в credential-файл ${path.join(tokensRoot(), userId, 'deepgram')}.`);
           }
-          const downloaded = await downloadSource(source);
-          contentSha = sha256Hex(downloaded.buffer);
-          contentType = downloaded.contentType;
-          deepgramJson = await deepgramListen(downloaded.buffer, contentType, key);
+          let audioBuffer;
+          if (uploaded) {
+            audioBuffer = uploaded.buffer;
+            contentType = uploaded.contentType;
+          } else {
+            const downloaded = await downloadSource(source);
+            audioBuffer = downloaded.buffer;
+            contentType = downloaded.contentType;
+          }
+          contentSha = sha256Hex(audioBuffer);
+          deepgramJson = await deepgramListen(audioBuffer, contentType, key);
           durationSec = Number(deepgramJson?.metadata?.duration) || null;
 
           const turns = turnsFromDeepgram(deepgramJson);
@@ -483,7 +524,7 @@ module.exports = {
           slug,
           candidate: candidateName,
           kind: rawText ? 'text' : 'deepgram',
-          source: source || null,
+          source: source || (uploaded ? uploaded.sourceKey : null),
           source_sha256: sourceSha,
           content_sha256: contentSha,
           content_type: contentType,

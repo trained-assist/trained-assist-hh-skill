@@ -198,7 +198,7 @@ describe('hh_interview_transcribe — source → Deepgram → guide-format trans
     await expect(transcribe({ source_url: '/tmp/interview.mp4' })).rejects.toThrow(/локальные файлы/);
     await expect(transcribe({ source_url: 'file:///tmp/interview.mp4' })).rejects.toThrow(/локальные файлы/);
     await expect(transcribe({ source_url: 'https://drive.google.com/drive/folders/xyz' })).rejects.toThrow(/ссылка на папку/);
-    await expect(transcribe({ source_url: 'https://x.test/a.mp4', text: 'текст' })).rejects.toThrow(/что-то одно/);
+    await expect(transcribe({ source_url: 'https://x.test/a.mp4', text: 'текст' })).rejects.toThrow(/РОВНО один источник/);
     await expect(transcribe({})).rejects.toThrow(/Нет источника/);
     expect(nock.pendingMocks()).toEqual([]);
   });
@@ -292,5 +292,51 @@ describe('hh_interview_structure — Q&A-ходы без LLM', () => {
   it('refuses a slug that was never transcribed', async () => {
     await expect(structure({ slug: 'missing' })).rejects.toThrow(/hh_interview_transcribe/);
     await expect(structure({})).rejects.toThrow(/Укажи slug/);
+  });
+});
+
+describe('hh_interview_transcribe — загруженный файл кандидата (#87 → #88)', () => {
+  const candDocs = require('../../src/hh-candidate-docs.js');
+
+  async function upload(ext, buf, type) {
+    const out = await candDocs.addDocument({
+      username: USER, candidateId: 'c-av', candidateName: 'Татьяна Потапова',
+      filename: `audio1519171140${ext}`, buffer: buf, manualType: type,
+    });
+    return out.doc;
+  }
+
+  it('расшифровывает аудио, уже загруженное в /hh/candidate-new — без URL', async () => {
+    const doc = await upload('.m4a', Buffer.from('m4a-bytes'), 'interview');
+    expect(doc.media_kind).toBe('media');
+    expect(doc.extract_error).toBeUndefined();
+
+    const bodies = mockDeepgram({ contentType: 'audio/mp4' });
+    const res = await transcribe({ candidate_id: 'c-av', doc_id: doc.id, slug: 'c-av' });
+
+    expect(res.slug).toBe('c-av');
+    expect(res.speakers_detected).toBe(true);
+    expect(res.turns).toBe(2);
+    expect(bodies).toEqual(['m4a-bytes']); // байты файла ушли в Deepgram как есть
+    const meta = JSON.parse(read(join(interviewsDir(), 'c-av', 'meta.json')));
+    expect(meta.kind).toBe('deepgram');
+    expect(meta.source).toBe(`uploaded:c-av/${doc.id}`);
+    expect(meta.candidate).toBe('Татьяна Потапова');
+  });
+
+  it('повтор по тому же файлу — кэш без сети', async () => {
+    const doc = await upload('.m4a', Buffer.from('m4a-bytes'), 'interview');
+    mockDeepgram({ contentType: 'audio/mp4' });
+    await transcribe({ candidate_id: 'c-av', doc_id: doc.id, slug: 'c-av' });
+    nock.cleanAll(); // никаких моков → провал = сеть, кэш обязан вернуться
+    const res = await transcribe({ candidate_id: 'c-av', doc_id: doc.id, slug: 'c-av' });
+    expect(res.cached).toBe(true);
+  });
+
+  it('отказывает для не-медиа файла и при неполном наборе id', async () => {
+    const doc = await upload('.txt', Buffer.from('просто текст'), 'interview');
+    await expect(transcribe({ candidate_id: 'c-av', doc_id: doc.id })).rejects.toThrow(/не аудио\/видео/);
+    await expect(transcribe({ candidate_id: 'c-av' })).rejects.toThrow(/candidate_id, и doc_id/);
+    await expect(transcribe({ doc_id: 'x' })).rejects.toThrow(/candidate_id, и doc_id/);
   });
 });

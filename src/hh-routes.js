@@ -1425,13 +1425,19 @@ if (req.method === 'POST' && url.pathname === '/hh/candidate-doc') {
     const tooLarge = e && e.message === 'body too large';
     return json(res, tooLarge ? 413 : 400, { error: tooLarge ? 'Файл слишком большой — добавь ссылкой.' : 'bad json' });
   }
-  const { username, token, candidate_id: candId, candidate_name: candName, filename, data_base64, source_url: srcUrl, type } = body || {};
+  const { username, token, candidate_id: candId, candidate_name: candName, filename, data_base64, source_url: srcUrl, text: pasteText, type } = body || {};
   if (!hhHub.SAFE_ID.test(String(username || ''))) return json(res, 400, { error: 'Invalid scope' });
   if (candId && !hhHub.SAFE_ID.test(String(candId))) return json(res, 400, { error: 'Invalid scope' });
   if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
   if (type && !CANDIDATE_DOC_TYPES.includes(type)) return json(res, 400, { error: 'Неизвестный тип документа.' });
   let buffer = Buffer.alloc(0);
-  if (!srcUrl) {
+  let finalName = String(filename || srcUrl || '').slice(0, 200);
+  if (typeof pasteText === 'string' && pasteText.trim()) {
+    // Ручная вставка текста (резюме-картинка, письмо): валидный путь, когда файла с текстом нет
+    buffer = Buffer.from(pasteText, 'utf8');
+    finalName = finalName || 'вставлено-вручную.txt';
+    if (!/\.[a-z0-9]+$/i.test(finalName)) finalName += '.txt';
+  } else if (!srcUrl) {
     if (typeof data_base64 !== 'string' || !data_base64) return json(res, 400, { error: 'Нет файла.' });
     buffer = Buffer.from(data_base64, 'base64');
     if (buffer.length > 30 * 1024 * 1024) return json(res, 413, { error: 'Файл больше 30 МБ — добавь ссылкой.' });
@@ -1441,7 +1447,7 @@ if (req.method === 'POST' && url.pathname === '/hh/candidate-doc') {
       username,
       candidateId: candId || null,
       candidateName: candName || null,
-      filename: String(filename || srcUrl || '').slice(0, 200) || 'файл',
+      filename: finalName || 'файл',
       buffer,
       manualType: type || null,
       sourceUrl: srcUrl || null,
@@ -1573,6 +1579,49 @@ if (req.method === 'GET' && url.pathname === '/hh/candidate-photo') {
     res.writeHead(200, { 'Content-Type': manifest.photo.mime || 'image/jpeg', 'Cache-Control': 'private, max-age=300' });
     return res.end(buf);
   } catch (e) {
+    return json(res, 500, { error: e.message });
+  }
+}
+
+// ── Расшифровка загруженного аудио/видео кандидата (#87 → #88): файл уже на
+// сервере, тул читает его из candidate-docs, Deepgram без URL.
+if (req.method === 'POST' && url.pathname === '/hh/interview-transcribe') {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, token, candidate_id: candId, doc_id: docId, slug, force } = body || {};
+  if (!hhHub.SAFE_ID.test(String(username || '')) || !hhHub.SAFE_ID.test(String(candId || '')) || !hhHub.SAFE_ID.test(String(docId || ''))) {
+    return json(res, 400, { error: 'Invalid scope' });
+  }
+  if (slug && !hhHub.SAFE_ID.test(String(slug))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  if (typeof hostRunMcpTool !== 'function') return json(res, 503, { error: 'host runMcpTool not provided' });
+  try {
+    const text = await hostRunMcpTool({
+      tool: 'hh_interview_transcribe',
+      params: { candidate_id: candId, doc_id: docId, slug: slug || candId, force: !!force },
+      username, workDir: path.join(BASE_USERS_DIR, username), timeoutMs: 300_000,
+    });
+    let out;
+    try { out = JSON.parse(text || '{}'); } catch { return json(res, 502, { error: 'bad tool response' }); }
+    if (out.error) return json(res, 422, { error: out.error });
+    // Транскрипт становится документом кандидата — профиль/оценки видят его сразу
+    try {
+      if (out.transcript_path && fs.existsSync(out.transcript_path)) {
+        const manifest = hhCandidateDocs.readManifest(username, candId);
+        const tName = `${out.slug || candId}-transcript.txt`;
+        if (manifest && !manifest.docs.some(d => d.filename === tName)) {
+          await hhCandidateDocs.addDocument({
+            username, candidateId: candId, filename: tName,
+            buffer: fs.readFileSync(out.transcript_path), manualType: 'interview',
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[hh/interview-transcribe] transcript doc append failed:', e.message);
+    }
+    return json(res, 200, { ok: true, ...out });
+  } catch (e) {
+    console.error(`[hh/interview-transcribe] user=${username} cand=${candId}:`, e.message);
     return json(res, 500, { error: e.message });
   }
 }

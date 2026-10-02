@@ -204,7 +204,7 @@ describe('hh portrait routes (#85)', () => {
       data_base64: Buffer.from('binary').toString('base64'),
     }), u, res, ctx());
     expect(res.status).toBe(422);
-    expect(JSON.parse(res.body).error).toMatch(/не поддерживается/);
+    expect(JSON.parse(res.body).error).toMatch(/Архив/);
   });
 });
 
@@ -453,5 +453,80 @@ describe('eval-run routes (#90)', () => {
     await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body).job.state).toBe('done');
+  });
+});
+
+describe('ручной текст и расшифровка медиа (#87 фиксы)', () => {
+  const tok = () => {
+    const { createHmac } = require('crypto');
+    return createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+  };
+
+  it('POST /hh/candidate-doc принимает text (вставка вручную) с типом', async () => {
+    const u = new URL('http://x/hh/candidate-doc'); const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Татьяна Потапова',
+      text: 'Опыт работы\n2024 – 2026 Skyfort Capital', type: 'resume',
+      filename: 'вставлено-вручную.txt',
+    }), u, res, ctx());
+    expect(res.status).toBe(200);
+    const out = JSON.parse(res.body);
+    expect(out.ok).toBe(true);
+    expect(out.doc.type).toBe('resume');
+    expect(out.doc.chars).toBeGreaterThan(0);
+  });
+
+  it('POST /hh/interview-transcribe: делегирует в тул и добавляет транскрипт в документы', async () => {
+    // сначала документ-аудио
+    const up = new URL('http://x/hh/candidate-doc'); let res = fakeRes();
+    await handleHhPublic(req('POST', up.pathname, {
+      username: 'alice', token: tok(), candidate_name: 'Татьяна',
+      filename: 'audio.m4a', data_base64: Buffer.from([0, 1, 2]).toString('base64'), type: 'interview',
+    }), up, res, ctx());
+    const { candidate_id, doc } = JSON.parse(res.body);
+    expect(doc.media_kind).toBe('media');
+
+    // файл-«транскрипт», который вернёт мок-тул
+    const tDir = path.join(root, 'data', 'hh', 'alice', 'interviews', candidate_id);
+    fs.mkdirSync(tDir, { recursive: true });
+    const tPath = path.join(tDir, `${candidate_id}-transcript.txt`);
+    fs.writeFileSync(tPath, 'Интервью: Владимир — Татьяна\n\n[0:00] Владимир: Здравствуйте?');
+
+    const calls = [];
+    const failing = { ...ctx() };
+    const success = {
+      ...ctx(),
+      runMcpTool: async (o) => {
+        calls.push(o);
+        return JSON.stringify({ ok: true, slug: candidate_id, transcript_path: tPath, speakers_detected: true, turns: 1 });
+      },
+    };
+
+    const u = new URL('http://x/hh/interview-transcribe'); res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: 'bad', candidate_id: candidate_id, doc_id: doc.id }), u, res, failing);
+    expect(res.status).toBe(403);
+
+    res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: candidate_id, doc_id: doc.id }), u, res, success);
+    expect(res.status).toBe(200);
+    expect(calls[0].tool).toBe('hh_interview_transcribe');
+    expect(calls[0].params).toMatchObject({ candidate_id, doc_id: doc.id, slug: candidate_id });
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'data', 'hh', 'alice', 'candidate-docs', candidate_id, 'manifest.json'), 'utf8'));
+    const added = manifest.docs.find(d => d.filename === `${candidate_id}-transcript.txt`);
+    expect(added).toBeTruthy();
+    expect(added.type).toBe('interview');
+    expect(added.detected_by).toBe('manual');
+  });
+
+  it('POST /hh/interview-transcribe: ошибка тула → 422', async () => {
+    const failing = {
+      ...ctx(),
+      runMcpTool: async () => JSON.stringify({ error: 'Deepgram: HTTP 401' }),
+    };
+    const u = new URL('http://x/hh/interview-transcribe'); const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, { username: 'alice', token: tok(), candidate_id: 'c-1', doc_id: 'd-1' }), u, res, failing);
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body).error).toContain('Deepgram');
   });
 });
