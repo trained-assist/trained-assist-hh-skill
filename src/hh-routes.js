@@ -23,7 +23,7 @@ const { hhFetch, hhPut, hhPostForm, readHhToken, readHhTokenFile, readCredential
 // warning (never a hard failure).
 const { writeCredentialFile, deleteCredential } = require('./credential-store');
 const { bullshitGuard } = require('./hh-bullshit-guard');
-const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, DEFAULT_MESSAGE_BASE, BASE_PROMPT_FILENAME } = require('./hh-message-prompts');
+const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, loadInstructionsTemplate, resolveMessageInstructions, DEFAULT_MESSAGE_BASE, DEFAULT_MESSAGE_INSTRUCTIONS, BASE_PROMPT_FILENAME, INSTRUCTIONS_TEMPLATE_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { generateConversation } = require('./conversation-generation');
@@ -357,7 +357,7 @@ async function handleHhPublic(req, url, res, ctx) {
 </head><body><h2>${msg}</h2></body></html>`);
   }
 
-if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/sync-negotiations')) {
+if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/sync-negotiations')) {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -594,6 +594,7 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
     : path.join(process.cwd(), 'contexts');
   const hhContextDir = path.join(contextBase, 'hh');
   fs.mkdirSync(hhContextDir, { recursive: true });
+  const hhTokensBase = tokensRoot();
   const now = new Date().toISOString();
   // Once the editor knows which vacancy it's editing (multi-vacancy tabs), save under
   // the per-vacancy key only — writing to the legacy singleton too would let whichever
@@ -608,6 +609,22 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
   if (typeof prev === 'string') { try { prev = JSON.parse(prev); } catch { prev = {}; } }
   const merged = { ...prev, ...config, vacancy_id: vacancyId || config.vacancy_id || prev.vacancy_id };
   if (prev.filters && typeof prev.filters === 'object') merged.filters = { ...prev.filters, ...(config.filters || {}) };
+  // Epic #112: the per-vacancy message instructions auto-fill from the recruiter's
+  // global template (or the default) at the first save, and keep tracking it until
+  // the recruiter edits them. An edited instruction is never overwritten on later
+  // saves; reverting it to exactly the current template re-syncs it to 'global'.
+  if (vacancyId) {
+    const template = loadInstructionsTemplate(hhTokensBase, username) || DEFAULT_MESSAGE_INSTRUCTIONS;
+    const owned = String(merged.message_instructions || '').trim();
+    if (!owned) {
+      merged.message_instructions = template;
+      merged.message_instructions_source = 'global';
+      merged.message_instructions_synced_at = now;
+    } else {
+      merged.message_instructions_source = owned === template ? 'global' : 'recruiter';
+      if (merged.message_instructions_source === 'global') merged.message_instructions_synced_at = now;
+    }
+  }
   fs.writeFileSync(configFile, JSON.stringify({ value: merged, updated_at: now }, null, 2));
   // Funnel stages stay a single global blob for now (deliberately deferred, like
   // hh_generate_message tone context in PR #1067 — different vacancies commonly share
@@ -728,7 +745,14 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   const history = fs.existsSync(histFile) ? JSON.parse(fs.readFileSync(histFile, 'utf8')) : { messages: [] };
   history.messages = history.messages || [];
 
-  const allowSpecificTime = hhInterviewConfigAllowsTime(username);
+  // Per-vacancy guard scope (epic #112): the interview-time rules come from THIS
+  // vacancy's ATS config, not a global singleton that spills one vacancy into another.
+  let effectiveVacancyId = body?.vacancy_id || null;
+  if (!effectiveVacancyId) {
+    const vcFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json');
+    try { effectiveVacancyId = JSON.parse(fs.readFileSync(vcFile, 'utf8'))?.value?.id || null; } catch { /* no active vacancy */ }
+  }
+  const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
   const guard = await bullshitGuard(message, history.messages, { username, allowSpecificTime });
   if (!guard.ok) {
     if (!force) {
@@ -874,11 +898,12 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   const atsConfig = readAtsConfig(BASE_USERS_DIR ? path.join(BASE_USERS_DIR, String(username)) : process.cwd(), effectiveVacancyId);
   const interviewConfig = atsConfig?.interview_config || null;
   const availabilityBlock = buildAvailabilityBlock(interviewConfig);
+  const vacancyInstruction = resolveMessageInstructions({ username, tokensBase: hhTokensBase, atsConfig });
 
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
   const systemPrompt = msgType === 'rejection'
     ? buildRejectionSystemPrompt({ recruiterCtx, commStyle })
-    : buildMessageSystemPrompt({ vacancyContext, recruiterCtx, commStyle, baseOverride });
+    : buildMessageSystemPrompt({ vacancyContext, recruiterCtx, commStyle, baseOverride, vacancyInstruction });
 
   const firstName = (candidate_name || 'Кандидат').split(' ')[0];
   const ats = history.ats_result || {};
@@ -908,6 +933,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       action: plan ? plan.action : null,
       missingSkills: plan?.missing_skills || [],
       testTask: atsConfig?.test_task || '',
+      vacancyInstruction,
     });
 
   function callLlm(userContent) {
@@ -927,7 +953,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     // repeated question/intro, template garbage), regenerate once telling it exactly
     // what was wrong. Only a still-failing second attempt reaches the recruiter as a
     // visible warning — invented_time is informational-only so it never triggers this.
-    const allowSpecificTime = hhInterviewConfigAllowsTime(username);
+const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
     // The test task is the one letter that must NOT be written by a model: the
     // vacancy promises it goes out word-for-word.
     let message = plan?.action === 'send_test'
@@ -945,7 +971,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     history.ats_result.draft_message = message;
     // Stamp the thread this draft answers, so the background auto-draft knows it is
     // still current and does not overwrite a manual draft with a stale-looking one.
-    history.ats_result.draft_history_sig = historySignature(msgs);
+    history.ats_result.draft_history_sig = historySignature(msgs, vacancyInstruction);
     if (!guard.ok) history.ats_result.draft_warning = guard.reason;
     else delete history.ats_result.draft_warning;
     fs.mkdirSync(candDir, { recursive: true });
@@ -1068,8 +1094,11 @@ if (req.method === 'GET' && url.pathname === '/hh/style') {
   const existingBase = loadBaseOverride(hhTokensBase3, username) || '';
   const hasBaseOverride = !!existingBase;
   const baseValue = (existingBase || DEFAULT_MESSAGE_BASE).replace(/`/g, '\\`');
+  const instructionsOverride = loadInstructionsTemplate(hhTokensBase3, username) || '';
+  const hasInstructionsOverride = !!instructionsOverride;
+  const instructionsValue = (instructionsOverride || DEFAULT_MESSAGE_INSTRUCTIONS).replace(/`/g, '\\`');
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  return res.end(hhStylePageHtml({ username, rulesValue, baseValue, hasBaseOverride, callbackBase: callbackBase3, hmacToken: hmacToken3 }));
+  return res.end(hhStylePageHtml({ username, rulesValue, baseValue, hasBaseOverride, instructionsValue, hasInstructionsOverride, callbackBase: callbackBase3, hmacToken: hmacToken3 }));
 }
 
 if (req.method === 'POST' && url.pathname === '/hh/update-style') {
@@ -1152,6 +1181,51 @@ if (req.method === 'POST' && url.pathname === '/hh/update-base-prompt') {
   fs.mkdirSync(path.join(hhTokensBase5, String(username)), { recursive: true });
   writeCredentialFile(baseFile5, text.trim());
   console.log('[hh/update-base-prompt] saved override for', username, 'len=', text.length);
+  return json(res, 200, { ok: true });
+}
+
+// Epic #112: the global «Инструкция для сообщений кандидатам» template — the per-
+// vacancy instruction's starting point on /hh/style and the ATS editor's
+// «Вернуть общий шаблон». Read by the editor at click time (no re-render needed).
+if (req.method === 'GET' && url.pathname === '/hh/message-instructions-template') {
+  const username = url.searchParams.get('username') || '';
+  const agentSecret6 = process.env.AGENT_SECRET || '';
+  if (agentSecret6) {
+    const { createHmac } = require('crypto');
+    const expected6 = createHmac('sha256', agentSecret6).update(String(username)).digest('hex').slice(0, 16);
+    if ((url.searchParams.get('token') || '') !== expected6) return json(res, 403, { error: 'invalid token' });
+  }
+  if (!username) return json(res, 400, { error: 'username required' });
+  const template = loadInstructionsTemplate(tokensRoot(), username) || DEFAULT_MESSAGE_INSTRUCTIONS;
+  return json(res, 200, { ok: true, text: template });
+}
+
+if (req.method === 'POST' && url.pathname === '/hh/update-instructions-template') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const body6 = JSON.parse(await readBody(req));
+  const { username, token: givenToken6, text, reset = false } = body6 || {};
+  if (!username) return json(res, 400, { error: 'missing fields' });
+  const agentSecret6b = process.env.AGENT_SECRET || '';
+  if (agentSecret6b) {
+    const { createHmac } = require('crypto');
+    const expected6b = createHmac('sha256', agentSecret6b).update(String(username)).digest('hex').slice(0, 16);
+    if (givenToken6 !== expected6b) return json(res, 403, { error: 'invalid token' });
+  }
+  const hhTokensBase6 = tokensRoot();
+  const templateFile6 = path.join(hhTokensBase6, String(username), INSTRUCTIONS_TEMPLATE_FILENAME);
+
+  if (reset) {
+    try { deleteCredential(username, INSTRUCTIONS_TEMPLATE_FILENAME); } catch { /* already absent */ }
+    console.log('[hh/update-instructions-template] reset to default for', username);
+    return json(res, 200, { ok: true, text: DEFAULT_MESSAGE_INSTRUCTIONS });
+  }
+
+  if (!text || typeof text !== 'string' || text.trim().length < 10) {
+    return json(res, 400, { error: 'text too short' });
+  }
+  fs.mkdirSync(path.join(hhTokensBase6, String(username)), { recursive: true });
+  writeCredentialFile(templateFile6, text.trim());
+  console.log('[hh/update-instructions-template] saved override for', username, 'len=', text.length);
   return json(res, 200, { ok: true });
 }
 
@@ -1937,19 +2011,13 @@ if (req.method === 'POST' && url.pathname === '/api/hh/proactive/import-seen') {
     // never re-notified). Falling back to 'unknown' would put the imports in a
     // bucket the search never reads — the old candidates would be re-notified.
     let vacancyKey = 'unknown';
-    const ctxAts = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'ats_config.json');
+    // Epic #112: the legacy ats_config.json is dead — the vacancy key comes from the
+    // active vacancy (the same context runProactiveSearch resolves), never from a
+    // stale shared config that used to leak another vacancy's id here.
     try {
-      const raw = JSON.parse(fs.readFileSync(ctxAts, 'utf8'));
-      let v = raw?.value;
-      if (typeof v === 'string') { try { v = JSON.parse(v); } catch { v = null; } }
-      if (v?.vacancy_id) vacancyKey = String(v.vacancy_id);
-    } catch { /* no ats config — fall through */ }
-    if (vacancyKey === 'unknown') {
-      try {
-        const avRaw = JSON.parse(fs.readFileSync(path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json'), 'utf8'));
-        if (avRaw?.value?.id) vacancyKey = String(avRaw.value.id);
-      } catch { /* no active vacancy — fall through */ }
-    }
+      const avRaw = JSON.parse(fs.readFileSync(path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json'), 'utf8'));
+      if (avRaw?.value?.id) vacancyKey = String(avRaw.value.id);
+    } catch { /* no active vacancy — fall through */ }
     if (vacancyKey === 'unknown') {
       const latestFile = latestProactiveFile(username);
       if (latestFile) {

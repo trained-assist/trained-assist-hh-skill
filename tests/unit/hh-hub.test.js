@@ -9,7 +9,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const { handleHhPublic } = require('../../src/hh-routes.js');
-const { NAV_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav } = require('../../src/hh-nav.js');
+const { NAV_ITEMS, SETTINGS_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav } = require('../../src/hh-nav.js');
 const hhHub = require('../../src/hh-hub.js');
 const { createHmac } = require('crypto');
 
@@ -95,7 +95,11 @@ describe('hh-nav', () => {
     }
     expect(html).toMatch(/href="review\?[^"]*" class="active"/);
     expect(html.match(/class="active"/g)).toHaveLength(1);
-    expect(NAV_ITEMS.map(i => i.label)).toEqual(['Вакансии', 'Портрет', 'Кандидаты', '+ Кандидат', 'Холодный поиск', 'ATS воронка', 'Стиль', 'Синхронизация']);
+    expect(NAV_ITEMS.map(i => i.label)).toEqual(['Вакансии', 'Портрет', 'Кандидаты', '+ Кандидат', 'Холодный поиск', 'ATS воронка', 'Синхронизация']);
+    // Epic #112: «Стиль» moved under the ⚙ «Общие настройки» menu.
+    expect(SETTINGS_ITEMS.map(i => i.label)).toEqual(['Стиль']);
+    expect(html).toContain('data-testid="nav-settings"');
+    expect(html).toContain(SETTINGS_ITEMS[0].path.slice(4));
   });
 
   it('does not touch JSON responses or non-GET requests', () => {
@@ -111,7 +115,7 @@ describe('hh-nav', () => {
 
   it('shows the nav on every /hh/* page, and every nav link hits an existing route', async () => {
     writeUserFile('contexts/hh/active_vacancies.json', { value: [{ id: 'V1', title: 'Backend' }] });
-    for (const { path: p } of NAV_ITEMS) {
+    for (const { path: p } of [...NAV_ITEMS, ...SETTINGS_ITEMS]) {
       const { res, handled } = await get(`${p}?username=alice&token=${TOKEN}`);
       expect(handled, p).not.toBe(false);
       expect(res.headers['Content-Type'], p).toMatch(/text\/html/);

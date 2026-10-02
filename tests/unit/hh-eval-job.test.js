@@ -110,11 +110,13 @@ describe('comparisonPool', () => {
 });
 
 describe('assemble + runEvalJob', () => {
+  // Epic #112: per-vacancy configs only — assemble reads ats_config:{vacancy_id}.
+  const VACANCY = 'vac-901';
   async function setup() {
     const out = await cand.addDocument({ username: 'u1', candidateName: 'Иван Петров', filename: 'cv.txt', buffer: Buffer.from('Опыт работы\n2023 – 2025', 'utf8') });
     const ctx = join(usersDir, 'u1', 'contexts', 'hh');
     mkdirSync(ctx, { recursive: true });
-    writeFileSync(join(ctx, 'ats_config.json'), JSON.stringify({
+    writeFileSync(join(ctx, `ats_config:${VACANCY}.json`), JSON.stringify({
       value: {
         vacancy_title: 'Backend', vacancy_context: 'fixture',
         required: [{ name: 'Node.js', weight: 2 }], preferred: [{ name: 'Docker', weight: 1 }],
@@ -126,7 +128,7 @@ describe('assemble + runEvalJob', () => {
 
   it('assemble resolves config from ats_config', async () => {
     const id = await setup();
-    const a = job.assemble('u1', id, null);
+    const a = job.assemble('u1', id, VACANCY);
     expect(a.error).toBeNull();
     expect(a.configSource).toBe('ats_config');
     expect(a.candidateText).toContain('Опыт работы');
@@ -152,7 +154,7 @@ describe('assemble + runEvalJob', () => {
   it('runEvalJob walks queued→running→done with progress and flat result fields', async () => {
     const id = await setup();
     const j = {
-      id, candidate_id: id, username: 'u1', vacancy_id: null,
+      id, candidate_id: id, username: 'u1', vacancy_id: VACANCY,
       state: 'queued', step: 'queued', progress: 0,
       started_at: new Date().toISOString(), finished_at: null, error: null,
     };
@@ -182,7 +184,7 @@ describe('assemble + runEvalJob', () => {
 
   it('runEvalJob marks failure with the reason', async () => {
     const id = await setup();
-    const j = { id, candidate_id: id, username: 'u1', vacancy_id: null, state: 'queued', started_at: new Date().toISOString() };
+    const j = { id, candidate_id: id, username: 'u1', vacancy_id: VACANCY, state: 'queued', started_at: new Date().toISOString() };
     const done = await job.runEvalJob(j, { scoreFn: async () => { throw new Error('LLM упал'); } });
     expect(done.state).toBe('failed');
     expect(done.error).toContain('LLM упал');

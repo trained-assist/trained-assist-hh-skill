@@ -227,7 +227,7 @@ pre.json-preview{background:var(--bg);border:1px solid var(--border);border-radi
 </head>
 <body>
 
-${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${callbackBase}/hh/ats-editor?username=${encodeURIComponent(username)}&token=${vacancyToken}&vacancy_id=${encodeURIComponent(v.id)}`)}
+${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${callbackBase}/hh/ats-editor?username=${encodeURIComponent(username)}&token=${vacancyToken}&vacancy_id=${encodeURIComponent(v.id)}`, `${callbackBase}/hh/vacancy-new?username=${encodeURIComponent(username)}&token=${vacancyToken}`)}
 
 <header>
   <span class="logo">Candidate Funnel</span>
@@ -284,6 +284,12 @@ ${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${call
     <div class="field">
       <label>Контекст вакансии</label>
       <textarea id="fContext" rows="2" placeholder="Краткое описание: продукт, команда, задачи..."></textarea>
+    </div>
+    <div class="field">
+      <label>Инструкция для сообщений кандидатам</label>
+      <textarea id="fMessageInstructions" rows="4" placeholder="Порядок работы с кандидатом для этой вакансии. Вопросы — только по обязательным требованиям из этого же экрана."></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Порядок работы с кандидатом для этой вакансии. Вопросы — только по обязательным требованиям из этого же экрана. Правила применяются только к письмам этой вакансии; действие воронки приоритетнее этого текста.</div>
+      <button type="button" class="btn btn-secondary btn-sm" id="resetInstructionBtn" ${isLive ? '' : 'disabled title="Недоступно в offline-режиме"'} style="margin-top:8px;align-self:flex-start">↩ Вернуть общий шаблон</button>
     </div>
   </div>
 
@@ -419,6 +425,7 @@ document.getElementById('tplSelect').addEventListener('change', e => {
 function loadFromConfig(config, stagesArr) {
   document.getElementById('fTitle').value = config.vacancy_title || '';
   document.getElementById('fContext').value = config.vacancy_context || '';
+  document.getElementById('fMessageInstructions').value = config.message_instructions || '';
   document.getElementById('fPass').value = config.pass_threshold ?? 6.5;
   document.getElementById('fReview').value = config.review_threshold ?? 4.0;
   const f = config.filters || {};
@@ -561,11 +568,35 @@ function renderPreferred() {
 
 // ── Field events ──────────────────────────────────────────────────────────────
 
-['fTitle','fContext','fPass','fReview','fMinExp','fMaxSalary','fIcLevel','fIcBookingUrl','fIcRequirements','fIcAvailability','fTestTask'].forEach(id => {
+['fTitle','fContext','fMessageInstructions','fPass','fReview','fMinExp','fMaxSalary','fIcLevel','fIcBookingUrl','fIcRequirements','fIcAvailability','fTestTask'].forEach(id => {
   document.getElementById(id).addEventListener('input', updateJsonPreview);
 });
 document.getElementById('fRemote').addEventListener('change', () => { updateRemoteLabel(); updateJsonPreview(); });
 document.getElementById('fIcEnabled').addEventListener('change', () => { updateIcEnabledLabel(); updateJsonPreview(); });
+
+// ── Reset instruction to the global template (epic #112) ─────────────────────
+document.getElementById('resetInstructionBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('resetInstructionBtn');
+  btn.disabled = true;
+  try {
+    const u = new URL(CALLBACK_BASE + '/hh/message-instructions-template');
+    u.searchParams.set('username', HH_USER);
+    u.searchParams.set('token', HH_PAGE_TOKEN);
+    const r = await fetch(u.toString());
+    const d = await r.json();
+    if (r.ok && d.ok) {
+      document.getElementById('fMessageInstructions').value = d.text || '';
+      updateJsonPreview();
+      toast('Поле очищено до общего шаблона. Нажми «Save Funnel» чтобы сохранить.');
+    } else {
+      toast('Ошибка: ' + (d.error || r.status), 'error');
+    }
+  } catch (e) {
+    toast('Ошибка сети: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 function updateRemoteLabel() {
   document.getElementById('fRemoteLabel').textContent = document.getElementById('fRemote').checked ? 'Да' : 'Нет';
@@ -585,6 +616,7 @@ function buildConfig() {
   return {
     vacancy_title: document.getElementById('fTitle').value.trim(),
     vacancy_context: document.getElementById('fContext').value.trim(),
+    message_instructions: document.getElementById('fMessageInstructions').value.trim(),
     required: required.filter(r => r.name.trim()).map(r => ({ name: r.name.trim(), weight: +r.weight })),
     preferred: preferred.filter(p => p.name.trim()).map(p => ({ name: p.name.trim(), weight: +p.weight })),
     filters: {

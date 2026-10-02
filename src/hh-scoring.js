@@ -7,8 +7,8 @@ const { buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
 
 const fs = require('fs');
 const path = require('path');
-const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('./hh-message-prompts');
-const { detectMessageType, buildDraftUserMessage, historySignature, isDraftStale, interviewConfigAllowsTime } = require('./hh-draft-message');
+const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride, resolveMessageInstructions, hasRealAvailability } = require('./hh-message-prompts');
+const { buildDraftUserMessage, historySignature, isDraftStale } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { generateConversation } = require('./conversation-generation');
@@ -144,25 +144,13 @@ function readAtsConfigFile(file) {
 }
 
 function readAtsConfig(workDir, expectedVacancyId = null) {
-  // Per-vacancy config (ats_config:{vacancy_id}.json) is the multi-vacancy path —
-  // recruiters tracking several vacancies at once (hh_set_active_vacancy) save one
-  // config per vacancy so the background loop can score each independently instead
-  // of sharing a single global config across whichever vacancy was set last.
-  if (expectedVacancyId) {
-    const perVacancy = readAtsConfigFile(path.join(workDir, 'contexts', 'hh', `ats_config:${expectedVacancyId}.json`));
-    if (perVacancy) return perVacancy;
-  }
-  // Legacy singleton — still the only config for profiles tracking one vacancy.
-  const value = readAtsConfigFile(path.join(workDir, 'contexts', 'hh', 'ats_config.json'));
-  if (!value) return null;
-  // Guard: config was extracted for a different vacancy and never regenerated after
-  // hh_set_active_vacancy switched — using it here would silently score the wrong
-  // vacancy's candidates against the wrong criteria.
-  if (value?.vacancy_id && expectedVacancyId && value.vacancy_id !== expectedVacancyId) {
-    console.warn(`[hh-scoring] skipping: ats_config is for vacancy ${value.vacancy_id}, active vacancy is ${expectedVacancyId} — regenerate via hh_extract_ats_config`);
-    return null;
-  }
-  return value;
+  // Per-vacancy config (ats_config:{vacancy_id}.json) is the only config the pipeline
+  // reads (epic #112). The legacy singleton ats_config.json was a leak between
+  // vacancies — it held one vacancy's criteria (in an older schema) and two code
+  // paths read it directly; the file may stay on disk for history, nothing reads it
+  // for scoring or letters anymore.
+  if (!expectedVacancyId) return null;
+  return readAtsConfigFile(path.join(workDir, 'contexts', 'hh', `ats_config:${expectedVacancyId}.json`));
 }
 
 // Draft extracted by hh_extract_ats_config, pending recruiter review in /hh/ats-editor.
@@ -345,6 +333,8 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
   } catch { /* ignore */ }
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
   const availabilityBlock = buildAvailabilityBlock(atsConfig.interview_config);
+  // Per-vacancy process instructions (epic #112): own field → recruiter template → default.
+  const vacancyInstruction = resolveMessageInstructions({ username, tokensBase, atsConfig });
 
   const vacancyCtx = atsConfig.vacancy_title && atsConfig.vacancy_context
     ? `Вакансия: ${atsConfig.vacancy_title}\n\n${atsConfig.vacancy_context}`
@@ -362,12 +352,12 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     // it as-is and the recruiter can send one click away. Regenerate whenever the
     // candidate said something new (live case: neg 5610867713, drafted at 12:15 against
     // a thread that had already changed at 12:03 and was cached from then on).
-    return isDraftStale(h);
+    return isDraftStale(h, vacancyInstruction);
   });
 
   if (!needDraft.length) return 0;
 
-  const baseSystem = buildMessageSystemPrompt({ vacancyContext: vacancyCtx, recruiterCtx, commStyle, baseOverride });
+  const baseSystem = buildMessageSystemPrompt({ vacancyContext: vacancyCtx, recruiterCtx, commStyle, baseOverride, vacancyInstruction });
 
   let generated = 0;
 
@@ -405,7 +395,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         if (plan.action === 'wait' || plan.action === 'reject') {
           // Record WHY there is no draft, against the same thread signature — so the
           // next cycle knows this was decided, not forgotten.
-          history.ats_result.draft_skip_sig = historySignature(thread);
+          history.ats_result.draft_skip_sig = historySignature(thread, vacancyInstruction);
           if (plan.action === 'reject') delete history.ats_result.draft_message;
           saveCandidateHistory(username, neg.id, history);
           return;
@@ -417,7 +407,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           const verbatim = buildTestTaskMessage(atsConfig?.test_task);
           if (verbatim) {
             history.ats_result.draft_message = verbatim;
-            history.ats_result.draft_history_sig = historySignature(thread);
+            history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction);
             delete history.ats_result.draft_warning;
             saveCandidateHistory(username, neg.id, history);
             generated++;
@@ -438,6 +428,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           action: plan.action,
           missingSkills: plan.missing_skills,
           testTask: atsConfig?.test_task || '',
+          vacancyInstruction,
         });
 
         const messages = [
@@ -455,7 +446,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         // so it gets the same guard as a manually generated one — including one retry
         // that tells the model what was wrong. Without it, a repeated intro landed on
         // the review page undetected (this path never ran the guard at all).
-        const allowSpecificTime = interviewConfigAllowsTime(username);
+        const allowSpecificTime = hasRealAvailability(atsConfig?.interview_config);
         let guard = await bullshitGuard(message, thread, { username, allowSpecificTime });
         if (!guard.ok) {
           console.warn(`[hh-drafts] neg=${neg.id} failed guard (${guard.reason}), regenerating once`);
@@ -481,7 +472,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         history.ats_result.draft_message = message;
         // Stamp the thread this draft was written against — without it the next scoring
         // pass cannot tell a fresh draft from one that predates the candidate's answer.
-        history.ats_result.draft_history_sig = historySignature(thread);
+        history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction);
         if (!guard.ok) history.ats_result.draft_warning = guard.reason;
         else delete history.ats_result.draft_warning;
         saveCandidateHistory(username, neg.id, history);

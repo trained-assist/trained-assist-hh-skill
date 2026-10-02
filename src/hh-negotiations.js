@@ -17,18 +17,14 @@ const {
 const { usersRoot } = require('./data-paths');
 const BASE_USERS_DIR = usersRoot();
 
-// Whether the recruiter's ATS config carries real (non-placeholder) interview time slots.
+// Whether the recruiter's ATS config (per-vacancy, epic #112 — the old singleton
+// read let one vacancy's slot rules spill into another's guard) carries real
+// (non-placeholder) interview time slots for THIS vacancy.
 // Used by the /hh message flows to decide whether to offer specific-time suggestions.
-function hhInterviewConfigAllowsTime(username) {
-  try {
-    const configFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'ats_config.json');
-    if (!fs.existsSync(configFile)) return false;
-    let config = JSON.parse(fs.readFileSync(configFile, 'utf8')).value || {};
-    if (typeof config === 'string') config = JSON.parse(config);
-    return hasRealAvailability(config.interview_config);
-  } catch {
-    return false;
-  }
+function hhInterviewConfigAllowsTime(username, vacancyId) {
+  if (!vacancyId) return false;
+  const config = readAtsConfig(path.join(BASE_USERS_DIR, String(username)), vacancyId);
+  return hasRealAvailability(config?.interview_config);
 }
 
 // Fetch negotiations across all active stages for a vacancy (parallel per-state requests).
