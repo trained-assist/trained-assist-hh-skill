@@ -33,6 +33,10 @@ const { createMockHhServer } = require('./helpers/mock-hh-server.js');
 const DEFAULT_NEGOTIATIONS = require('./helpers/mock-hh-server.js').DEFAULT_NEGOTIATIONS.map(n => ({ ...n, _resume_status: 'full' }));
 const { resumeHash } = require('../src/hh-resume');
 
+// Epic #112: the pipeline reads ONLY the per-vacancy config (ats_config:{id}.json).
+// These tests write/read that namespaced file; the legacy singleton is never read.
+const VACANCY_ID = 'vac-001';
+
 // ── Isolated test directories ─────────────────────────────────────────────────
 
 const TEST_USER = 'hh-bg-test-77777';
@@ -68,7 +72,16 @@ const FAKE_SCORE = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function writeAtsConfig(workDir, config = ATS_CONFIG) {
+function writeAtsConfig(workDir, config = ATS_CONFIG, vacancyId = VACANCY_ID) {
+  const dir = join(workDir, 'contexts', 'hh');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `ats_config:${vacancyId}.json`),
+    JSON.stringify({ value: config, updated_at: new Date().toISOString() }, null, 2),
+  );
+}
+
+function writeLegacySingleton(workDir, config = ATS_CONFIG) {
   const dir = join(workDir, 'contexts', 'hh');
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -131,10 +144,10 @@ beforeEach(() => {
 
 // ── Test 1: Path consistency ──────────────────────────────────────────────────
 
-describe('Path consistency — ats_config.json', () => {
-  it('readAtsConfig finds config written to BASE_USERS_DIR workDir', () => {
+describe('Path consistency — ats_config:{vacancy_id}', () => {
+  it('readAtsConfig finds the per-vacancy config written to BASE_USERS_DIR workDir', () => {
     writeAtsConfig(WORK_DIR);
-    const config = scoring.readAtsConfig(WORK_DIR);
+    const config = scoring.readAtsConfig(WORK_DIR, VACANCY_ID);
     expect(config).not.toBeNull();
     expect(config.vacancy_title).toBe('Backend Developer');
     expect(Array.isArray(config.required)).toBe(true);
@@ -148,7 +161,7 @@ describe('Path consistency — ats_config.json', () => {
     // readAtsConfig uses BASE_USERS_DIR not sessions dir — so config in wrong dir returns null
     const fakeWorkDir = join(BASE_USERS_DIR, TEST_USER + '-other-user');
     mkdirSync(fakeWorkDir, { recursive: true });
-    const config = scoring.readAtsConfig(fakeWorkDir);
+    const config = scoring.readAtsConfig(fakeWorkDir, VACANCY_ID);
     expect(config).toBeNull();
     rmSync(fakeWorkDir, { recursive: true, force: true });
   });
@@ -157,25 +170,25 @@ describe('Path consistency — ats_config.json', () => {
 // ── Test: vacancy isolation — a recruiter switching active vacancy must not have the
 //    previous vacancy's ATS config silently applied to the new vacancy's candidates ──
 
-describe('readAtsConfig — vacancy mismatch guard', () => {
-  it('returns the config when its vacancy_id matches the expected (active) vacancy', () => {
-    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_id: 'vac-A' });
+describe('readAtsConfig — per-vacancy only (epic #112)', () => {
+  it('returns the config for ITS vacancy_id only', () => {
+    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_id: 'vac-A' }, 'vac-A');
     const config = scoring.readAtsConfig(WORK_DIR, 'vac-A');
     expect(config).not.toBeNull();
     expect(config.vacancy_id).toBe('vac-A');
   });
 
-  it('returns null (skips scoring) when config.vacancy_id does not match the active vacancy', () => {
-    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_id: 'vac-A' });
-    // Recruiter switched to vac-B without regenerating the ATS config for it
+  it('returns null (skips scoring) when the vacancy has no per-vacancy config', () => {
+    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_id: 'vac-A' }, 'vac-A');
+    // Recruiter switched to vac-B without an ATS config for it — nothing to score with
     const config = scoring.readAtsConfig(WORK_DIR, 'vac-B');
     expect(config).toBeNull();
   });
 
-  it('legacy configs with no vacancy_id are still trusted (no expectedVacancyId, or config predates this guard)', () => {
-    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_id: undefined });
-    expect(scoring.readAtsConfig(WORK_DIR, 'vac-B')).not.toBeNull();
-    expect(scoring.readAtsConfig(WORK_DIR)).not.toBeNull();
+  it('a legacy singleton is NEVER read for scoring — the file may stay, the code ignores it (#112)', () => {
+    writeLegacySingleton(WORK_DIR, { ...ATS_CONFIG, vacancy_id: 'vac-legacy-only' });
+    expect(scoring.readAtsConfig(WORK_DIR, 'vac-legacy-only')).toBeNull();
+    expect(scoring.readAtsConfig(WORK_DIR)).toBeNull();
   });
 });
 
@@ -193,8 +206,8 @@ describe('readAtsConfig — per-vacancy namespacing (multi-vacancy tracking)', (
     );
   }
 
-  it('prefers ats_config:{vacancyId} over the legacy singleton when both exist', () => {
-    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_title: 'Legacy singleton (stale)' });
+  it('reads ats_config:{vacancyId}; the singleton beside it is ignored', () => {
+    writeLegacySingleton(WORK_DIR, { ...ATS_CONFIG, vacancy_title: 'Legacy singleton (stale)' });
     writeNamespacedAtsConfig(WORK_DIR, 'vac-A', { ...ATS_CONFIG, vacancy_title: 'Vacancy A config' });
 
     const config = scoring.readAtsConfig(WORK_DIR, 'vac-A');
@@ -209,13 +222,11 @@ describe('readAtsConfig — per-vacancy namespacing (multi-vacancy tracking)', (
     expect(scoring.readAtsConfig(WORK_DIR, 'vac-B').vacancy_title).toBe('Vacancy B');
   });
 
-  it('falls back to the legacy singleton when no per-vacancy config exists yet (backward compat)', () => {
-    // Uses its own vacancy id, distinct from the ones the other tests in this
-    // describe block namespace configs for (WORK_DIR/contexts persists across tests).
-    writeAtsConfig(WORK_DIR, { ...ATS_CONFIG, vacancy_id: 'vac-not-yet-migrated' });
-    const config = scoring.readAtsConfig(WORK_DIR, 'vac-not-yet-migrated');
-    expect(config).not.toBeNull();
-    expect(config.vacancy_title).toBe(ATS_CONFIG.vacancy_title);
+  it('a vacancy with no config gets null — never another vacancy\'s text (no backward-compat leak)', () => {
+    // Epic #112: keeping the old fallback is how «Финансовый советник» leaked its
+    // questions into another vacancy. Absent config = absent scoring, nothing more.
+    writeNamespacedAtsConfig(WORK_DIR, 'vac-A', { ...ATS_CONFIG, vacancy_title: 'Vacancy A' });
+    expect(scoring.readAtsConfig(WORK_DIR, 'vac-not-yet-migrated')).toBeNull();
   });
 });
 
@@ -266,12 +277,12 @@ describe('scoreUnscoredCandidates — skip and guard conditions', () => {
   });
 
   it('returns 0 when no ATS config exists', async () => {
-    const configFile = join(WORK_DIR, 'contexts', 'hh', 'ats_config.json');
+    const configFile = join(WORK_DIR, 'contexts', 'hh', `ats_config:${VACANCY_ID}.json`);
     if (existsSync(configFile)) require('fs').unlinkSync(configFile);
 
     process.env.OPENROUTER_API_KEY = 'test-or-key';
     process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
-    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
+    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2, vacancyId: VACANCY_ID });
     expect(scored).toBe(0);
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.LLM_LADDER_TOKEN;
@@ -285,7 +296,7 @@ describe('scoreUnscoredCandidates — skip and guard conditions', () => {
 
     process.env.OPENROUTER_API_KEY = 'test-or-key';
     process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
-    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
+    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2, vacancyId: VACANCY_ID });
     expect(scored).toBe(0); // All already scored → nothing to do
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.LLM_LADDER_TOKEN;
@@ -294,7 +305,7 @@ describe('scoreUnscoredCandidates — skip and guard conditions', () => {
   it('returns 0 when no API key available', async () => {
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.LLM_LADDER_TOKEN;
-    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
+    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2, vacancyId: VACANCY_ID });
     expect(scored).toBe(0);
   });
 });
@@ -316,7 +327,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
       experience_min_years: 4,
       thresholds: { strong: 7, consider: 5, reject: 3 },
       vacancy_context: 'Test vacancy',
-    });
+    }, VACANCY_ID);
     // Monkey-patch via module.exports — scoreUnscoredCandidates calls module.exports.evaluateCandidate
     originalEvaluate = scoring.evaluateCandidate;
     scoring.evaluateCandidate = async () => ({
@@ -340,7 +351,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
     try {
       const neg = structuredClone(DEFAULT_NEGOTIATIONS[0]);
       neg._resume_status = 'unavailable';
-      expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR)).toBe(0);
+      expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR, { vacancyId: VACANCY_ID })).toBe(0);
       expect(scoring.readCandidateHistory(TEST_USER, neg.id).ats_result).toBeNull();
       scoring.saveCandidateHistory(TEST_USER, neg.id, { messages: [], ats_result: FAKE_SCORE });
       neg._resume_status = 'full';
@@ -349,16 +360,16 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
         expect(text).toContain('FULL-ABOUT-TAIL');
         return { ...FAKE_SCORE };
       };
-      expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR)).toBe(1);
+      expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR, { vacancyId: VACANCY_ID })).toBe(1);
       expect(scoring.readCandidateHistory(TEST_USER, neg.id).ats_result.resume_version).toBe(1);
-      expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR)).toBe(0);
+      expect(await scoring.scoreUnscoredCandidates([neg], TEST_USER, WORK_DIR, { vacancyId: VACANCY_ID })).toBe(0);
     } finally { delete process.env.OPENROUTER_API_KEY; delete process.env.LLM_LADDER_TOKEN; }
   });
 
   it('scores 3 unscored candidates and writes ats_result to disk', async () => {
     process.env.OPENROUTER_API_KEY = 'test-or-key';
     process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // gate: scoring rides the free ladder
-    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
+    const scored = await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2, vacancyId: VACANCY_ID });
     expect(scored).toBe(DEFAULT_NEGOTIATIONS.length);
 
     for (const neg of DEFAULT_NEGOTIATIONS) {
@@ -374,7 +385,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
   });
 
   it('knockout/required_skills/preferred_skills schema is readable by buildAtsPrompt', () => {
-    const config = scoring.readAtsConfig(WORK_DIR);
+    const config = scoring.readAtsConfig(WORK_DIR, VACANCY_ID);
     expect(config).not.toBeNull();
     // buildAtsPrompt must read knockout[].criterion and required_skills[].skill
     // (regression: old code read config.required which was empty → no criteria)
@@ -391,7 +402,7 @@ describe('scoreUnscoredCandidates — actual scoring (monkey-patched LLM)', () =
     const { homedir } = require('os');
     const logFile = join(DATA_DIR, 'hh', TEST_USER, 'last-scoring.json');
 
-    await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2 });
+    await scoring.scoreUnscoredCandidates(DEFAULT_NEGOTIATIONS, TEST_USER, WORK_DIR, { maxConcurrent: 2, vacancyId: VACANCY_ID });
 
     expect(existsSync(logFile)).toBe(true);
     const log = JSON.parse(readFileSync(logFile, 'utf8'));

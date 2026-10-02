@@ -10,6 +10,7 @@ const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-mes
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
+const { asksKnownFact } = require('../../hh-known-facts');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
 const { ladderChat, ladderToken } = require('../../llm-ladder');
@@ -1391,16 +1392,13 @@ module.exports = {
           vacancy_id = ctx.value.id;
         }
 
-        // Resolve ats_config from context if not provided — per-vacancy key first
-        // (ats_config:{vacancy_id}, set via hh_extract_ats_config), legacy singleton
-        // as fallback for profiles that only ever tracked one vacancy.
+        // Resolve ats_config from context if not provided — per-vacancy key only
+        // (ats_config:{vacancy_id}, set via hh_extract_ats_config / the ATS editor).
+        // The legacy singleton is NEVER read (epic #112): it held one vacancy's
+        // criteria and let them leak into another vacancy's evaluation.
         if (!ats_config) {
           ats_config = readAtsConfigForVacancy(profileWorkDir(), vacancy_id);
           if (!ats_config) {
-            const legacy = readContext('hh', 'ats_config')?.value;
-            if (legacy?.vacancy_id && legacy.vacancy_id !== vacancy_id) {
-              return { error: `Сохранённый ATS конфиг настроен для другой вакансии («${legacy.vacancy_title || legacy.vacancy_id}»), а оцениваем «${vacancy_id}». Вызови hh_extract_ats_config и сохрани для этой вакансии через /hh/ats-editor (hh_open_ats_editor).` };
-            }
             return { error: `ATS конфиг не задан для вакансии «${vacancy_id}». Используй hh_extract_ats_config, затем проверь и сохрани его в /hh/ats-editor (ссылка есть в ответе hh_extract_ats_config).` };
           }
         }
@@ -2186,8 +2184,34 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
   // planOut is an out-param on purpose: all four call sites of this function treat
   // the result as a string, and changing the return shape would ripple into each of
   // them for no gain. Callers that display the step read planOut.
+  // This path (batch drafts for the review page) never runs bullshitGuard — a full
+  // LLM judge per candidate would double the cost of a batch — so the free
+  // deterministic gate from src/hh-known-facts.js runs alone here: a letter that asks
+  // for a fact the resume already states gets one retry, then goes out as written
+  // (same visible outcome as a guard warning elsewhere).
+  let out = String(text || '').trim();
+  const known = asksKnownFact(out, candidateContext);
+  if (known) {
+    try {
+      const retried = await generateConversation({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `${userMsg}\n\n(Предыдущая попытка отклонена автопроверкой: переспрашиваем уже известное — `
+            + `${known.label}: ${known.value}. Напиши новый вариант без этого вопроса.)` },
+        ],
+        temperature: 0.7,
+        maxTokens: 1000,
+        source: 'hh-generate-message',
+      });
+      const retryText = String(retried || '').trim();
+      if (retryText && !asksKnownFact(retryText, candidateContext)) out = retryText;
+    } catch (e) {
+      console.warn('[hh/generate-message] known-facts retry failed:', e.message);
+    }
+  }
+
   if (planOut) { planOut.action = plan?.action || type; planOut.reason = plan?.reason || null; planOut.by = plan?.by || 'forced'; }
-  return text;
+  return out;
 }
 
 // ── Per-candidate history ───────────────────────────────────────────────────

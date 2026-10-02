@@ -20,12 +20,25 @@ describe('vacancy picker', () => {
     expect(vacancyLabel(VACANCIES[2])).toBe('Инженер-конструктор');
   });
 
-  it('renders one <select> with the current vacancy selected, nothing for a single vacancy', () => {
+  it('renders one <select> with the current vacancy selected, always visible even for a single vacancy', () => {
     const html = vacancyPickerHtml(VACANCIES, '2', v => `?vacancy_id=${v.id}`);
     expect(html.match(/<select/g)).toHaveLength(1);
     expect(html.match(/<option/g)).toHaveLength(3);
     expect(html).toContain('<option value="?vacancy_id=2" selected>Дизайнер мебели · Москва</option>');
-    expect(vacancyPickerHtml(VACANCIES.slice(0, 1), '1', () => '')).toBe('');
+    // Epic #112: the switcher must be visible when there is exactly one vacancy —
+    // that is when «+ Добавить вакансию» is needed most.
+    const single = vacancyPickerHtml(VACANCIES.slice(0, 1), '1', v => `?vacancy_id=${v.id}`);
+    expect(single).not.toBe('');
+    expect(single.match(/<option/g)).toHaveLength(1);
+    // And empty pickers stay silent (no tracked vacancies yet).
+    expect(vacancyPickerHtml([], '1', () => '')).toContain('data-testid="vacancy-picker"');
+  });
+
+  it('renders «+ Добавить вакансию» when the page supplies its link', () => {
+    const html = vacancyPickerHtml(VACANCIES, '2', v => `?vacancy_id=${v.id}`, 'https://x/hh/vacancy-new?username=u&token=t');
+    expect(html).toContain('data-testid="vacancy-add"');
+    expect(html).toContain('https://x/hh/vacancy-new?username=u&amp;token=t');
+    expect(html).toContain('+ Добавить вакансию');
   });
 
   it('an untracked current vacancy gets a placeholder instead of silently selecting another', () => {
