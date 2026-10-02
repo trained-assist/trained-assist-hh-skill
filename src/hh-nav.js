@@ -39,7 +39,7 @@ function navQuery({ username, token, vacancyId }) {
   return q.toString();
 }
 
-function hhNavHtml({ pathname = '', username, token, vacancyId } = {}) {
+function hhNavHtml({ pathname = '', username, token, vacancyId, vacancyPicker = '' } = {}) {
   const qs = escHtml(navQuery({ username, token, vacancyId }));
   const linkFor = ({ path, label }) => {
     const active = pathname.endsWith(path);
@@ -48,10 +48,25 @@ function hhNavHtml({ pathname = '', username, token, vacancyId } = {}) {
   };
   const links = NAV_ITEMS.map(linkFor).join('');
   const settingsLinks = SETTINGS_ITEMS.map(linkFor).join('');
+  const settings = `<details class="hh-nav-settings" data-testid="nav-settings"` +
+    `${pathname.endsWith('/hh/style') ? ' open' : ''}><summary>⚙ Общие настройки</summary><div class="hh-nav-settings-menu">${settingsLinks}</div></details>`;
+  // The vacancy switcher is the top-level scope control (epic #112): it decides what
+  // every section link shows. When a page has one, the bar gets TWO rows — the scope
+  // controls (picker + settings) on top, the section menu below — so the picker is not
+  // just another link and the settings do not get pushed onto a second line by it
+  // (issue #121: picker below the nav / settings wrapping). Pages without a picker keep
+  // the original single row, byte-for-byte.
+  const inner = vacancyPicker
+    ? `<div class="hh-nav-row">${vacancyPicker}<span class="hh-nav-spacer"></span>${settings}</div>` +
+      `<div class="hh-nav-row hh-nav-links">${links}</div>`
+    : `${links}${settings}`;
   // Styles are scoped to #hh-hub-nav and set every property they rely on, so page
   // resets (`*{margin:0;padding:0}`, dark themes) neither break the bar nor leak out.
   return `<nav id="${NAV_ID}" aria-label="Рекрутинг-хаб"><style>` +
     `#${NAV_ID}{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:0;padding:8px 16px;background:#fff;border-bottom:1px solid #e2e8f0;font:500 14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;box-sizing:border-box;width:100%}` +
+    `#${NAV_ID} .hh-nav-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%}` +
+    `#${NAV_ID} .hh-nav-links{gap:4px}` +
+    `#${NAV_ID} .hh-nav-spacer{flex:1 1 auto}` +
     `#${NAV_ID} a,#${NAV_ID} summary{display:inline-block;margin:0;padding:6px 12px;border-radius:8px;color:#475569;text-decoration:none;white-space:nowrap;cursor:pointer;list-style:none}` +
     `#${NAV_ID} a:hover,#${NAV_ID} summary:hover{background:#f1f5f9;color:#1e293b}` +
     `#${NAV_ID} a.active{background:#eef2ff;color:#4338ca;font-weight:600}` +
@@ -59,9 +74,17 @@ function hhNavHtml({ pathname = '', username, token, vacancyId } = {}) {
     `#${NAV_ID} .hh-nav-settings-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:50;min-width:180px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.12);padding:6px;display:none}` +
     `#${NAV_ID} .hh-nav-settings[open] .hh-nav-settings-menu{display:block}` +
     `#${NAV_ID} .hh-nav-settings-menu a{display:block;padding:8px 10px;border-radius:8px}` +
-    `@media(max-width:640px){#${NAV_ID}{padding:6px 8px;overflow-x:auto;flex-wrap:nowrap}#${NAV_ID} a,#${NAV_ID} summary{padding:6px 8px}}` +
-    `</style>${links}<details class="hh-nav-settings" data-testid="nav-settings"` +
-    `${pathname.endsWith('/hh/style') ? ' open' : ''}><summary>⚙ Общие настройки</summary><div class="hh-nav-settings-menu">${settingsLinks}</div></details></nav>`;
+    `@media(max-width:640px){#${NAV_ID}{padding:6px 8px}` +
+    `#${NAV_ID} .hh-nav-spacer{display:none}` +
+    // The picker's own inline min-widths (label/select/add button) are sized for the
+    // desktop bar; on a phone they add up past the viewport. Let it take the full row
+    // and shrink its parts instead of forcing a horizontal scroll on the whole page.
+    `#${NAV_ID} .vacancy-picker{flex:1 1 100%;min-width:0}` +
+    `#${NAV_ID} .vacancy-picker>div{flex:1 1 100%;min-width:0}` +
+    `#${NAV_ID} .vacancy-picker select{min-width:0}` +
+    `#${NAV_ID} .hh-nav-links{flex-wrap:nowrap;overflow-x:auto}` +
+    `#${NAV_ID} a,#${NAV_ID} summary{padding:6px 8px}}` +
+    `</style>${inner}</nav>`;
 }
 
 // Insert the nav right after the first opening <body …> tag. Pages without a body tag
@@ -70,8 +93,9 @@ function injectHhNav(html, opts) {
   if (typeof html !== 'string' || html.includes(`id="${NAV_ID}"`)) return html;
   const m = /<body\b[^>]*>/i.exec(html);
   if (!m) return html;
+  const { picker, rest } = extractVacancyPicker(html);
   const at = m.index + m[0].length;
-  return html.slice(0, at) + hhNavHtml(opts) + html.slice(at);
+  return rest.slice(0, at) + hhNavHtml({ ...opts, vacancyPicker: picker }) + rest.slice(at);
 }
 
 // Wrap `res` so an HTML response written by any GET /hh/* handler gets the nav.
@@ -124,14 +148,38 @@ function vacancyPickerHtml(vacancies, currentId, hrefFor, addVacancyHref = '') {
   const hasCurrent = list.some(v => String(v.id) === String(currentId));
   const addBtn = addVacancyHref
     ? `<a class="vacancy-add" data-testid="vacancy-add" href="${escHtml(addVacancyHref)}" ` +
-      `style="flex:0 0 auto;padding:8px 14px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#4338ca;background:#eef2ff;text-decoration:none;white-space:nowrap">+ Добавить вакансию</a>`
+      `style="flex:0 0 auto;padding:6px 12px;border:1px solid #c7d2fe;border-radius:8px;font-size:13px;font-weight:600;color:#4338ca;background:#eef2ff;text-decoration:none;white-space:nowrap">+ Добавить вакансию</a>`
     : '';
-  return `<div class="vacancy-picker" data-testid="vacancy-picker" style="display:flex;gap:10px;align-items:center;margin:0 0 10px;flex-wrap:wrap">` +
-    `<div style="flex:1 1 260px;min-width:220px">` +
-    `<label style="display:block;font-size:12px;color:#64748b;margin-bottom:4px">Вакансия (${list.length})</label>` +
+  // Compact single-row layout: the picker lives in the nav bar (hhNavHtml) and must not
+  // wrap the section links onto a second line. Label sits inline with the select; the
+  // whole block wraps only on narrow screens.
+  return `<div class="vacancy-picker" data-testid="vacancy-picker" style="display:flex;gap:8px;align-items:center;margin:0;flex-wrap:wrap">` +
+    `<div style="flex:1 1 220px;min-width:170px;display:flex;align-items:center;gap:8px">` +
+    `<label style="font-size:12px;color:#64748b;white-space:nowrap;margin:0">Вакансия (${list.length})</label>` +
     `<select aria-label="Вакансия" onchange="if(this.value)location.href=this.value" ` +
-    `style="width:100%;max-width:720px;padding:8px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff">` +
-    `${hasCurrent ? '' : '<option value="" selected>— выберите вакансию —</option>'}${options}</select></div>${addBtn}</div>`;
+    `style="flex:1 1 auto;min-width:150px;max-width:340px;padding:6px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff">` +
+    `${hasCurrent ? '' : '<option value="" selected>— выберите вакансию —</option>'}${options}</select></div>${addBtn}</div><!--/vacancy-picker-->`;
 }
 
-module.exports = { NAV_ITEMS, SETTINGS_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav, escHtml, vacancyLabel, vacancyPickerHtml };
+// Extract the vacancy picker a page template rendered in its own <body> and return
+// { picker, rest } with it removed. The picker is a scope control that belongs in the
+// nav bar (see hhNavHtml), but the page templates already emit it inline and their
+// markup/JS/query params must stay byte-for-byte — so it is moved, not re-authored.
+// The closing marker makes this unambiguous: the picker's own markup nests divs, so
+// matching the tag by regex would cut it short.
+function extractVacancyPicker(html) {
+  if (typeof html !== 'string') return { picker: '', rest: html };
+  const MARKER = '<!--/vacancy-picker-->';
+  const start = html.indexOf('<div class="vacancy-picker"');
+  const markerAt = html.indexOf(MARKER);
+  if (start < 0 || markerAt < 0 || markerAt < start) return { picker: '', rest: html };
+  // Swallow the whitespace/newlines the template wrapped around the picker, so the
+  // page body does not keep a blank gap where the block used to be.
+  let from = start;
+  while (from > 0 && (html[from - 1] === ' ' || html[from - 1] === '\n' || html[from - 1] === '\r' || html[from - 1] === '\t')) from--;
+  const picker = html.slice(start, markerAt);
+  const rest = html.slice(0, from) + html.slice(markerAt + MARKER.length);
+  return { picker, rest };
+}
+
+module.exports = { NAV_ITEMS, SETTINGS_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav, escHtml, vacancyLabel, vacancyPickerHtml, extractVacancyPicker };

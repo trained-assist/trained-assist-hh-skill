@@ -903,7 +903,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
   const systemPrompt = msgType === 'rejection'
     ? buildRejectionSystemPrompt({ recruiterCtx, commStyle })
-    : buildMessageSystemPrompt({ vacancyContext, recruiterCtx, commStyle, baseOverride, vacancyInstruction });
+    : buildMessageSystemPrompt({ vacancyContext, recruiterCtx, commStyle, baseOverride, vacancyInstruction, atsConfig });
 
   const firstName = (candidate_name || 'Кандидат').split(' ')[0];
   const ats = history.ats_result || {};

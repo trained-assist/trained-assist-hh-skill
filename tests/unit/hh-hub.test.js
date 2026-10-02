@@ -128,11 +128,23 @@ describe('hh-nav', () => {
   it('keeps /hh/proactive intact: same page, nav added once after <body>, URL/query unchanged', async () => {
     writeUserFile('contexts/hh/active_vacancies.json', { value: [{ id: 'V1', title: 'Backend' }] });
     const { res } = await get(`/hh/proactive?username=alice&token=${TOKEN}&vacancy_id=V1`);
-    const nav = hhNavHtml({ pathname: '/hh/proactive', username: 'alice', token: TOKEN, vacancyId: 'V1' });
-    expect(res.body).toContain(nav);
-    const without = res.body.replace(nav, '');
-    expect(without).not.toContain(NAV_ID);
-    expect(res.body.indexOf(nav)).toBe(res.body.search(/<body\b[^>]*>/) + res.body.match(/<body\b[^>]*>/)[0].length);
+    const navStart = res.body.indexOf(`<nav id="${NAV_ID}"`);
+    const navEnd = res.body.indexOf('</nav>', navStart) + '</nav>'.length;
+    const nav = res.body.slice(navStart, navEnd);
+    // Issue #121: the picker is the page's scope control and now lives INSIDE the nav
+    // bar, on the top row together with the settings; the section links are the row
+    // below. Exactly one picker — moved, not duplicated.
+    expect(res.body.match(/data-testid="vacancy-picker"/g)).toHaveLength(1);
+    expect(nav).toContain('data-testid="vacancy-picker"');
+    const pickerAt = nav.indexOf('data-testid="vacancy-picker"');
+    const settingsAt = nav.indexOf('data-testid="nav-settings"');
+    const linksAt = nav.indexOf('class="hh-nav-row hh-nav-links"');
+    expect(pickerAt).toBeGreaterThan(-1);
+    expect(settingsAt).toBeGreaterThan(pickerAt);      // picker and settings share the top row
+    expect(linksAt).toBeGreaterThan(settingsAt);       // section menu is the row below
+    expect(navStart).toBe(res.body.search(/<body\b[^>]*>/) + res.body.match(/<body\b[^>]*>/)[0].length);
+    // Every section link is present and carries the page query.
+    for (const { path: p } of NAV_ITEMS) expect(nav).toContain(`${p.slice('/hh/'.length)}?username=alice&amp;token=${TOKEN}&amp;vacancy_id=V1`);
   });
 
   it('leaves invalid-link error pages without the nav', async () => {

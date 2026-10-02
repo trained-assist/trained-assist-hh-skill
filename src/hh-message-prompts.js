@@ -112,8 +112,41 @@ function buildRecruiterIdentity(msgCfg) {
   ].filter(Boolean).join('\n');
 }
 
-function buildMessageSystemPrompt({ vacancyContext = '', recruiterCtx = '', commStyle = '', baseOverride = '', vacancyInstruction = '' } = {}) {
+// Criteria names, same shape the planner uses (criteriaNames in hh-funnel.js): plain
+// array, legacy {item:[…]}, or portrait-style objects with name/skill/criterion.
+function criteriaNamesForPrompt(list) {
+  const arr = Array.isArray(list) ? list : (Array.isArray(list?.item) ? list.item : []);
+  return arr
+    .map(c => (typeof c === 'string' ? c : (c?.name || c?.skill || c?.criterion)))
+    .filter(Boolean);
+}
+
+// The writer must know the must-haves. Until 02.10.2026 this block was never appended:
+// the only vacancy text handed to the writer came from the raw HH /vacancies/{id}
+// description (vacancyContext), which the recruiter's ATS editor does not write to, so
+// the writer was told "ask only about must-haves" without ever being told what they
+// ARE. Live on vacancy 138004863: 4 required criteria sat in the config, zero reached
+// the model. The planner already had them (buildPlannerMessage) — this is the same
+// source, now on the writer side too. Always present, even when the list is empty:
+// an empty list is a fact ("no must-haves recorded"), a missing block is a hole.
+function buildCriteriaBlock(atsConfig = {}) {
+  const required = criteriaNamesForPrompt(atsConfig?.required);
+  const preferred = criteriaNamesForPrompt(atsConfig?.preferred);
+  const lines = [];
+  lines.push('Обязательные требования (мастхевы) этой вакансии — уточнять можно ТОЛЬКО их:');
+  lines.push(required.length ? required.map(r => `- ${r}`).join('\n') : '- (не указано)');
+  if (preferred.length) {
+    lines.push('Желательные навыки (не уточнять, пока обязательные не подтверждены):');
+    lines.push(preferred.map(p => `- ${p}`).join('\n'));
+  }
+  return '\n\n## Обязательные требования вакансии\n' + lines.join('\n');
+}
+
+function buildMessageSystemPrompt({ vacancyContext = '', recruiterCtx = '', commStyle = '', baseOverride = '', vacancyInstruction = '', atsConfig = {} } = {}) {
   let prompt = (baseOverride || MESSAGE_SYSTEM_BASE) + (vacancyContext ? '\n\n## Контекст вакансии\n' + vacancyContext : '');
+  // Always present — see buildCriteriaBlock. Independent of vacancyContext: the raw HH
+  // description and the recruiter's measurable criteria are different fields.
+  prompt += buildCriteriaBlock(atsConfig);
   if (recruiterCtx) prompt += `\n\n## Идентичность рекрутера\n${recruiterCtx}`;
   if (commStyle) prompt += `\n\n## Стиль общения рекрутера\n${commStyle}`;
   if (vacancyInstruction) {
@@ -136,6 +169,8 @@ module.exports = {
   buildRecruiterIdentity,
   buildMessageSystemPrompt,
   buildRejectionSystemPrompt,
+  buildCriteriaBlock,
+  criteriaNamesForPrompt,
   loadBaseOverride,
   loadInstructionsTemplate,
   resolveMessageInstructions,

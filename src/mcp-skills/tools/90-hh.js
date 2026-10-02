@@ -2124,7 +2124,7 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
   const commStyle = loadCommunicationStyle(userId || USER_ID);
   const baseOverride = loadBaseOverride(tokenBase(), userId || USER_ID);
   const recruiterCtx = buildRecruiterIdentity(loadRecruiterIdentityConfig());
-  const systemPrompt = buildMessageSystemPrompt({ recruiterCtx, commStyle, baseOverride });
+  const systemPrompt = buildMessageSystemPrompt({ recruiterCtx, commStyle, baseOverride, atsConfig: atsConfig || {} });
   const availabilityBlock = buildAvailabilityBlock(atsConfig?.interview_config);
 
   // messageType used to be accepted and then dropped on the floor — the prompt always
