@@ -39,6 +39,12 @@ select{padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font:12px inhe
 .toast{position:fixed;top:20px;right:20px;padding:10px 18px;border-radius:8px;background:#dc2626;color:#fff;font-size:14px;font-weight:600;z-index:10000;display:none}
 @media(prefers-color-scheme:dark){body{background:#0f172a;color:#e2e8f0}.card{background:#1e293b;box-shadow:none}h3{color:#cbd5e1}input[type=text],select{background:#0f172a;border-color:#334155}.btn{background:#1e293b;color:#e2e8f0;border-color:#334155}.btn.primary{background:#4f46e5;color:#fff}.drop{background:#1e293b;border-color:#334155}.sub,.hint,label{color:#94a3b8}th,td{border-color:#334155}.profile dt{color:#94a3b8}}`;
 
+const MEDIA_HINT = {
+  image: '📷 картинка — текст не нужен (вставь вручную, если это резюме)',
+  media: '🎧 медиа — будет расшифровка',
+  archive: '📦 архив — файлы загрузи отдельно',
+};
+
 function typeOptions(selected) {
   return Object.entries(TYPE_LABELS)
     .map(([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${escHtml(label)}</option>`)
@@ -47,7 +53,8 @@ function typeOptions(selected) {
 
 function docsTableHtml(manifest) {
   const rows = manifest.docs.map(d => `<tr data-doc="${escHtml(d.id)}">
-<td>${escHtml(d.filename)}<div class="reason">${d.chars ? `${d.chars} симв. текста` : d.size ? `${Math.round(d.size / 1024)} КБ` : 'ссылка'}${d.extract_error ? ` · ⚠ ${escHtml(d.extract_error)}` : ''}</div></td>
+<td>${escHtml(d.filename)}<div class="reason">${d.chars ? `${d.chars} симв. текста` : d.size ? `${Math.round(d.size / 1024)} КБ` : 'ссылка'}${MEDIA_HINT[d.media_kind] ? ` · ${MEDIA_HINT[d.media_kind]}` : ''}${d.extract_error ? ` · ⚠ ${escHtml(d.extract_error)}` : ''}</div>
+${d.media_kind === 'media' ? `<button class="btn" type="button" data-transcribe="${escHtml(d.id)}" style="margin-top:6px;padding:5px 10px;font-size:12px">🎙 Расшифровать</button>` : ''}</td>
 <td><select data-set-type="${escHtml(d.id)}">${typeOptions(d.type)}</select></td>
 <td><span class="badge ${escHtml(d.detected_by)}">${escHtml(d.detected_by)}</span><div class="reason">${escHtml(d.reason || '')}</div></td>
 <td class="reason">${escHtml(d.added_at.slice(0, 10))}</td>
@@ -139,6 +146,12 @@ ${manifest ? '' : `<label for="cand-name">Имя кандидата</label><inpu
 <div style="flex:0 0 auto"><label for="link-type">Тип</label><select id="link-type">${typeOptions('interview')}</select></div>
 <button class="btn" type="button" id="btn-link" style="margin-bottom:1px">Добавить ссылку</button>
 </div>
+<label for="paste-text">Вставить текстом (если резюме — картинка/скан, или просто есть текст)</label>
+<div class="linkrow">
+<div><textarea id="paste-text" rows="4" placeholder="Вставь текст резюме/письма/переписки…"></textarea></div>
+<div style="flex:0 0 auto"><label for="paste-type">Тип</label><select id="paste-type">${typeOptions('resume')}</select></div>
+<button class="btn" type="button" id="btn-paste" style="margin-bottom:1px">Добавить текстом</button>
+</div>
 <div class="row" style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
 ${manifest ? `<button class="btn primary" id="btn-profile" type="button">🧠 Извлечь профиль</button>` : ''}
 ${manifest && !manifest.profile ? '<span class="hint">Профиль — LLM-выжимка всех документов в разрезы (опыт/навыки/языки/ожидания).</span>' : ''}
@@ -226,6 +239,37 @@ ${profileCard}
       post('candidate-docs', { candidate_id: CAND, action: 'set_type', doc_id: sel.dataset.setType, type: sel.value })
         .then(function () { location.reload(); })
         .catch(function (e) { overlay(false); toast(e.message); });
+    });
+  });
+
+  var pasteBtn = $('btn-paste');
+  if (pasteBtn) pasteBtn.addEventListener('click', function () {
+    var ta = $('paste-text');
+    var v = ta.value.trim();
+    if (!v) { toast('Вставь текст'); return; }
+    var nameEl = $('cand-name');
+    if (!CAND && (!nameEl || !nameEl.value.trim())) { toast('Сначала укажи имя кандидата'); return; }
+    overlay(true, 'Добавляю текст…');
+    post('candidate-doc', {
+      candidate_id: CAND || undefined,
+      candidate_name: (!CAND && nameEl) ? nameEl.value.trim() : undefined,
+      text: v, type: $('paste-type').value, filename: 'вставлено-вручную.txt',
+    }).then(function (x) {
+      if (!x.ok || x.d.error) { overlay(false); toast(x.d.error || 'Не удалось добавить'); return; }
+      location.href = 'candidate-new?' + qs({ candidate_id: x.d.candidate_id });
+    }).catch(function (e) { overlay(false); toast(e.message); });
+  });
+
+  document.querySelectorAll('[data-transcribe]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      overlay(true, 'Скачиваю запись и отправляю в Deepgram — до нескольких минут…');
+      post('interview-transcribe', { candidate_id: CAND, doc_id: btn.dataset.transcribe, slug: CAND })
+        .then(function (x) {
+          if (!x.ok || x.d.error) { overlay(false); btn.disabled = false; toast(x.d.error || 'Не удалось расшифровать'); return; }
+          location.reload();
+        })
+        .catch(function (e) { overlay(false); btn.disabled = false; toast(e.message); });
     });
   });
 
