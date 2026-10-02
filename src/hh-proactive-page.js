@@ -347,7 +347,7 @@ details[open] .exp-toggle::before{content:"▾ "}
 </head>
 <body>
 <div class="header">
-${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${callbackBase}/hh/proactive?username=${encodeURIComponent(username)}&token=${encodeURIComponent(token)}&vacancy_id=${encodeURIComponent(v.id)}`)}
+${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${callbackBase}/hh/proactive?username=${encodeURIComponent(username)}&token=${encodeURIComponent(token)}&vacancy_id=${encodeURIComponent(v.id)}`, `${callbackBase}/hh/vacancy-new?username=${encodeURIComponent(username)}&token=${encodeURIComponent(token)}`)}
   <div class="state-tabs">${[
     ['active', 'Найдено'],
     ['starred', '⭐ Выбрано'],

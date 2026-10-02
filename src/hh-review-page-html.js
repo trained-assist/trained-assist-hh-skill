@@ -395,7 +395,7 @@ h1{font-size:18px}
 </head>
 <body>
 <h1>Кандидаты: ${esc(vacancyTitle)}</h1>
-${require('./hh-nav').vacancyPickerHtml(vacancies, vacancyId, v => `?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(v.id)}`)}
+${require('./hh-nav').vacancyPickerHtml(vacancies, vacancyId, v => `?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(v.id)}`, `${callbackBase}/hh/vacancy-new?username=${encodeURIComponent(username)}&token=${pageToken}`)}
 ${syncError ? `<p role="alert">${esc(syncError)}</p>` : ''}
 <nav class="vacancy-tabs" aria-label="Статус отклика">${[['active','Активные'],['starred','★ Избранные'],['archived','Архив']].map(([status,label]) => `<a class="vacancy-tab${status === listView ? ' active' : ''}" href="?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}&list=${status}">${label} (${counts[status]})</a>`).join('')}</nav>
 <p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()">↻ Обновить</button></p>

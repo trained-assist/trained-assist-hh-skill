@@ -705,3 +705,90 @@ describe('candidate-rename (UX #107)', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('ats-config per-vacancy instructions (epic #112)', () => {
+  const tokFor = (u) => require('crypto').createHmac('sha256', 's3cret').update(u).digest('hex').slice(0, 16);
+
+  it('autofills the empty instruction from the template on first save and labels it global', async () => {
+    // Isolate the credential root so the template read is deterministic.
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    try {
+      const u = new URL('http://x/hh/ats-config');
+      const res = fakeRes();
+      await handleHhPublic(req('POST', u.pathname, {
+        username: 'alice', token: tokFor('alice'), vacancy_id: 'V1',
+        config: { vacancy_title: 'X', vacancy_context: 'ctx', required: [{ name: 'C++', weight: 2 }] },
+        stages: ['Скрининг', 'Интервью'],
+      }), u, res, ctx());
+      expect(res.status).toBe(200);
+      const file = path.join(root, 'users', 'alice', 'contexts', 'hh', 'ats_config:V1.json');
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8')).value;
+      expect(saved.message_instructions).toContain('готов ли кандидат выполнить тестовое задание');
+      expect(saved.message_instructions_source).toBe('global');
+      expect(saved.message_instructions_synced_at).toBeTruthy();
+    } finally {
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    }
+  });
+
+  it('a recruiter-edited instruction is never overwritten (source → recruiter)', async () => {
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    try {
+      const u = new URL('http://x/hh/ats-config');
+      const res = fakeRes();
+      await handleHhPublic(req('POST', u.pathname, {
+        username: 'alice', token: tokFor('alice'), vacancy_id: 'V1',
+        config: { vacancy_title: 'X', vacancy_context: 'ctx', message_instructions: 'Моя собственная инструкция этой вакансии' },
+      }), u, res, ctx());
+      const file = path.join(root, 'users', 'alice', 'contexts', 'hh', 'ats_config:V1.json');
+      expect(res.status).toBe(200);
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8')).value;
+      expect(saved.message_instructions).toBe('Моя собственная инструкция этой вакансии');
+      expect(saved.message_instructions_source).toBe('recruiter');
+    } finally {
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    }
+  });
+
+  it('nothing is shared across vacancies: V2 keeps its own (missing → default), not V1 text', async () => {
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    try {
+      const u = new URL('http://x/hh/ats-config');
+      const res = fakeRes();
+      await handleHhPublic(req('POST', u.pathname, {
+        username: 'alice', token: tokFor('alice'), vacancy_id: 'V1',
+        config: { vacancy_title: 'X', vacancy_context: 'ctx', message_instructions: 'Только для V1' },
+      }), u, res, ctx());
+      await handleHhPublic(req('POST', u.pathname, {
+        username: 'alice', token: tokFor('alice'), vacancy_id: 'V2',
+        config: { vacancy_title: 'Y', vacancy_context: 'ctx2' },
+      }), u, fakeRes(), ctx());
+      const v1 = JSON.parse(fs.readFileSync(path.join(root, 'users', 'alice', 'contexts', 'hh', 'ats_config:V1.json'), 'utf8')).value;
+      const v2 = JSON.parse(fs.readFileSync(path.join(root, 'users', 'alice', 'contexts', 'hh', 'ats_config:V2.json'), 'utf8')).value;
+      expect(v1.message_instructions).toBe('Только для V1');
+      expect(v2.message_instructions).not.toContain('Только для V1');
+      expect(v2.message_instructions).toContain('тестовое задание');
+    } finally {
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    }
+  });
+
+  it('GET /hh/message-instructions-template serves the default template to the editor', async () => {
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    try {
+      const u = new URL('http://x/hh/message-instructions-template?username=alice&token=' + tokFor('alice'));
+      const res = fakeRes();
+      await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+      expect(res.status).toBe(200);
+      const d = JSON.parse(res.body);
+      expect(d.ok).toBe(true);
+      expect(d.text).toContain('тестовое задание');
+    } finally {
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    }
+  });
+});

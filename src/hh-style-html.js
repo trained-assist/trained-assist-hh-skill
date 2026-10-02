@@ -5,7 +5,7 @@
 // opts: { username, rulesValue, baseValue, hasBaseOverride, callbackBase, hmacToken }
 
 function hhStylePageHtml(opts = {}) {
-  const { username = '', rulesValue = '', baseValue = '', hasBaseOverride = false, callbackBase = '', hmacToken = '' } = opts;
+  const { username = '', rulesValue = '', baseValue = '', hasBaseOverride = false, instructionsValue = '', hasInstructionsOverride = false, callbackBase = '', hmacToken = '' } = opts;
 
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Стиль общения — ${username}</title>
@@ -61,6 +61,16 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <button class="btn-primary" id="btnSaveBase" onclick="saveBasePrompt()">Сохранить сценарий</button>
 <button class="btn-secondary" id="btnResetBase" onclick="resetBasePrompt()">Сбросить к умолчанию</button>
 <div class="status" id="statusBase"></div>
+
+<hr class="sep">
+
+<h2>Шаблон инструкции для вакансий</h2>
+<p class="sub" style="margin-bottom:10px">Порядок работы с кандидатом, который копируется в настройки каждой вакансии при первом сохранении (ATS воронка → «Инструкция для сообщений кандидатам»). Правит тон и процесс, не список требований — он всегда берётся из той же вакансии.</p>
+<textarea id="instTemplate" rows="8">${instructionsValue}</textarea>
+<div class="hint">${hasInstructionsOverride ? '⚙️ Сейчас используется твоя версия (переопределяет умолчание).' : 'Сейчас используется версия по умолчанию.'} Вопросы — только по обязательным требованиям вакансии; действие воронки приоритетнее этого текста.</div>
+<button class="btn-primary" id="btnSaveInst" onclick="saveInstructionsTemplate()">Сохранить шаблон</button>
+<button class="btn-secondary" id="btnResetInst" onclick="resetInstructionsTemplate()">Сбросить к умолчанию</button>
+<div class="status" id="statusInst"></div>
 
 <script>
 async function saveRules() {
@@ -133,6 +143,39 @@ async function resetBasePrompt() {
     else show('statusBase', 'err', 'Ошибка: ' + (d.error || 'неизвестная'));
   } catch(e) { show('statusBase', 'err', 'Сетевая ошибка: ' + e.message); }
   document.getElementById('btnResetBase').disabled = false;
+}
+async function saveInstructionsTemplate() {
+  const text = document.getElementById('instTemplate').value.trim();
+  if (!text || text.length < 10) { show('statusInst', 'err', 'Шаблон не может быть пустым.'); return; }
+  document.getElementById('btnSaveInst').disabled = true;
+  show('statusInst', 'loading', 'Сохраняю...');
+  try {
+    const r = await fetch('${callbackBase}/hh/update-instructions-template', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: '${username}', token: '${hmacToken}', text}),
+    });
+    const d = await r.json();
+    if (d.ok) show('statusInst', 'ok', '✅ Шаблон сохранён! Новые вакансии получат его копию при первом сохранении в ATS.');
+    else show('statusInst', 'err', 'Ошибка: ' + (d.error || 'неизвестная'));
+  } catch(e) { show('statusInst', 'err', 'Сетевая ошибка: ' + e.message); }
+  document.getElementById('btnSaveInst').disabled = false;
+}
+async function resetInstructionsTemplate() {
+  if (!confirm('Вернуть шаблон инструкции к умолчанию? Твоя версия будет удалена.')) return;
+  document.getElementById('btnResetInst').disabled = true;
+  show('statusInst', 'loading', 'Сбрасываю...');
+  try {
+    const r = await fetch('${callbackBase}/hh/update-instructions-template', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: '${username}', token: '${hmacToken}', reset: true}),
+    });
+    const d = await r.json();
+    if (d.ok) { document.getElementById('instTemplate').value = d.text; show('statusInst', 'ok', '✅ Сброшено к умолчанию.'); }
+    else show('statusInst', 'err', 'Ошибка: ' + (d.error || 'неизвестная'));
+  } catch(e) { show('statusInst', 'err', 'Сетевая ошибка: ' + e.message); }
+  document.getElementById('btnResetInst').disabled = false;
 }
 function show(id, type, msg) {
   const s = document.getElementById(id);

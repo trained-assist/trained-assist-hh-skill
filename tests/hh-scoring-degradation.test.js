@@ -46,7 +46,8 @@ const ATS_CONFIG = {
 function writeAtsConfig() {
   const dir = join(WORK_DIR, 'contexts', 'hh');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'ats_config.json'), JSON.stringify({ value: ATS_CONFIG, updated_at: new Date().toISOString() }), { mode: 0o600 });
+  // Epic #112: the pipeline reads ONLY the per-vacancy config.
+  writeFileSync(join(dir, 'ats_config:vac-001.json'), JSON.stringify({ value: ATS_CONFIG, updated_at: new Date().toISOString() }), { mode: 0o600 });
 }
 
 function historyPath(negId) { return join(CAND_DIR, `${negId}.json`); }

@@ -17,10 +17,7 @@
 // paths (background auto-draft, review-page button, hh_regenerate_messages) cannot
 // drift again and stay testable without stubs.
 
-const fs = require('fs');
-const path = require('path');
-const { usersRoot } = require('./data-paths');
-const { hasRealAvailability } = require('./hh-message-prompts');
+const { createHash } = require('crypto');
 const { FUNNEL_LOGIC_VERSION, buildActionInstruction, ACTION_INSTRUCTION } = require('./hh-funnel');
 
 const HISTORY_WINDOW = 8;
@@ -113,6 +110,7 @@ function buildDraftUserMessage({
   action = null,
   missingSkills = [],
   testTask = '',
+  vacancyInstruction = '',
 } = {}) {
   const parts = [`Кандидат: ${firstName}`, ''];
   const intro = messageType === 'initial';
@@ -136,6 +134,12 @@ function buildDraftUserMessage({
       + 'вопросы кандидату задаются только действиями ask_skills/clarify_answer и только по списку выше. '
       + 'Если стиль или сценарий требуют спросить что-то ещё в этом письме — не спрашивай.');
   }
+  // The per-vacancy process instructions (ATS editor, epic #112), resolved per-vacancy
+  // by the caller (resolveMessageInstructions). Same priority rule as the style layers:
+  // the funnel action above decides, this text only shapes the recruiter's voice.
+  if (vacancyInstruction) {
+    parts.push('\n\nИнструкция для этой вакансии:\n' + vacancyInstruction);
+  }
   if (messageType !== 'rejection') {
     parts.push('\n\nЕсли предлагаешь созвон — называй дату И время («в четверг в 15:00»). '
       + 'Дата без времени предложением не считается: кандидат не поймёт, во сколько звонить. '
@@ -153,11 +157,18 @@ function buildDraftUserMessage({
 // THREAD only, so a draft written by a broken prompt stayed cached forever — the
 // thread had not changed, therefore nothing looked stale. Now a change to the
 // funnel logic invalidates every draft it produced, on the next background pass.
-function historySignature(history = []) {
+// The instruction hash (epic #112) does the same for a recruiter editing the
+// per-vacancy message instructions: drafts written under the old wording would
+// otherwise stay cached until the candidate wrote something new.
+function historySignature(history = [], vacancyInstruction = '') {
   const msgs = (history || []).filter(m => m && String(m.text || '').trim());
-  const last = msgs[msgs.length - 1];
-  if (!last) return `${FUNNEL_LOGIC_VERSION}:empty`;
-  return `${FUNNEL_LOGIC_VERSION}:${msgs.length}:${last.hh_id || last.timestamp || ''}`;
+  const base = msgs.length
+    ? `${FUNNEL_LOGIC_VERSION}:${msgs.length}:${msgs[msgs.length - 1].hh_id || msgs[msgs.length - 1].timestamp || ''}`
+    : `${FUNNEL_LOGIC_VERSION}:empty`;
+  const text = String(vacancyInstruction || '').trim();
+  // Keep the empty-instruction signature byte-identical to the pre-#112 one so
+  // existing cached drafts are not invalidated for the sake of a re-deploy.
+  return text ? `${base}:i${createHash('sha256').update(text).digest('hex').slice(0, 16)}` : base;
 }
 
 // Actions that legitimately produce NO letter. Without the skip signature the
@@ -165,9 +176,9 @@ function historySignature(history = []) {
 // silent candidate — 'no draft' is a decision, not missing work.
 const NO_LETTER_ACTIONS = ['wait', 'reject'];
 
-function isDraftStale(history = {}) {
+function isDraftStale(history = {}, vacancyInstruction = '') {
   const ats = history?.ats_result || {};
-  const sig = historySignature(history.messages || []);
+  const sig = historySignature(history.messages || [], vacancyInstruction);
   if (NO_LETTER_ACTIONS.includes(ats.funnel_action)) {
     return ats.draft_skip_sig !== sig;
   }
@@ -178,21 +189,6 @@ function isDraftStale(history = {}) {
 
 // draftMeta() used to live here and was never called by any call site — draft_history_sig is
 // written directly instead. Dead code, removed in #68 so nobody hunts for a use for it.
-
-// Whether the recruiter configured real call slots (ATS editor → interview_config).
-// Only then may a message name a specific time; the send guard uses it to stop
-// flagging a real slot as a hallucination (#606).
-function interviewConfigAllowsTime(username) {
-  try {
-    const file = path.join(usersRoot(), String(username), 'contexts', 'hh', 'ats_config.json');
-    if (!fs.existsSync(file)) return false;
-    let config = JSON.parse(fs.readFileSync(file, 'utf8')).value || {};
-    if (typeof config === 'string') config = JSON.parse(config);
-    return hasRealAvailability(config.interview_config);
-  } catch {
-    return false;
-  }
-}
 
 module.exports = {
   HISTORY_WINDOW,
@@ -206,5 +202,4 @@ module.exports = {
   renderHistory,
   historySignature,
   isDraftStale,
-  interviewConfigAllowsTime,
 };

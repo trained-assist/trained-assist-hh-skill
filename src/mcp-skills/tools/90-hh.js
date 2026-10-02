@@ -1391,16 +1391,13 @@ module.exports = {
           vacancy_id = ctx.value.id;
         }
 
-        // Resolve ats_config from context if not provided — per-vacancy key first
-        // (ats_config:{vacancy_id}, set via hh_extract_ats_config), legacy singleton
-        // as fallback for profiles that only ever tracked one vacancy.
+        // Resolve ats_config from context if not provided — per-vacancy key only
+        // (ats_config:{vacancy_id}, set via hh_extract_ats_config / the ATS editor).
+        // The legacy singleton is NEVER read (epic #112): it held one vacancy's
+        // criteria and let them leak into another vacancy's evaluation.
         if (!ats_config) {
           ats_config = readAtsConfigForVacancy(profileWorkDir(), vacancy_id);
           if (!ats_config) {
-            const legacy = readContext('hh', 'ats_config')?.value;
-            if (legacy?.vacancy_id && legacy.vacancy_id !== vacancy_id) {
-              return { error: `Сохранённый ATS конфиг настроен для другой вакансии («${legacy.vacancy_title || legacy.vacancy_id}»), а оцениваем «${vacancy_id}». Вызови hh_extract_ats_config и сохрани для этой вакансии через /hh/ats-editor (hh_open_ats_editor).` };
-            }
             return { error: `ATS конфиг не задан для вакансии «${vacancy_id}». Используй hh_extract_ats_config, затем проверь и сохрани его в /hh/ats-editor (ссылка есть в ответе hh_extract_ats_config).` };
           }
         }

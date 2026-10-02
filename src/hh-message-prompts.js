@@ -22,6 +22,7 @@ const { readCredentialFileSafe } = require('./hh-utils');
 // as `baseOverride`.
 
 const BASE_PROMPT_FILENAME = 'hh-message-base-prompt';
+const INSTRUCTIONS_TEMPLATE_FILENAME = 'hh-message-instructions-template';
 
 function loadBaseOverride(tokensBase, username) {
   try {
@@ -30,6 +31,36 @@ function loadBaseOverride(tokensBase, username) {
     if (text) return text;
   } catch { /* ignore */ }
   return null;
+}
+
+// Per-vacancy process instructions (epic #112). The OWNER's default — what a newly
+// created vacancy's instruction is seeded from before the recruiter edits it. The
+// funnel (src/hh-funnel.js) implements the same process deterministically in code;
+// this free text is the recruiter's editable copy, never above the funnel action.
+const DEFAULT_MESSAGE_INSTRUCTIONS =
+  'Если в резюме нет деталей по обязательным требованиям — уточни именно их, по одному вопросу в строке.\n' +
+  'Когда все обязательные требования закрыты — спроси, готов ли кандидат выполнить тестовое задание.\n' +
+  'Если готов — отправь задание текстом письма. После сдачи — предложи созвон.\n' +
+  'Не выдумывай детали, которых нет в резюме и в переписке.';
+
+// The recruiter's editable global template (agent-tokens/<user>/hh-message-instructions-template,
+// editable on /hh/style). Copied into each vacancy's ATS config at first save; the
+// vacancy's own copy then lives independently. Set → wins, else the default.
+function loadInstructionsTemplate(tokensBase, username) {
+  try {
+    const file = path.join(tokensBase, String(username), INSTRUCTIONS_TEMPLATE_FILENAME);
+    const text = readCredentialFileSafe(file)?.trim();
+    if (text) return text;
+  } catch { /* ignore */ }
+  return null;
+}
+
+// Resolution rule (#112): the vacancy's own field wins; an empty field falls back to
+// the recruiter's global template, then to the default. Never another vacancy's text.
+function resolveMessageInstructions({ username, tokensBase, atsConfig = {} } = {}) {
+  const own = String(atsConfig?.message_instructions || '').trim();
+  if (own) return own;
+  return loadInstructionsTemplate(tokensBase, username) || DEFAULT_MESSAGE_INSTRUCTIONS;
 }
 
 const MESSAGE_SYSTEM_BASE = 'Ты — рекрутер. ВСЕГДА пиши сообщение, даже если данных мало.\n' +
@@ -81,10 +112,14 @@ function buildRecruiterIdentity(msgCfg) {
   ].filter(Boolean).join('\n');
 }
 
-function buildMessageSystemPrompt({ vacancyContext = '', recruiterCtx = '', commStyle = '', baseOverride = '' } = {}) {
+function buildMessageSystemPrompt({ vacancyContext = '', recruiterCtx = '', commStyle = '', baseOverride = '', vacancyInstruction = '' } = {}) {
   let prompt = (baseOverride || MESSAGE_SYSTEM_BASE) + (vacancyContext ? '\n\n## Контекст вакансии\n' + vacancyContext : '');
   if (recruiterCtx) prompt += `\n\n## Идентичность рекрутера\n${recruiterCtx}`;
   if (commStyle) prompt += `\n\n## Стиль общения рекрутера\n${commStyle}`;
+  if (vacancyInstruction) {
+    prompt += `\n\n## Инструкция для этой вакансии\n${vacancyInstruction}\n` +
+      'Приоритет над этим текстом: действие воронки и список обязательных требований — уточняй только то, чего нет в данных кандидата.';
+  }
   return prompt;
 }
 
@@ -102,6 +137,10 @@ module.exports = {
   buildMessageSystemPrompt,
   buildRejectionSystemPrompt,
   loadBaseOverride,
+  loadInstructionsTemplate,
+  resolveMessageInstructions,
   BASE_PROMPT_FILENAME,
+  INSTRUCTIONS_TEMPLATE_FILENAME,
   DEFAULT_MESSAGE_BASE: MESSAGE_SYSTEM_BASE,
+  DEFAULT_MESSAGE_INSTRUCTIONS,
 };

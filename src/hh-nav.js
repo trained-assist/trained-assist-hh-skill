@@ -15,8 +15,14 @@ const NAV_ITEMS = [
 { path: '/hh/candidate-new', label: '+ Кандидат' },
   { path: '/hh/proactive', label: 'Холодный поиск' },
   { path: '/hh/ats-editor', label: 'ATS воронка' },
-  { path: '/hh/style', label: 'Стиль' },
   { path: '/hh/sync-log', label: 'Синхронизация' },
+];
+
+// Epic #112: the gear «Общие настройки» menu. «Стиль» lives here (was a flat nav
+// item) — these are the global per-recruiter layers, not per-vacancy pages, and the
+// dropdown keeps them from pretending to be part of the per-vacancy flow.
+const SETTINGS_ITEMS = [
+  { path: '/hh/style', label: 'Стиль' },
 ];
 
 const NAV_ID = 'hh-hub-nav';
@@ -35,20 +41,27 @@ function navQuery({ username, token, vacancyId }) {
 
 function hhNavHtml({ pathname = '', username, token, vacancyId } = {}) {
   const qs = escHtml(navQuery({ username, token, vacancyId }));
-  const links = NAV_ITEMS.map(({ path, label }) => {
+  const linkFor = ({ path, label }) => {
     const active = pathname.endsWith(path);
     const href = `${path.slice('/hh/'.length)}?${qs}`;
     return `<a href="${href}"${active ? ' class="active" aria-current="page"' : ''}>${escHtml(label)}</a>`;
-  }).join('');
+  };
+  const links = NAV_ITEMS.map(linkFor).join('');
+  const settingsLinks = SETTINGS_ITEMS.map(linkFor).join('');
   // Styles are scoped to #hh-hub-nav and set every property they rely on, so page
   // resets (`*{margin:0;padding:0}`, dark themes) neither break the bar nor leak out.
   return `<nav id="${NAV_ID}" aria-label="Рекрутинг-хаб"><style>` +
     `#${NAV_ID}{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:0;padding:8px 16px;background:#fff;border-bottom:1px solid #e2e8f0;font:500 14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;box-sizing:border-box;width:100%}` +
-    `#${NAV_ID} a{display:inline-block;margin:0;padding:6px 12px;border-radius:8px;color:#475569;text-decoration:none;white-space:nowrap}` +
-    `#${NAV_ID} a:hover{background:#f1f5f9;color:#1e293b}` +
+    `#${NAV_ID} a,#${NAV_ID} summary{display:inline-block;margin:0;padding:6px 12px;border-radius:8px;color:#475569;text-decoration:none;white-space:nowrap;cursor:pointer;list-style:none}` +
+    `#${NAV_ID} a:hover,#${NAV_ID} summary:hover{background:#f1f5f9;color:#1e293b}` +
     `#${NAV_ID} a.active{background:#eef2ff;color:#4338ca;font-weight:600}` +
-    `@media(max-width:640px){#${NAV_ID}{padding:6px 8px;overflow-x:auto;flex-wrap:nowrap}#${NAV_ID} a{padding:6px 8px}}` +
-    `</style>${links}</nav>`;
+    `#${NAV_ID} .hh-nav-settings{position:relative;display:inline-block}` +
+    `#${NAV_ID} .hh-nav-settings-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:50;min-width:180px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.12);padding:6px;display:none}` +
+    `#${NAV_ID} .hh-nav-settings[open] .hh-nav-settings-menu{display:block}` +
+    `#${NAV_ID} .hh-nav-settings-menu a{display:block;padding:8px 10px;border-radius:8px}` +
+    `@media(max-width:640px){#${NAV_ID}{padding:6px 8px;overflow-x:auto;flex-wrap:nowrap}#${NAV_ID} a,#${NAV_ID} summary{padding:6px 8px}}` +
+    `</style>${links}<details class="hh-nav-settings" data-testid="nav-settings"` +
+    `${pathname.endsWith('/hh/style') ? ' open' : ''}><summary>⚙ Общие настройки</summary><div class="hh-nav-settings-menu">${settingsLinks}</div></details></nav>`;
 }
 
 // Insert the nav right after the first opening <body …> tag. Pages without a body tag
@@ -97,21 +110,28 @@ function vacancyLabel(v = {}) {
   return [v.title || v.id, city, company].filter(Boolean).join(' · ');
 }
 
-// One-line vacancy switcher shared by every /hh/* page (proactive, review, ATS editor).
+// One vacancy switcher shared by every /hh/* page (proactive, review, ATS editor).
 // A dropdown instead of a row of chips: with 10+ vacancies the chips filled the whole
 // first screen and had to truncate names. hrefFor(v) builds each page's own link.
-function vacancyPickerHtml(vacancies, currentId, hrefFor) {
-  if (!Array.isArray(vacancies) || vacancies.length < 2) return '';
-  const options = vacancies.map(v => {
+// Always visible (epic #112) — even with a single vacancy, so the photo rectangle
+// and «+ Добавить вакансию» are reachable exactly when the vacancy is one.
+function vacancyPickerHtml(vacancies, currentId, hrefFor, addVacancyHref = '') {
+  const list = Array.isArray(vacancies) ? vacancies : [];
+  const options = list.map(v => {
     const selected = String(v.id) === String(currentId) ? ' selected' : '';
     return `<option value="${escHtml(hrefFor(v))}"${selected}>${escHtml(vacancyLabel(v))}</option>`;
   }).join('');
-  const hasCurrent = vacancies.some(v => String(v.id) === String(currentId));
-  return `<div class="vacancy-picker" data-testid="vacancy-picker" style="margin:0 0 10px">` +
-    `<label style="display:block;font-size:12px;color:#64748b;margin-bottom:4px">Вакансия (${vacancies.length})</label>` +
+  const hasCurrent = list.some(v => String(v.id) === String(currentId));
+  const addBtn = addVacancyHref
+    ? `<a class="vacancy-add" data-testid="vacancy-add" href="${escHtml(addVacancyHref)}" ` +
+      `style="flex:0 0 auto;padding:8px 14px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#4338ca;background:#eef2ff;text-decoration:none;white-space:nowrap">+ Добавить вакансию</a>`
+    : '';
+  return `<div class="vacancy-picker" data-testid="vacancy-picker" style="display:flex;gap:10px;align-items:center;margin:0 0 10px;flex-wrap:wrap">` +
+    `<div style="flex:1 1 260px;min-width:220px">` +
+    `<label style="display:block;font-size:12px;color:#64748b;margin-bottom:4px">Вакансия (${list.length})</label>` +
     `<select aria-label="Вакансия" onchange="if(this.value)location.href=this.value" ` +
     `style="width:100%;max-width:720px;padding:8px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff">` +
-    `${hasCurrent ? '' : '<option value="" selected>— выберите вакансию —</option>'}${options}</select></div>`;
+    `${hasCurrent ? '' : '<option value="" selected>— выберите вакансию —</option>'}${options}</select></div>${addBtn}</div>`;
 }
 
-module.exports = { NAV_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav, escHtml, vacancyLabel, vacancyPickerHtml };
+module.exports = { NAV_ITEMS, SETTINGS_ITEMS, NAV_ID, hhNavHtml, injectHhNav, withHhNav, escHtml, vacancyLabel, vacancyPickerHtml };

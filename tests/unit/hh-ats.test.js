@@ -453,7 +453,7 @@ describe('hh_batch_evaluate — reads vacancy_id and ats_config from context', (
       value: { id: 'vac-001', title: 'Backend Developer (Node.js)', set_at: new Date().toISOString() },
       updated_at: new Date().toISOString(),
     }));
-    writeFileSync(join(hhCtxDir, 'ats_config.json'), JSON.stringify({
+    writeFileSync(join(hhCtxDir, 'ats_config:vac-001.json'), JSON.stringify({
       value: ATS,
       updated_at: new Date().toISOString(),
     }));
@@ -493,32 +493,32 @@ describe('hh_batch_evaluate — reads vacancy_id and ats_config from context', (
   it('no context → error about missing vacancy', async () => {
     // Remove context files
     rmSync(join(ctxDir, 'contexts', 'hh', 'active_vacancy.json'));
-    rmSync(join(ctxDir, 'contexts', 'hh', 'ats_config.json'));
+    rmSync(join(ctxDir, 'contexts', 'hh', 'ats_config:vac-001.json'));
 
     const r = await tools().hh_batch_evaluate.handler({});
     expect(r.error).toMatch(/вакансия/i);
   });
 
-  it('ats_config saved for a different vacancy_id than the active one → error, no silent scoring', async () => {
-    // Recruiter switched active vacancy but never regenerated the ATS config for it
-    writeFileSync(join(ctxDir, 'contexts', 'hh', 'ats_config.json'), JSON.stringify({
+  it('a config namespaced to another vacancy is NOT used for the active one (epic #112)', async () => {
+    // Recruiter switched the active vacancy, the old vacancy's per-vacancy config
+    // still exists — it must never evaluate the new vacancy's candidates.
+    rmSync(join(ctxDir, 'contexts', 'hh', 'ats_config:vac-001.json'));
+    writeFileSync(join(ctxDir, 'contexts', 'hh', 'ats_config:vac-OLD.json'), JSON.stringify({
       value: { ...ATS, vacancy_id: 'vac-OLD', vacancy_title: undefined },
       updated_at: new Date().toISOString(),
     }));
 
     const r = await tools().hh_batch_evaluate.handler({});
-    expect(r.error).toMatch(/друг(ой|ую|ая) вакансии/i);
-    expect(r.error).toContain('vac-OLD');
+    expect(r.error).toMatch(/не задан для вакансии/i);
   });
 
-  it('per-vacancy ats_config:{vacancy_id} is used even when the legacy singleton is for a different vacancy (multi-vacancy tracking)', async () => {
-    // Legacy singleton still points at a stale/different vacancy (as above)...
+  it('the legacy singleton is ignored entirely — only ats_config:{vacancy_id} counts', async () => {
+    // The old global ats_config.json points at a stale vacancy (as the epic's
+    // real profile did), but a config namespaced to the active vacancy exists.
     writeFileSync(join(ctxDir, 'contexts', 'hh', 'ats_config.json'), JSON.stringify({
       value: { ...ATS, vacancy_id: 'vac-OLD', vacancy_title: undefined },
       updated_at: new Date().toISOString(),
     }));
-    // ...but a config namespaced to the active vacancy exists — this is what a
-    // recruiter tracking several vacancies concurrently saves via hh_extract_ats_config.
     writeFileSync(join(ctxDir, 'contexts', 'hh', 'ats_config:vac-001.json'), JSON.stringify({
       value: ATS,
       updated_at: new Date().toISOString(),
