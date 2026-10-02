@@ -11,7 +11,7 @@
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "29450f55ee183bf76b1c6c75cd9c90fd576489774e755f4daacac18a40f8238a",
+      "artifactDigest": "4b765ae42bdcddf2388120bcf5b1beea5b78ba6aab0cbabebfc9859d8e96a9a8",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",

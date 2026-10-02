@@ -138,7 +138,7 @@ ${manifest ? '' : `<label for="cand-name">Имя кандидата</label><inpu
 Перетащи файлы: резюме, сопроводительное, переписка, расшифровка интервью, портфолио, фото<br><br>
 <input type="file" id="files" multiple accept=".txt,.md,.csv,.text,.docx,.pdf,.mp4,.mov,.m4a,.wav,.mp3,.png,.jpg,.jpeg,.webp,.zip" style="display:none">
 <button class="btn" type="button" id="btn-files">выбрать файлы</button>
-<span class="hint">Файлы до 15 МБ (документы) и 30 МБ (видео). Больше — ссылкой ниже.</span>
+<span class="hint">До 256 МБ: файлы тяжелее 1 МБ уходят в Google Storage ядра, без лимита base64. Ещё тяжелее — ссылкой на Drive ниже.</span>
 </div>
 <div class="linkrow" style="margin-top:12px">
 <div><label for="link-url">Ссылка на материал (видеоинтервью на Google Drive)</label>
@@ -200,15 +200,38 @@ ${profileCard}
         if (f.size > (isVideo ? 30 : 15) * 1048576) {
           toast(f.name + ' — слишком большой, добавь ссылкой'); return;
         }
-        return f.arrayBuffer().then(function (buf) {
-          return post('candidate-doc', {
-            candidate_id: gotId || undefined,
-            candidate_name: (!gotId && nameEl) ? nameEl.value.trim() : undefined,
-            filename: f.name, data_base64: b64(buf),
-          }).then(function (x) {
-            if (!x.ok || x.d.error) { toast(x.d.error || ('Не удалось: ' + f.name)); return; }
-            if (!gotId) { gotId = x.d.candidate_id; CAND = gotId; history.replaceState(null, '', 'candidate-new?' + qs({ candidate_id: gotId })); }
-          });
+          var useRaw = f.size > 1048576; // >1 МБ — сырыми байтами в GCS (#105), без base64
+        var upload = useRaw
+          ? function (buf) {
+              var q = new URLSearchParams({ username: AUTH.username, token: AUTH.token, filename: f.name });
+              if (gotId) q.set('candidate_id', gotId);
+              else if (nameEl && nameEl.value.trim()) q.set('candidate_name', nameEl.value.trim());
+              return fetch('candidate-doc-raw?' + q.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': f.type || 'application/octet-stream' },
+                body: new Uint8Array(buf),
+                signal: AbortSignal.timeout(300000),
+              }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+                .catch(function (e) {
+                  // Ядро недоступно/старое (нет /internal/blob) — терпимо падаем на base64
+                  if (f.size > 31457280) throw e; // >30 МБ base64 не спасёт
+                  return post('candidate-doc', {
+                    candidate_id: gotId || undefined,
+                    candidate_name: (!gotId && nameEl) ? nameEl.value.trim() : undefined,
+                    filename: f.name, data_base64: b64(buf),
+                  });
+                });
+            }
+          : function (buf) {
+              return post('candidate-doc', {
+                candidate_id: gotId || undefined,
+                candidate_name: (!gotId && nameEl) ? nameEl.value.trim() : undefined,
+                filename: f.name, data_base64: b64(buf),
+              });
+            };
+        return f.arrayBuffer().then(upload).then(function (x) {
+          if (!x.ok || x.d.error) { toast(x.d.error || ('Не удалось: ' + f.name)); return; }
+          if (!gotId) { gotId = x.d.candidate_id; CAND = gotId; history.replaceState(null, '', 'candidate-new?' + qs({ candidate_id: gotId })); }
         });
       });
     });

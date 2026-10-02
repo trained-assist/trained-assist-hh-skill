@@ -135,3 +135,62 @@ describe('медиа-файлы и ручной текст (#87 фиксы из 
     expect(docs.combinedText('u1', 'c-t')).toContain('2020 – 2024');
   });
 });
+
+describe('externalStore — файл уходит в GCS, локально остаётся только текст (#105)', () => {
+  it('вызывает store с candidateId/docId/ext/contentType, пишет storage в манифест, байт-файл не создаёт', async () => {
+    const calls = [];
+    const out = await docs.addDocument({
+      username: 'u1', candidateName: 'Татьяна', filename: 'big.md',
+      buffer: Buffer.from('# Тяжёлое резюме\nОпыт работы 2020 – 2024'),
+      externalStore: async (info) => {
+        calls.push(info);
+        return { backend: 'gcs', key: `profiles/u1/candidate-docs/${info.candidateId}/${info.docId}${info.ext}`, doc_id: info.docId, ext: info.ext, sha256: 'b'.repeat(64) };
+      },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].candidateId).toBe(out.candidate_id);
+    expect(calls[0].docId).toBe(out.doc.id);
+    expect(calls[0].ext).toBe('.md');
+    expect(calls[0].contentType).toContain('markdown');
+
+    expect(out.doc.storage.backend).toBe('gcs');
+    expect(out.doc.storage.key).toContain(`candidate-docs/${out.candidate_id}/${out.doc.id}.md`);
+
+    const root = docs.candRoot('u1', out.candidate_id);
+    expect(existsSync(join(root, `${out.doc.id}.md`))).toBe(false); // байтов локально нет
+    expect(existsSync(join(root, `${out.doc.id}.txt`))).toBe(true);   // текст для профиля/оценок есть
+    expect(out.doc.chars).toBeGreaterThan(0);
+  });
+
+  it('падение стора не оставляет документ в манифесте', async () => {
+    await expect(docs.addDocument({
+      username: 'u1', candidateId: 'c-g', filename: 'x.pdf', buffer: Buffer.from('%PDF'),
+      externalStore: async () => { throw new Error('gcs down'); },
+    })).rejects.toThrow(/gcs down/);
+    // ensureCandidate создаёт пустой манифест раньше стора — документ туда попасть не должен
+    const m = docs.readManifest('u1', 'c-g');
+    expect(m ? m.docs.length : 0).toBe(0);
+  });
+
+  it('readDocBytes: gcs-документ идёт в клиент, локальный — с диска', async () => {
+    // локальный
+    const local = await docs.addDocument({ username: 'u1', candidateId: 'c-r', filename: 'a.txt', buffer: Buffer.from('локальный текст') });
+    const buf1 = await docs.readDocBytes('u1', 'c-r', local.doc);
+    expect(buf1.toString()).toBe('локальный текст');
+
+    // gcs — мокаем клиента через реальный HTTP-фейк не будем здесь: storage.doc_id/ext достаточно,
+    // чтобы readDocBytes пошёл в downloadDocBytes; отсутствие ядра даёт понятную ошибку.
+    const remote = await docs.addDocument({
+      username: 'u1', candidateId: 'c-r', filename: 'v.m4a', buffer: Buffer.from([1, 2]), manualType: 'interview',
+      externalStore: async (info) => ({ backend: 'gcs', key: 'k', doc_id: info.docId, ext: info.ext }),
+    });
+    const savedEnv = { A: process.env.AGENT_INTERNAL_URL, S: process.env.AGENT_SECRET };
+    delete process.env.AGENT_INTERNAL_URL; delete process.env.AGENT_SECRET;
+    try {
+      await expect(docs.readDocBytes('u1', 'c-r', remote.doc)).rejects.toThrow(/недоступна|download failed/);
+    } finally {
+      if (savedEnv.A !== undefined) process.env.AGENT_INTERNAL_URL = savedEnv.A;
+      if (savedEnv.S !== undefined) process.env.AGENT_SECRET = savedEnv.S;
+    }
+  });
+});
