@@ -1011,7 +1011,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     });
 
   function callLlm(userContent) {
-    // One abstraction for every candidate-message write: ladder 'conversations'
+    // One abstraction for every candidate-message write: ladder 'conversation'
     // (gemini-3.1-flash-lite-preview first), exchange recorded for the bench.
     return generateConversation({
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],

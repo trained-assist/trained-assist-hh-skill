@@ -74,7 +74,7 @@ function hhRequest(method, apiPath, accessToken) {
 // ── LLM ─────────────────────────────────────────────────────────────────────
 //
 // Both tools here WRITE a message to a candidate (cold outreach, polite refusal), so
-// they ride the 'conversations' ladder — the same rung the recruiter-facing draft
+// they ride the 'conversation' ladder — the same rung the recruiter-facing draft
 // generator uses (src/hh-llm.js purpose 'message'). The ladder owns the credential.
 function llmCall(_apiKey, messages, maxTokens = 1500, temperature = 0.7) {
   return hhLlm({

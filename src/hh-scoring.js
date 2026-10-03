@@ -121,7 +121,7 @@ async function evaluateCandidate(candidateText, atsConfig, _unusedKey, _unusedKe
       { role: 'system', content: buildAtsPrompt(atsConfig) },
       { role: 'user', content: `Оцени кандидата:\n\n${candidateText}` },
     ],
-    ladder: 'free-ladder',
+    ladder: 'free',
     temperature: 0.1,
     maxTokens: 2000,
     source: 'hh-evaluate',
@@ -304,7 +304,7 @@ async function scoreUnscoredCandidates(negotiations, username, workDir, { maxCon
   return scored;
 }
 
-// ─── Draft generation: conversation generation (ladder 'conversations') ───────
+// ─── Draft generation: conversation generation (ladder 'conversation') ───────
 
 async function generateDraftMessages(negotiations, username, workDir, { maxConcurrent = 3, vacancyId = null } = {}) {
   const atsConfig = readAtsConfig(workDir, vacancyId);
@@ -312,7 +312,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
 
   // Every write goes through src/conversation-generation.js (model pick + Q/A history
   // for the bench) — the ladder token is the only credential; the old per-user
-  // credential paths left this path with the switch to the 'conversations' ladder.
+  // credential paths left this path with the switch to the 'conversation' ladder.
   if (!ladderToken()) return 0;
 
   const tokensBase = tokensRoot();
@@ -436,7 +436,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           { role: 'user', content: userMsg },
         ];
 
-        // The write itself: ladder 'conversations' via conversation generation —
+        // The write itself: ladder 'conversation' via conversation generation —
         // the serving rung lands in the Q/A history for the bench.
         let message = await generateConversation({ messages, temperature: 0.7, maxTokens: 600, source: 'hh-drafts' });
         if (hasGarbage(message)) throw new Error('conversation generation returned garbage');

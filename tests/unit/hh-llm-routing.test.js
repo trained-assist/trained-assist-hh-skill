@@ -6,8 +6,8 @@
 // credential and silently killed background scoring, the message guard and the criteria
 // guard — each in its own copy, each logging a different symptom.
 //
-// Routing (owner 2026-10-01): messages → 'conversations', primitive evaluations →
-// 'free-ladder', everything else → 'service'.
+// Routing (owner 2026-10-01): messages → 'conversation', primitive evaluations →
+// 'free', everything else → 'service'.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -32,8 +32,8 @@ function sourceFiles(dir) {
 
 describe('hh-llm routing', () => {
   it('routes by purpose', () => {
-    expect(ladderFor('message')).toBe('conversations');
-    expect(ladderFor('score')).toBe('free-ladder');
+    expect(ladderFor('message')).toBe('conversation');
+    expect(ladderFor('score')).toBe('free');
     expect(ladderFor('default')).toBe('service');
     // An unknown purpose must never silently pick the model tier.
     expect(ladderFor('something-else')).toBe('service');
@@ -50,7 +50,7 @@ describe('hh-llm routing', () => {
     try {
       const text = await hhLlm({ messages: [{ role: 'user', content: 'x' }], purpose: 'score', fetchImpl });
       expect(text).toBe('ок');
-      expect(sent.model).toBe('free-ladder');
+      expect(sent.model).toBe('free');
     } finally {
       delete process.env.LLM_LADDER_TOKEN;
     }

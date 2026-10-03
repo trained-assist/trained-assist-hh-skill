@@ -275,7 +275,7 @@ ${expStr}
   // Query generation is the only OpenRouter call left here and reads its own key.
   const { content: text } = await ladderChat({
     messages: [{ role: 'user', content: prompt }],
-    ladder: 'free-ladder',
+    ladder: 'free',
     temperature: 0.1,
     maxTokens: 600,
     timeoutMs: 25_000,

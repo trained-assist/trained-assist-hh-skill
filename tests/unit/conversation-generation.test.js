@@ -77,7 +77,7 @@ describe('model selection', () => {
     const out = await conv.generateConversation({ messages: MSG('q1'), source: 'hh-test' });
 
     expect(out).toBe('Здравствуйте!');
-    expect(seen.model).toBe('conversations');
+    expect(seen.model).toBe('conversation');
     expect(seen.ladder_rung).toBeUndefined();
     expect(seen.messages).toEqual(MSG('q1'));
     expect(seen.temperature).toBe(0.7);
@@ -86,13 +86,13 @@ describe('model selection', () => {
   });
 
   it('HH_CONVERSATION_LADDER swaps the ladder (plug another one in)', async () => {
-    process.env.HH_CONVERSATION_LADDER = 'free-ladder';
+    process.env.HH_CONVERSATION_LADDER = 'free';
     let seen;
     mockLadder((body) => { seen = body; return { choices: [{ message: { content: 'ok' } }], model: 'free' }; });
 
     await conv.generateConversation({ messages: MSG('q') });
 
-    expect(seen.model).toBe('free-ladder');
+    expect(seen.model).toBe('free');
   });
 
   it('HH_CONVERSATION_RUNG pins one model in the body (per-call switch / bench)', async () => {
@@ -102,7 +102,7 @@ describe('model selection', () => {
 
     await conv.generateConversation({ messages: MSG('q') });
 
-    expect(seen.model).toBe('conversations');
+    expect(seen.model).toBe('conversation');
     expect(seen.ladder_rung).toBe('openrouter/google/gemini-2.5-flash');
   });
 
@@ -111,9 +111,9 @@ describe('model selection', () => {
     let seen;
     mockLadder((body) => { seen = body; return { choices: [{ message: { content: 'ok' } }], model: 'x' }; });
 
-    await conv.generateConversation({ messages: MSG('q'), ladder: 'conversations', rung: 'opencode-go/mimo-v2.6-flash' });
+    await conv.generateConversation({ messages: MSG('q'), ladder: 'conversation', rung: 'opencode-go/mimo-v2.6-flash' });
 
-    expect(seen.model).toBe('conversations');
+    expect(seen.model).toBe('conversation');
     expect(seen.ladder_rung).toBe('opencode-go/mimo-v2.6-flash');
   });
 
@@ -147,7 +147,7 @@ describe('Q/A history for the bench', () => {
     expect(h[0].messages).toEqual(MSG('Вопрос 1'));
     expect(h[0].answer).toBe('Ответ 1');
     expect(h[0].model).toBe('openrouter/google/gemini-3.1-flash-lite-preview');
-    expect(h[0].ladder).toBe('conversations');
+    expect(h[0].ladder).toBe('conversation');
     expect(h[0].temperature).toBe(0.7);
     expect(Date.parse(h[0].ts)).not.toBeNaN();
   });
@@ -197,7 +197,7 @@ describe('llm-ladder client', () => {
   });
 
   it('messages are required', async () => {
-    await expect(ladderChat({ messages: [], ladder: 'conversations' })).rejects.toThrow(/messages required/);
+    await expect(ladderChat({ messages: [], ladder: 'conversation' })).rejects.toThrow(/messages required/);
   });
 
   it('unreachable worker → wrapped error', async () => {

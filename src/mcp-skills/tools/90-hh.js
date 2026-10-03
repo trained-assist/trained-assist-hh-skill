@@ -162,7 +162,7 @@ function saveRejectionTemplate(userId, template) {
 
 // ── LLM ─────────────────────────────────────────────────────────────────────
 //
-// One ladder for everything in this tool: candidates get the 'conversations' ladder
+// One ladder for everything in this tool: candidates get the 'conversation' ladder
 // (src/conversation-generation.js), ATS evaluation the free ladder, extraction/rewriting
 // the default ladder — all through src/hh-llm.js. No API key is read here any more:
 // the per-user key file this module used to load first is exactly what made the
@@ -2108,7 +2108,7 @@ async function evaluateCandidate(candidateText, atsConfig, apiKey) {
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Оцени кандидата:\n\n${candidateText}` },
     ],
-    ladder: 'free-ladder',
+    ladder: 'free',
     temperature: 0.1,
     maxTokens: 2000,
     source: 'hh-evaluate',
@@ -2169,7 +2169,7 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
     testTask: atsConfig?.test_task || '',
   });
 
-  // The write itself goes through conversation generation (ladder 'conversations',
+  // The write itself goes through conversation generation (ladder 'conversation',
   // model pick + Q/A history for the bench live there).
   const text = await generateConversation({
     messages: [

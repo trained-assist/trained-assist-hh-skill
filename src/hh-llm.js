@@ -15,8 +15,8 @@
 // order, failover, model health and credentials. No caller reads an API key any more.
 //
 // Routing (owner 2026-10-01):
-//   message — writing a message to a candidate            → 'conversations'
-//   score   — ATS / primitive evaluation, guards          → 'free-ladder'
+//   message — writing a message to a candidate            → 'conversation'
+//   score   — ATS / primitive evaluation, guards          → 'free'
 //   default — everything else (planning, extraction, rewriting, tips) → 'service'
 //
 // The ladder name can be overridden per call (ladder) or per skill (env HH_LLM_LADDER),
@@ -26,8 +26,8 @@
 const { ladderChat, ladderToken, ladderUrl } = require('./llm-ladder');
 
 const LADDERS = {
-  message: 'conversations',
-  score: 'free-ladder',
+  message: 'conversation',
+  score: 'free',
   default: 'service',
 };
 
