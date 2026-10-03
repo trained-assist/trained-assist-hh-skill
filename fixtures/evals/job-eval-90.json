@@ -1,0 +1,60 @@
+{
+  "_comment": "Фактическая схема #90 (candidate-eval/<candidate_id>.job.json, state=done). Ключевые особенности: veto — string[] имён (не boolean!); rows из documents; percent/score10 уже посчитаны по шкале 0–5 старого промпта.",
+  "id": "ivanov-1789",
+  "candidate_id": "ivanov",
+  "username": "u1",
+  "vacancy_id": "v-node-1",
+  "vacancy_title": "Senior Node.js разработчик",
+  "state": "done",
+  "step": "done",
+  "progress": 100,
+  "started_at": "2026-10-01T09:00:00.000Z",
+  "finished_at": "2026-10-01T09:02:30.000Z",
+  "spent_minutes": 2.5,
+  "config_source": "ats_config",
+  "percent": 73,
+  "score10": 7.3,
+  "verdict": "УТОЧНИТЬ",
+  "veto": ["PostgreSQL"],
+  "rows": [
+    {
+      "name": "Node.js",
+      "klass": "must",
+      "weight": 2,
+      "score": 5,
+      "evidence": "«в резюме пять лет Node.js, тимлид последние два»",
+      "source": "резюме"
+    },
+    {
+      "name": "PostgreSQL",
+      "klass": "must",
+      "weight": 2,
+      "score": 2,
+      "evidence": "«в резюме только чтение из БД через ORM»",
+      "source": "резюме"
+    },
+    {
+      "name": "Docker",
+      "klass": "nice",
+      "weight": 1,
+      "score": 4,
+      "evidence": "«в резюме docker-compose в стеке»",
+      "source": "резюме"
+    }
+  ],
+  "reasoning": "Сильный Node.js-бэкенд. PostgreSQL — узкое место: схему сам не проектировал.",
+  "comparison": {
+    "min": 38,
+    "max": 91,
+    "avg": 64,
+    "place": 3,
+    "total": 9,
+    "percent": 73,
+    "snapshot_at": "2026-10-01"
+  },
+  "interview": {
+    "percent": 77,
+    "score10": 7.7,
+    "verdict": "ОТКЛОНИТЬ"
+  }
+}

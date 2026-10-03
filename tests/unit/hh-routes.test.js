@@ -407,6 +407,101 @@ describe('candidate report & photo routes (#91)', () => {
     expect(JSON.parse(res.body).error).toMatch(/отключён|Chrome/i);
   });
 
+  // ── Канон v2 (#120): роуты поверх канонической оценки ─────────────────────────
+  it('GET /hh/candidate-report-v2 renders the internal eval with evaluation_id', async () => {
+    const candidateId = await makeCandidate();
+    const u = new URL(`http://x/hh/candidate-report-v2?username=alice&token=${tok()}&candidate_id=${candidateId}&which=eval`);
+    const res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(res.headers['Content-Type']).toContain('text/html');
+    expect(res.body).toContain('Внутренняя оценка кандидата');
+    expect(res.body).toContain('evaluation_id');
+    expect(res.body).toContain('hh_portrait_v2');
+    expect(res.body).toContain('Скачать MD');
+    expect(res.body).toContain('Скачать PDF');
+  });
+
+  it('GET /hh/candidate-report-v2?which=profile renders the branded client profile', async () => {
+    const candidateId = await makeCandidate();
+    const u = new URL(`http://x/hh/candidate-report-v2?username=alice&token=${tok()}&candidate_id=${candidateId}&which=profile`);
+    const res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    expect(res.headers['Content-Type']).toContain('text/html');
+    // Брендированный HTML: палитра агентства применяется.
+    expect(res.body).toContain('--acc:');
+    expect(res.body).toContain('Оценка кандидата');
+    expect(res.body).toContain('Заключение рекрутера');
+    expect(res.body).toContain('Приложения');
+    expect(res.body).toContain('Иванова Мария');
+    // Внутренние поля не протекают в клиентский документ.
+    expect(res.body).not.toContain('expert_check');
+    expect(res.body).not.toContain('risk_log');
+    expect(res.body).not.toContain('evaluation_id');
+  });
+
+  it('GET /hh/candidate-report-v2?format=md downloads markdown for both documents', async () => {
+    const candidateId = await makeCandidate();
+    for (const which of ['eval', 'profile']) {
+      const u = new URL(`http://x/hh/candidate-report-v2?username=alice&token=${tok()}&candidate_id=${candidateId}&which=${which}&format=md`);
+      const res = fakeRes();
+      await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+      expect(res.headers['Content-Type']).toContain('text/markdown');
+      expect(res.headers['Content-Disposition']).toContain('.md');
+      if (which === 'eval') {
+        expect(res.body).toContain('# Внутренняя оценка кандидата');
+        expect(res.body).toContain('evaluation_id');
+      } else {
+        expect(res.body).toContain('# Иванова Мария');
+        expect(res.body).not.toContain('evaluation_id');
+      }
+    }
+  });
+
+  it('GET /hh/candidate-report-v2.pdf returns 422 with a hint when the engine is off', async () => {
+    const candidateId = await makeCandidate();
+    const saved = process.env.HH_PDF_ENGINE;
+    process.env.HH_PDF_ENGINE = 'off';
+    const u = new URL(`http://x/hh/candidate-report-v2.pdf?username=alice&token=${tok()}&candidate_id=${candidateId}&which=profile`); const res = fakeRes();
+    try {
+      await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    } finally {
+      if (saved === undefined) delete process.env.HH_PDF_ENGINE; else process.env.HH_PDF_ENGINE = saved;
+    }
+    expect(res.status).toBe(422);
+    expect(JSON.parse(res.body).error).toMatch(/отключён|Chrome/i);
+  });
+
+  it('GET /hh/candidate-report-v2 rejects a bad token and an unknown candidate', async () => {
+    const candidateId = await makeCandidate();
+    let u = new URL(`http://x/hh/candidate-report-v2?username=alice&token=bad&candidate_id=${candidateId}`);
+    let res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(403);
+
+    u = new URL(`http://x/hh/candidate-report-v2?username=alice&token=${tok()}&candidate_id=nope`);
+    res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(404);
+    expect(JSON.parse(res.body).error).toMatch(/не найден/i);
+  });
+
+  it('candidate-new page links to both v1 and v2 documents', async () => {
+    const candidateId = await makeCandidate();
+    const u = new URL(`http://x/hh/candidate-new?username=alice&token=${tok()}&candidate_id=${candidateId}`);
+    const res = fakeRes();
+    await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+    expect(res.status).toBe(200);
+    // v1-кнопки остались на месте.
+    expect(res.body).toContain('candidate-report?');
+    expect(res.body).toContain('candidate-report.pdf?');
+    // v2-кнопки добавлены.
+    expect(res.body).toContain('candidate-report-v2?');
+    expect(res.body).toContain('candidate-report-v2.pdf?');
+    expect(res.body).toContain('канон v2');
+  });
+
   it('photo upload and fetch round-trip', async () => {
     const candidateId = await makeCandidate();
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);

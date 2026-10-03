@@ -132,17 +132,23 @@ afterEach(() => {
 // ── Промпт: канон оценки зафиксирован в тексте ────────────────────────────────
 
 describe('системный промпт', () => {
-  it('держит маркер фикстуры, анкоры 0/3/5, n/a ≠ 0 и запрет выдумок', () => {
+  // Канон v2 (#120, R1): шкала 1–5 с поведенческими анкерами. Ноль на этой шкале
+  // не имеет смысла, поэтому «не обсуждалось» — отдельное состояние n/a, а не 1.
+  it('держит маркер фикстуры, анкоры 1/3/5, n/a ≠ 1 и запрет выдумок', () => {
     expect(SYSTEM_PROMPT).toContain(PROMPT_MARKER);
-    expect(SYSTEM_PROMPT).toMatch(/0 — явное несоответствие/);
-    expect(SYSTEM_PROMPT).toMatch(/3 — соответствует/);
-    expect(SYSTEM_PROMPT).toMatch(/5 — превосходит/);
-    expect(SYSTEM_PROMPT).toMatch(/НЕ СТАВЬ 0 за молчание/);
+    expect(SYSTEM_PROMPT).toMatch(/ШКАЛА 1–5/);
+    expect(SYSTEM_PROMPT).toMatch(/1 — явно нет опыта/);
+    expect(SYSTEM_PROMPT).toMatch(/3 — делал/);
+    expect(SYSTEM_PROMPT).toMatch(/5 — системный опыт с измеримыми результатами/);
+    expect(SYSTEM_PROMPT).toMatch(/НЕ СТАВЬ 1 за молчание/);
+    expect(SYSTEM_PROMPT).toMatch(/не выдумывай оценки/i);
     expect(SYSTEM_PROMPT).toMatch(/evidence ОБЯЗАТЕЛЕН/);
     expect(SYSTEM_PROMPT).toMatch(/Не|не выдумывай|Ничего не выдумывай/);
     expect(SYSTEM_PROMPT).toMatch(/communication — ОТДЕЛЬНАЯ ось/);
     expect(SYSTEM_PROMPT).toMatch(/НЕ входит в итоговый скор требований/);
     expect(SYSTEM_PROMPT).toMatch(/ТОЛЬКО валидный JSON/);
+    // Ноль больше не появляется как валидная оценка.
+    expect(SYSTEM_PROMPT).not.toMatch(/"score":0\.\.5/);
   });
 
   it('пользовательский промпт перечисляет требования с весами и честно пишет про роли', () => {

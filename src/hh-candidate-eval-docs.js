@@ -12,6 +12,9 @@ const path = require('path');
 const { dataRoot } = require('./data-paths.js');
 const { readManifest } = require('./hh-candidate-docs');
 const { readPortrait, computeCompleteness } = require('./hh-portrait');
+// Канон v2 (#120): рендереры поверх канонического CandidateEvaluation. Живут в
+// отдельном модуле, чтобы старый формат #91 оставался нетронутым.
+const evalDocsV2 = require('./hh-eval-docs-v2.js');
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -185,6 +188,147 @@ function buildLimitations({ sources, interviewEval, job, ats }) {
   if (!job) out.push('Сравнение с кандидатами вакансии не запускалось (нет результата «Запустить оценку»).');
   if (!ats && !interviewEval) out.push('Нет ни ATS-оценки, ни разбора интервью — документ будет неполным.');
   return out;
+}
+
+// ── Канон v2 (#120): сборка канонической оценки из файлов ───────────────────────
+// Точка входа для роутов: читает артефакты с диска и отдаёт канонический объект
+// вместе с клиентским draft. Рендереры v2 сами файлов не читают — иначе роут
+// и тест разошлись бы в том, откуда берутся данные.
+
+// Версия требований — это дайджест самого списка критериев, а не дата правки
+// портрета: меняются требования — меняется revision, а вместе с ним evaluation_id.
+function requirementsRevision({ workDir, portrait, vid }) {
+  const { readAtsConfig } = require('./hh-scoring');
+  const { buildAtsFromPortrait } = require('./hh-portrait');
+  const fromAts = readAtsConfig(workDir, vid);
+  const cfg = fromAts || (portrait ? buildAtsFromPortrait(portrait, vid) : null);
+  const items = [...(cfg?.required || []), ...(cfg?.preferred || [])]
+    .map(r => `${r.name || r}|${r.weight || 1}`).sort();
+  if (!items.length) return { revision: 'unknown', source: fromAts ? 'ats_config' : 'unknown', count: 0 };
+  const { createHash } = require('crypto');
+  return {
+    revision: createHash('sha256').update(items.join('\n')).digest('hex').slice(0, 12),
+    source: fromAts ? 'ats_config' : 'portrait',
+    count: items.length,
+  };
+}
+
+function buildReportDataV2FromFiles({
+  username, candidateId, vacancyId = null, evalSlug = null, negId = null,
+  prefer = 'interview', now = new Date(),
+} = {}) {
+  const manifest = readManifest(username, candidateId);
+  if (!manifest) return { error: 'Кандидат не найден.' };
+
+  const profileWorkDir = path.join(require('./data-paths.js').usersRoot(), username);
+  let portrait = null;
+  try { portrait = readPortrait(profileWorkDir, vacancyId || activeVacancyId(profileWorkDir) || 'draft'); } catch { portrait = null; }
+  const vid = vacancyId || activeVacancyId(profileWorkDir) || null;
+
+  const interviewEval = findInterviewEval(username, candidateId, manifest.name, evalSlug || null);
+  const job = findEvalJob(username, candidateId);
+  const ats = readAtsResult(username, negId);
+
+  // B9: в provenance попадают ВСЕ документы манифеста, включая portfolio/other —
+  // выпавшие из скоринга не должны теряться молча.
+  const docs = (manifest.docs || []).map(d => ({
+    doc_id: d.id, type: d.type, role: 'source', sha256: d.sha256 || '',
+  }));
+
+  const requirements = requirementsRevision({ workDir: profileWorkDir, portrait, vid });
+
+  // Клиентский draft собирается из того же манифеста, что и v1-профиль, плюс
+  // правила из report-notes v2 (R8): риски и заключение пишет рекрутер.
+  const draft = clientDraftFromManifest({ manifest, portrait, vid, username });
+
+  const built = evalDocsV2.buildReportDataV2({
+    candidateId: manifest.candidate_id || candidateId,
+    candidateName: manifest.name,
+    vacancyId: vid,
+    vacancyTitle: portrait?.vacancy?.title || job?.vacancy_title || null,
+    interviewEval, job, ats,
+    requirements, docs, prefer, now,
+    provenance: {
+      interview_eval_path: interviewEval ? `interviews/${interviewEval.slug || candidateId}/${interviewEval.slug || candidateId}.interview-eval.json` : null,
+      job_path: job ? `candidate-eval/${candidateId}.job.json` : null,
+      ats_path: ats ? `candidates/${negId}.json` : null,
+      communication: interviewEval?.communication || null,
+    },
+    limitations: buildLimitations({
+      sources: {
+        resume: docs.some(d => d.type === 'resume'),
+        cover_letter: docs.some(d => d.type === 'cover_letter' || d.type === 'correspondence'),
+        correspondence: docs.some(d => d.type === 'correspondence'),
+        interview: docs.some(d => d.type === 'interview'),
+      },
+      interviewEval, job, ats,
+    }),
+  });
+
+  if (built.error) return { error: built.error };
+  // draft пересобираем уже с готовой оценкой — иначе fit-сетка была бы пустой.
+  draft.evaluation = built.evaluation;
+  draft.fit = built.evaluation.rows
+    .filter(r => r.kind === 'professional')
+    .map(r => ({
+      requirement: r.label,
+      status: r.status === 'scored' ? (r.expert_check?.status === 'incorrect' ? 'missing' : (r.score <= 2 ? 'partial' : 'confirmed')) : 'missing',
+      comment: r.status === 'scored' ? (r.score_reason || '') : (r.status === 'no_data' ? 'нет данных для проверки' : 'не обсуждалось на интервью'),
+    }));
+  return { error: null, evaluation: built.evaluation, draft };
+}
+
+// Клиентский draft из манифеста: только одобренные поля. Внутренние поля
+// (score, evidence, risk-log) сюда не попадают — их отсекает toClientView.
+function clientDraftFromManifest({ manifest, portrait, vid, username }) {
+  const p = manifest.profile || {};
+  const notes = readNotesSafe(username, manifest.candidate_id);
+  const active = notes ? activeNotesSafe(notes) : { recruiter_notes: [] };
+  const docs = manifest.docs || [];
+  return {
+    version: 2,
+    audience: 'client',
+    scopes: { agency: null, vacancy: vid, candidate: manifest.candidate_id, report_version: 'v2' },
+    candidate_name: manifest.name || manifest.candidate_id,
+    position: p.position || portrait?.vacancy?.title || null,
+    client_name: portrait?.company?.name || null,
+    evaluation: null,
+    summary: p.summary || null,
+    desired_role: p.position || null,
+    work_format: portrait?.vacancy?.work_format || null,
+    experience: Array.isArray(p.experience) ? p.experience : [],
+    education: Array.isArray(p.education) ? p.education : [],
+    courses: [],
+    skills: Array.isArray(p.skills) ? p.skills : [],
+    languages: Array.isArray(p.languages) ? p.languages : [],
+    location: p.location || portrait?.vacancy?.location || null,
+    fit: [],
+    // Клиентские риски — отдельное поле рекрутера, а не копия внутреннего списка.
+    client_risks: active.recruiter_notes || [],
+    salary_expectations: p.salary_expectations || null,
+    recruiter_conclusion: null,
+    tests: [],
+    appendices: docs.map(d => ({
+      name: d.filename || d.type,
+      type: d.type,
+      truncated: Number.isFinite(d.chars) && d.chars >= 60000,
+      shown_chars: d.chars || 0,
+      total_chars: d.chars || 0,
+    })),
+    photo_url: manifest.photo?.file ? `photo:${manifest.photo.file}` : null,
+  };
+}
+
+// report-notes читаются по candidate_id (новая схема, #119 B7). Файла может не
+// быть вовсе — это не ошибка, а «рекрутер ещё ничего не писал».
+function readNotesSafe(username, candidateId) {
+  try {
+    const { readNotes } = require('./hh-candidate-report');
+    return readNotes(path.join(require('./data-paths.js').usersRoot(), username), candidateId);
+  } catch { return null; }
+}
+function activeNotesSafe(notes) {
+  try { return require('./hh-candidate-report').activeNotes(notes); } catch { return { recruiter_notes: [] }; }
 }
 
 // ── MD: «Чистая оценка» ────────────────────────────────────────────────────────
@@ -471,6 +615,14 @@ function photoDataUri(username, candidateId) {
   } catch { return null; }
 }
 
+// Канон v2 (#120) — рендереры поверх канонического CandidateEvaluation.
+// Живут в отдельном модуле (hh-eval-docs-v2), чтобы старый формат #91 оставался
+// нетронутым: его правки должны быть поведенчески нейтральны.
+const v2 = require('./hh-eval-docs-v2.js');
+
 module.exports = {
   buildReportData, renderCleanEvalMd, renderProfileMd, mdToHtml, wrapHtml, PRINT_CSS, photoDataUri,
+  buildReportDataV2FromFiles, requirementsRevision,
+  loadBranding: require('./hh-branding.js').loadBranding,
+  ...v2,
 };

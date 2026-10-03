@@ -1,0 +1,12 @@
+{
+  "_comment": "ATS-only (candidates/<neg_id>.json → ats_result). Шкала HH 0–10, в rows не подмешивается: документ показывает ATS отдельным показателем и явной пометкой «оценка по документам HH-ATS».",
+  "negotiation_id": "neg-5521",
+  "name": "Петров Пётр",
+  "ats_result": {
+    "score": 7.2,
+    "verdict": "УТОЧНИТЬ",
+    "reasoning": "Резюме хорошо описано, но нет подтверждения работы с распределёнными системами.",
+    "matched": ["Node.js", "REST", "CI/CD"],
+    "gaps": ["Kafka", "Kubernetes"]
+  }
+}

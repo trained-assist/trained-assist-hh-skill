@@ -1,0 +1,12 @@
+{
+  "_comment": "Legacy HR-Stalker (версионный адаптер legacy_hr_stalker_v0). В этой схеме score: 0 означало «не обсуждалось», а не «явное несоответствие» — на шкале 1–5 ноль не имеет смысла.",
+  "schema": "hr_stalker_v0",
+  "candidate": "Иванов Иван",
+  "criteria": [
+    { "id": "h-1", "label": "Node.js", "weight": 2, "must_have": true, "score": 4, "reason": "подтверждено резюме" },
+    { "id": "h-2", "label": "PostgreSQL", "weight": 2, "must_have": true, "score": 0, "reason": "" },
+    { "id": "h-3", "label": "Kafka", "weight": 1, "must_have": false, "score": 0, "reason": "" },
+    { "id": "h-4", "label": "GraphQL", "weight": 1, "must_have": false, "score": 3, "reason": "теория" }
+  ],
+  "total": 57
+}

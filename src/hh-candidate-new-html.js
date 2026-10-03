@@ -124,6 +124,18 @@ ${manifest.docs.length ? docsTableHtml(manifest) : '<p class="hint">Докуме
 <a class="btn" href="candidate-report.pdf?${escHtml(qs.toString())}&which=eval">⬇ PDF</a>
 </div>
 <p class="hint">PDF генерируется по кнопке; если на сервере нет Chrome — откроется подсказка печать из HTML (A4 без колонтитулов).</p>
+</div>
+<div class="card">
+<h3>Документы кандидата — канон v2</h3>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<a class="btn" href="candidate-report-v2?${escHtml(qs.toString())}&which=profile">📄 Профиль v2 (просмотр)</a>
+<a class="btn" href="candidate-report-v2?${escHtml(qs.toString())}&which=profile&format=md">⬇ MD</a>
+<a class="btn" href="candidate-report-v2.pdf?${escHtml(qs.toString())}&which=profile">⬇ PDF</a>
+<a class="btn" href="candidate-report-v2?${escHtml(qs.toString())}&which=eval">📊 Оценка v2 (просмотр)</a>
+<a class="btn" href="candidate-report-v2?${escHtml(qs.toString())}&which=eval&format=md">⬇ MD</a>
+<a class="btn" href="candidate-report-v2.pdf?${escHtml(qs.toString())}&which=eval">⬇ PDF</a>
+</div>
+<p class="hint">Канон v2 (#120): шкала 1–5, канонический evaluation_id, брендированный клиентский профиль, внутренняя оценка с экспертной проверкой. Клиентский профиль не содержит внутренних баллов и рисков.</p>
 </div>` : '';
 
   const profileCard = manifest && manifest.profile ? profileHtml(manifest.profile) : '';
