@@ -43,7 +43,7 @@ function partialPortrait(opts = {}) {
       about: 'На рынке 6 лет', office_address: 'Москва', notable_clients: ['Клиент А'], contact_person: 'Оксана',
     },
     vacancy: {
-      title: 'Маркетолог', headcount: 1, work_format: 'Удалённо', location: 'Москва', reason: 'Расширение',
+      title: 'Маркетолог', headcount: 1, tags: ['продвижение на маркетплейсах', 'SEO карточек'], work_format: 'Удалённо', location: 'Москва', reason: 'Расширение',
       workplace_address: 'Удаленно', reports_to: 'Собственнику', manages: 'Помощник',
       responsibilities: ['Ведение кабинетов WB'], programs: ['Excel'], expected_results: ['Рост продаж'],
       training: 'Да', probation_months: 3, salary_trial: '70000', salary_after: '100000',
@@ -96,19 +96,20 @@ test('vacancy-new: пустое состояние — «Собрать порт
   w.assertClean();
 });
 
-test('vacancy-new: заполненный портрет — донут 8 сегментов, процент в центре, список пробелов, форма из INIT, btn-save/btn-ats', async ({ page }) => {
+test('vacancy-new: заполненный портрет — донут 9 сегментов, процент в центре, список пробелов, форма из INIT, btn-save/btn-ats', async ({ page }) => {
   const w = watch(page);
   const portrait = partialPortrait();
   const completeness = computeCompleteness(portrait);
   await render(page, vacancyNewPageHtml({ username: 'alice', token: 'tok', vacancyId: 'vac-1', portrait, completeness }));
 
-  // Донут: 8 секций × (трек + заливка) = 16 дуг, процент по центру
+  // Донут: 9 секций × (трек + заливка) = 18 дуг, процент по центру
+  // (9-я секция — «Теги вакансии», #133)
   const gauge = page.locator('#gauge-card');
   await expect(gauge).toBeVisible();
   await expect(gauge.locator('svg')).toHaveAttribute('aria-label', `Полнота портрета ${completeness.percent}%`);
-  await expect(gauge.locator('svg circle')).toHaveCount(16);
+  await expect(gauge.locator('svg circle')).toHaveCount(18);
   await expect(gauge.locator('svg text').first()).toHaveText(`${completeness.percent}%`);
-  await expect(gauge.locator('.legend .sec')).toHaveCount(8);
+  await expect(gauge.locator('.legend .sec')).toHaveCount(9);
   expect(completeness.percent).toBeGreaterThan(0);
   expect(completeness.percent).toBeLessThan(100);
 
@@ -128,6 +129,8 @@ test('vacancy-new: заполненный портрет — донут 8 сег
   await expect(field('vacancy', 'responsibilities')).toHaveValue('Ведение кабинетов WB');
   await expect(field('requirements', 'photo_required')).toHaveValue('false');
   await expect(field('company', 'notable_clients')).toHaveValue('Клиент А');
+  // Теги вакансии (#133): поле в форме как многострочный список
+  await expect(field('vacancy', 'tags')).toHaveValue('продвижение на маркетплейсах\nSEO карточек');
 
   // Кнопки действий видимы
   await expect(page.locator('#btn-save')).toBeVisible();
