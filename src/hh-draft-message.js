@@ -19,9 +19,25 @@
 
 const { createHash } = require('crypto');
 const { FUNNEL_LOGIC_VERSION, buildActionInstruction, ACTION_INSTRUCTION } = require('./hh-funnel');
-const { factsLine } = require('./hh-known-facts');
+const { factsLine, extractKnownFacts } = require('./hh-known-facts');
 
 const HISTORY_WINDOW = 8;
+
+// The candidate's name is a CONFIRMED PROFILE FACT, not a decorative header.
+// It used to ride into the prompt as the implicit line `Кандидат: ${firstName}` with
+// firstName defaulting to the placeholder 'Кандидат': when HH returned no first_name
+// the name silently vanished, and the writer was left to decide on its own whether
+// to greet by name or ask for it — live 02.10–03.10: a letter that skipped the
+// greeting by name, and the mirror defect (issue #126) of re-asking a name already
+// in the resume. One line `имя: …` makes the fact explicit either way.
+function resolveCandidateName(firstName, resumeText = '') {
+  const given = String(firstName || '').trim();
+  if (given && given !== 'Кандидат') return given;
+  // The prompt parameter can be missing while the resume carries the name
+  // (buildResumeText prints `# Кандидат: ФИО`) — the fact wins over the placeholder.
+  const fromResume = extractKnownFacts(resumeText).find(f => f.key === 'name');
+  return fromResume ? fromResume.value : '';
+}
 
 // One axis: where the conversation stands. The ATS verdict is NOT part of it — verdict
 // decides what we offer (a call / a question about the gap), the thread decides how we
@@ -113,7 +129,19 @@ function buildDraftUserMessage({
   testTask = '',
   vacancyInstruction = '',
 } = {}) {
-  const parts = [`Кандидат: ${firstName}`, ''];
+  const name = resolveCandidateName(firstName, resumeText) || resolveCandidateName(firstName, candidateContext);
+  const parts = [];
+  if (name) {
+    parts.push(`имя: ${name}`);
+    parts.push('');
+    parts.push('Имя кандидата известно — письмо обращается по имени в приветствии и не спрашивает имя у кандидата.');
+  } else {
+    parts.push('имя: неизвестно');
+    parts.push('');
+    parts.push('Имя кандидата неизвестно — не выдумывай его и не обращайся по имени: нейтральное приветствие. '
+      + 'Имя не переспрашивай, если оно есть в блоке «Факты из резюме» — там оно уже известно.');
+  }
+  parts.push('');
   const intro = messageType === 'initial';
   if (intro) parts.push(`Резюме:\n${resumeText || '(резюме недоступно — напиши общее приглашение)'}\n\n`);
   else {
