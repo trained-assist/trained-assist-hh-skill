@@ -5,7 +5,7 @@
 // auto-drafts) goes through here; this layer calls our llm-ladder (src/llm-ladder.js)
 // instead of a per-file direct OpenRouter copy, so the model is chosen in ONE place:
 //
-//   ladder  = env HH_CONVERSATION_LADDER  (default 'conversations' — config/ladders.json
+//   ladder  = env HH_CONVERSATION_LADDER  (default 'conversation' — config/ladders.json
 //             of trained-assist-llm-ladder: gemini-3.1-flash-lite-preview →
 //             gemini-2.5-flash → Go mimo)
 //   rung    = env HH_CONVERSATION_RUNG    (default none — the ladder walks; set a rung id
@@ -23,7 +23,7 @@ const path = require('path');
 const { dataRoot } = require('./data-paths');
 const { ladderChat } = require('./llm-ladder');
 
-const DEFAULT_LADDER = 'conversations';
+const DEFAULT_LADDER = 'conversation';
 const DEFAULT_HISTORY_LIMIT = 20;
 
 let history = [];
