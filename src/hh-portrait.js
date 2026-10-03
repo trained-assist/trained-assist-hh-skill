@@ -74,6 +74,10 @@ const SECTIONS = [
     ],
   },
   {
+    key: 'tags', label: 'Теги вакансии',
+    fields: [['vacancy.tags', 'Тематические теги']],
+  },
+  {
     key: 'hard_skills', label: 'Hard skills',
     fields: [['requirements.hard_skills', 'Ключевые навыки / знания']],
   },
@@ -96,7 +100,7 @@ const SECTIONS = [
 
 const BLOCK_FIELDS = {
   company: ['name', 'industry', 'site', 'founded_headcount', 'about', 'office_address', 'notable_clients', 'contact_person'],
-  vacancy: ['title', 'headcount', 'work_format', 'location', 'reason', 'workplace_address', 'reports_to', 'manages',
+  vacancy: ['title', 'headcount', 'tags', 'work_format', 'location', 'reason', 'workplace_address', 'reports_to', 'manages',
     'responsibilities', 'programs', 'expected_results', 'training', 'career_growth', 'probation_months',
     'salary_trial', 'salary_after', 'salary_total', 'schedule', 'weekend_work', 'business_trips',
     'employment_type', 'perks'],
@@ -106,6 +110,7 @@ const BLOCK_FIELDS = {
 
 const ARRAY_FIELDS = new Set([
   'company.notable_clients',
+  'vacancy.tags',
   'vacancy.responsibilities', 'vacancy.programs', 'vacancy.expected_results', 'vacancy.perks',
   'requirements.stop_factors', 'requirements.hard_skills', 'requirements.soft_skills', 'requirements.selection_stages',
 ]);
@@ -225,7 +230,8 @@ const PORTRAIT_SYSTEM = `Ты собираешь «ПОРТРЕТ КАНДИДА
 Правила:
 - Заполняй ТОЛЬКО то, что реально есть в материалах. Не додумывай и не вычисляй.
 - Поля, которых нет в материалах: null для строк/чисел/флагов, [] для списков.
-- Списки (responsibilities, hard_skills, soft_skills, stop_factors, perks, selection_stages, programs, expected_results, notable_clients) — плоские строки, одна позиция = один элемент.
+- Списки (tags, responsibilities, hard_skills, soft_skills, stop_factors, perks, selection_stages, programs, expected_results, notable_clients) — плоские строки, одна позиция = один элемент.
+- tags («Теги вакансии»): 3–8 тематических тегов, каждый 2–4 слова, по одной теме вакансии, по которой потом можно отбирать факты. Без названия компании, без оценочных прилагательных («лучший», «сильный»), без дублей обязанностей.
 - Сохраняй факты клиента дословно, где это возможно (цифры зарплат, сроки, названия).
 - Отвечай ТОЛЬКО JSON без markdown и пояснений.`;
 
@@ -237,7 +243,7 @@ function portraitExample() {
       office_address: 'г. Москва', notable_clients: ['Клиент А'], contact_person: 'Оксана, собственник',
     },
     vacancy: {
-      title: 'Маркетолог', headcount: 1, work_format: 'Удалённо', location: 'Москва',
+      title: 'Маркетолог', headcount: 1, tags: ['продвижение на маркетплейсах', 'SEO карточек', 'аналитика рекламных кампаний'], work_format: 'Удалённо', location: 'Москва',
       reason: 'Расширение', workplace_address: 'Удаленно', reports_to: 'Собственнику', manages: null,
       responsibilities: ['Ведение кабинетов Wildberries', 'SEO-оптимизация карточек'],
       programs: ['Excel', 'ИИ-инструменты'], expected_results: ['Системное продвижение нового ассортимента'],

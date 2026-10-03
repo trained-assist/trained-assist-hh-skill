@@ -26,7 +26,7 @@ function filledPortrait() {
     about: 'На рынке 6 лет', office_address: 'г. Москва', notable_clients: ['Клиент А'], contact_person: 'Оксана',
   };
   p.vacancy = {
-    title: 'Маркетолог', headcount: 1, work_format: 'Удалённо', location: 'Москва', reason: 'Расширение',
+    title: 'Маркетолог', headcount: 1, tags: ['продвижение на маркетплейсах'], work_format: 'Удалённо', location: 'Москва', reason: 'Расширение',
     workplace_address: 'Удаленно', reports_to: 'Собственнику', manages: 'Помощник',
     responsibilities: ['Ведение кабинетов WB'], programs: ['Excel'], expected_results: ['Рост продаж'],
     training: 'Да', career_growth: 'Да', probation_months: 3, salary_trial: '70000 ₽', salary_after: '100000 ₽',
@@ -92,7 +92,7 @@ describe('computeCompleteness', () => {
     expect(c.percent).toBe(100);
     expect(c.missing_flat).toEqual([]);
     expect(c.sections.every(s => s.percent === 100)).toBe(true);
-    expect(c.sections.reduce((s, x) => s + x.total, 0)).toBe(40);
+    expect(c.sections.reduce((s, x) => s + x.total, 0)).toBe(41);
   });
 
   it('whitespace strings, empty arrays and nulls count as missing; explicit false counts as answered', () => {
@@ -100,7 +100,7 @@ describe('computeCompleteness', () => {
     p.vacancy.schedule = '   ';
     p.requirements.hard_skills = [];
     const c = computeCompleteness(p);
-    expect(c.percent).toBe(95); // 40 полей, 2 пустых
+    expect(c.percent).toBe(95); // 41 поле, 2 пустых
     expect(c.missing_flat).toEqual([
       'Зарплата и условия: График работы',
       'Hard skills: Ключевые навыки / знания',
@@ -201,5 +201,50 @@ describe('storage', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ── Поле tags (#133): тематические теги вакансии как данные для отбора фактов ──
+
+describe('vacancy.tags', () => {
+  it('normalizes a raw string into a list, empty into [], junk dropped', () => {
+    const out = normalizePortrait({
+      vacancy: {
+        title: 'WB',
+        tags: 'продвижение на маркетплейсах; SEO карточек\n \nаналитика продаж',
+      },
+    });
+    expect(out.vacancy.tags).toEqual(['продвижение на маркетплейсах', 'SEO карточек', 'аналитика продаж']);
+    expect(normalizePortrait({ vacancy: { tags: null } }).vacancy.tags).toEqual([]);
+    expect(normalizePortrait({ vacancy: { tags: '  ' } }).vacancy.tags).toEqual([]);
+  });
+
+  it('shows up in the completeness gauge as its own section', () => {
+    const without = computeCompleteness(emptyPortrait());
+    const sec = without.sections.find(s => s.key === 'tags');
+    expect(sec).toBeDefined();
+    expect(sec.label).toBe('Теги вакансии');
+    expect(sec.missing.map(m => m.field)).toEqual(['vacancy.tags']);
+
+    const p = filledPortrait();
+    expect(computeCompleteness(p).sections.find(s => s.key === 'tags').percent).toBe(100);
+  });
+
+  it('round-trips through the portrait file (normalize → write → read)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-portrait-tags-'));
+    try {
+      const saved = writePortrait(dir, 'v-tags', { vacancy: { title: 'WB', tags: ['маркетплейсы', 'SEO'] } });
+      expect(saved.vacancy.tags).toEqual(['маркетплейсы', 'SEO']);
+      const loaded = readPortrait(dir, 'v-tags');
+      expect(loaded.vacancy.tags).toEqual(['маркетплейсы', 'SEO']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('unknown tag keys are still dropped (schema stays closed)', () => {
+    const out = normalizePortrait({ vacancy: { tags: ['ok'], tag_weights: { a: 1 } } });
+    expect(out.vacancy.tags).toEqual(['ok']);
+    expect(out.vacancy.tag_weights).toBeUndefined();
   });
 });

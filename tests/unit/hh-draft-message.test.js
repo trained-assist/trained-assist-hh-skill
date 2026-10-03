@@ -369,3 +369,42 @@ describe('instructions describe intent, not wording to copy (#68)', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// ── Имя кандидата — явный факт профиля (#133) ────────────────────────────────
+// Живой дефект 02.10–03.10: имя ехало неявной строкой «Кандидат: …», при пустом
+// first_name молча терялось, и модель решала сама — поздороваться по имени или
+// переспросить его.
+
+describe('buildDraftUserMessage — candidate name is an explicit fact', () => {
+  const base = { messageType: 'reply', history: BAKHTADZE_HISTORY };
+
+  it('known name is stated as a fact and the writer is told to greet by it', () => {
+    const msg = buildDraftUserMessage({ ...base, firstName: 'Леван' });
+    expect(msg).toContain('имя: Леван');
+    expect(msg).toMatch(/обращается по имени/);
+    expect(msg).toMatch(/не спрашивает имя/);
+    expect(msg).not.toContain('имя: неизвестно');
+  });
+
+  it('placeholder "Кандидат" with no name elsewhere → explicit "неизвестно", no invented name', () => {
+    const msg = buildDraftUserMessage({ ...base, firstName: 'Кандидат', resumeText: '' });
+    expect(msg).toContain('имя: неизвестно');
+    expect(msg).toMatch(/не выдумывай/);
+    expect(msg).not.toContain('имя: Кандидат');
+  });
+
+  it('empty firstName falls back to the name carried by the resume text', () => {
+    const msg = buildDraftUserMessage({
+      ...base, firstName: '', resumeText: '# Кандидат: Потапова Татьяна\nЛокация: Москва',
+    });
+    expect(msg).toContain('имя: Потапова Татьяна');
+    expect(msg).not.toContain('имя: неизвестно');
+  });
+
+  it('name from the candidate context block counts as known too', () => {
+    const msg = buildDraftUserMessage({
+      ...base, firstName: '', candidateContext: '# Кандидат: Иван Петров',
+    });
+    expect(msg).toContain('имя: Иван Петров');
+  });
+});

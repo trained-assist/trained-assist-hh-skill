@@ -14,7 +14,7 @@ function filledPortrait() {
       about: 'На рынке 6 лет', office_address: 'Москва', notable_clients: ['Клиент А'], contact_person: 'Оксана',
     },
     vacancy: {
-      title: 'Маркетолог', headcount: 1, work_format: 'Удалённо', location: 'Москва', reason: 'Расширение',
+      title: 'Маркетолог', headcount: 1, tags: ['продвижение на маркетплейсах'], work_format: 'Удалённо', location: 'Москва', reason: 'Расширение',
       workplace_address: 'Удаленно', reports_to: 'Собственнику', manages: 'Помощник',
       responsibilities: ['Ведение кабинетов WB'], programs: ['Excel'], expected_results: ['Рост продаж'],
       training: 'Да', career_growth: 'Да', probation_months: 3, salary_trial: '70000', salary_after: '100000',
