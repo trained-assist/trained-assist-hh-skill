@@ -94,7 +94,8 @@ function checkPrompt(buildMessageSystemPrompt, atsConfig, vacancyContext = '') {
 
 async function run({ base = process.env.HH_HUB_BASE || 'http://localhost:8080',
                      user = process.env.HH_HUB_USER, token = process.env.HH_HUB_TOKEN,
-                     vacancyId = process.env.HH_HUB_VACANCY || '', atsConfig = null, fetch: f = fetch } = {}) {
+                     vacancyId = process.env.HH_HUB_VACANCY || '', atsConfig = null,
+                     expectRev = process.env.HH_HUB_EXPECT_REV || '', fetch: f = fetch } = {}) {
   if (!user) throw new Error('HH_HUB_USER is required');
   if (!token) throw new Error('HH_HUB_TOKEN is required');
   const results = [];
@@ -147,6 +148,23 @@ async function run({ base = process.env.HH_HUB_BASE || 'http://localhost:8080',
     if (status !== 200) add('страница несёт метку ревизии скилла', false, `HTTP ${status}`);
     else if (!m) add('страница несёт метку ревизии скилла', false, 'нет <meta name="hh-skill-rev"> — страница отдаётся не из этого репозитория или ревизия неизвестна');
     else add('страница несёт метку ревизии скилла', true, m[1].slice(0, 12));
+
+    // Presence alone is not enough: a stale checkout also carries a marker, just the
+    // wrong one. Pass the revision you meant to deploy and the probe refuses to bless
+    // anything else — that is what turns «deploy and hope» into «deploy and verify».
+    if (expectRev) {
+      const expected = String(expectRev).trim();
+      const served = m[1];
+      const short = h => h.slice(0, 12);
+      if (!/^[0-9a-f]{40}$/.test(expected)) {
+        add('отдаваемая ревизия совпадает с целевой', false, `HH_HUB_EXPECT_REV не похож на SHA: ${expected}`);
+      } else if (served !== expected) {
+        add('отдаваемая ревизия совпадает с целевой', false,
+          `прод отдаёт ${short(served)}, а задеплоено должно быть ${short(expected)} — вероятно, отдаётся устаревший чекаут`);
+      } else {
+        add('отдаваемая ревизия совпадает с целевой', true, short(served));
+      }
+    }
   }
 
   if (atsConfig) {
