@@ -26,3 +26,22 @@ describe('communication plan storage',()=>{
   expect(prepareLegacyPlan(config).requires_review).toBe(false);
  });
 });
+
+
+describe('reviewable legacy stage defaults',()=>{
+ it('the live five-stage snapshot gets meaningful editable instructions and results',()=>{
+  const draft=prepareLegacyPlan({test_task:stage.material,message_instructions:'не упоминай Ozon'},['Скрининг резюме','Уточнение навыков','Тестовое задание','Созвон','Решение']);
+  expect(draft.requires_review).toBe(true);expect(draft.plan.stages).toHaveLength(5);
+  for(const s of draft.plan.stages){expect(s.instruction).not.toContain('Опишите');expect(s.completion_result).not.toContain('Опишите');expect(s.instruction.trim()).not.toBe('');expect(s.completion_result.trim()).not.toBe('');}
+  expect(normalizeCommunicationPlan(draft.plan)).toEqual(draft.plan);
+  expect(draft.plan.stages[3].completion_result).toContain('дате и времени');
+  expect(draft.plan.stages[4].instruction).toContain('решения рекрутера');
+  expect(draft.plan.stages[2].material).toBe(stage.material);
+ });
+ it('unknown stages require real input and preserve original details in the source',()=>{
+  const source={title:'Другой процесс',instruction:'Спросить про другой процесс',completion_result:'Получен конкретный ответ',material:'custom exact\n',material_mode:'context'};
+  const draft=prepareLegacyPlan({},[source,'Неизвестный этап']);
+  expect(draft.plan.stages[0].instruction).toBe(source.instruction);expect(draft.legacy_source.stage_details[0]).toEqual(source);
+  expect(draft.plan.stages[1].instruction).toBe('');expect(()=>normalizeCommunicationPlan(draft.plan)).toThrow();
+ });
+});

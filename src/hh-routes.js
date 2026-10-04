@@ -33,6 +33,7 @@ const { hhLlm } = require('./hh-llm');
 const { ladderToken } = require('./llm-ladder');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
+const {acquireCandidateSendLock}=require('./hh-send-lock');
 
 // Cold-search schedule lives in the host's generic cron (#1489 S7.1); these routes reach
 // it only through the provider's hh_proactive_schedule tool, invoked via the host's
@@ -833,6 +834,9 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   const tokenData = readHhTokenFile(tokenFile);
   if (!tokenData) return json(res, 403, { error: 'HH token unreadable' });
 
+  const releaseSendLock=acquireCandidateSendLock(username,negotiation_id);
+  if(!releaseSendLock)return json(res,409,{ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'});
+  try{
   const dataDir = dataRoot();
   const histDir = path.join(dataDir, 'hh', String(username), 'candidates');
   fs.mkdirSync(histDir, { recursive: true });
@@ -913,6 +917,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     console.error('[hh/send] error:', e.message);
     return json(res, 500, { error: e.message });
   }
+  }finally{releaseSendLock();}
 }
 
 if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
@@ -1019,7 +1024,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       fs.mkdirSync(candDir,{recursive:true});
       fs.writeFileSync(histFile,JSON.stringify(history,null,2),{mode:0o600});
       return json(res,200,{ok:true,message:result.message||'',funnel_action:result.action,funnel_reason:result.reason,communication_steps:result.steps});
-    } catch(e) { return json(res,503,{error:e.message,code:e.code||'COMMUNICATION_FAILED'}); }
+    } catch(e) { return json(res,e.code==='PLAN_REVIEW_REQUIRED'?409:503,{error:e.message,code:e.code||'COMMUNICATION_FAILED'}); }
   }
 
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
@@ -1151,6 +1156,9 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
   const tokenData = readHhTokenFile(tokenFile);
   if (!tokenData) return json(res, 403, { error: 'HH token unreadable' });
 
+  const releaseSendLock=acquireCandidateSendLock(username,negotiation_id);
+  if(!releaseSendLock)return json(res,409,{ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'});
+  try{
   const dataDir2 = dataRoot();
   const histDir2 = path.join(dataDir2, 'hh', String(username), 'candidates');
   fs.mkdirSync(histDir2, { recursive: true });
@@ -1193,6 +1201,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
     console.error('[hh/send-and-reject] error:', e.message);
     return json(res, 500, { error: e.message });
   }
+  }finally{releaseSendLock();}
 }
 
 if (req.method === 'GET' && url.pathname === '/hh/style') {

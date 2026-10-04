@@ -26,12 +26,13 @@ PREVIOUS_HH="$(readlink -f "$SIBLING_LINK")"
 [[ -d "$PREVIOUS_HH" ]] || { echo 'Previous HH release missing; rollback unavailable' >&2; exit 1; }
 # An explicit service override would bypass the sibling being switched.
 LIVE_PID="$(systemctl show "$SERVICE" --property=MainPID --value)"
-python3 - "$LIVE_PID" <<'PY'
+python3 - "$LIVE_PID" "$SIBLING_LINK" <<'PY'
 import sys
 with open('/proc/'+sys.argv[1]+'/environ','rb') as f:
     values=f.read().split(b'\0')
-if any(v.startswith(b'HH_SKILL_DIR=') for v in values):
-    raise SystemExit('Service overrides HH_SKILL_DIR; use its configured release link explicitly')
+for value in values:
+    if value.startswith(b'HH_SKILL_DIR=') and value.split(b'=',1)[1].decode()!=sys.argv[2]:
+        raise SystemExit('Service overrides HH_SKILL_DIR; set HH_SIBLING_LINK to the configured release link explicitly')
 PY
 TARGET_DIR="$HH_RELEASES/$HH_REV"
 STAGING=""

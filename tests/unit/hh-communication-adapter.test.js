@@ -124,3 +124,5 @@ describe('explicit scoped Communication rollout',()=>{
   expect(communicationEnabled({})).toBe(false);
  });
 });
+
+it('requires explicit review/save of legacy plan before new-path generation',async()=>{let calls=0;await expect(generateCommunicationDraft({atsConfig:{test_task:'legacy'},call:async()=>{calls++;}})).rejects.toMatchObject({code:'PLAN_REVIEW_REQUIRED'});expect(calls).toBe(0);});

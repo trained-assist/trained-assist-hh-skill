@@ -37,21 +37,53 @@ function buildCommunicationObjective(config = {}) {
   'Сохранённые дополнительные инструкции рекрутера (учесть ограничения, не добавлять скрытые этапы):', String(config.message_instructions || ''),
  ].join('\n');
 }
-// Creates a review-only migration proposal. It never writes or activates a plan.
+// Draft-only title mapping reuses editable templates; runtime never infers an
+// action from a stage title. Unknown titles require the recruiter to fill details.
+function legacyStageDefaults(title) {
+ const {getStageTemplate} = require('./hh-stage-templates');
+ const label = title.trim().toLocaleLowerCase('ru');
+ const templateId = /^(?:уточнение(?: опыта| навыков)?|уточнить опыт|clarification)$/.test(label) ? 'clarify_experience'
+  : /^(?:тестовое(?: задание)?|test task)$/.test(label) ? 'test_task'
+  : /^(?:созвон|интервью|приглашение на (?:интервью|звонок)|звонок|interview)$/.test(label) ? 'interview_invite'
+  : /^(?:портфолио|portfolio)$/.test(label) ? 'portfolio' : null;
+ if (templateId) {const {id,label,hint,...defaults}=getStageTemplate(templateId);return {...defaults,template_id:id};}
+ if (/^(?:скрининг резюме|скрининг|просмотр резюме)$/.test(label)) return {
+  instruction:'Изучить уже доступное резюме и ответы по требованиям ATS, отметить подтверждённые факты и неизвестное. Не спрашивать повторно о фактах из резюме и не считать отсутствие упоминания доказанным отсутствием навыка.',
+  completion_result:'Доступные сведения резюме учтены; подтверждённые требования и оставшиеся неопределённости отражены в состоянии.',
+  material_mode:'context',material:''};
+ if (/^(?:решение|решение рекрутера|финальное решение)$/.test(label)) return {
+  instruction:'Дождаться решения рекрутера и сообщить только подтверждённый результат. Не выдумывать решение, оффер или обещания; до решения можно отвечать на вопросы кандидата.',
+  completion_result:'Рекрутер зафиксировал решение, и подтверждённый результат сообщён кандидату.',
+  material_mode:'context',material:''};
+ return {instruction:'',completion_result:'',material:'',material_mode:'context'};
+}
+// Creates a deterministic review-only migration proposal. Never writes/activates.
 function prepareLegacyPlan(config = {}, legacyStages = []) {
  if (config.communication_plan) return {plan:normalizeCommunicationPlan(config.communication_plan),requires_review:false,warnings:[]};
  const warnings = ['Это черновик переноса прежних настроек. Проверьте инструкции и результаты этапов перед сохранением.'];
- const titles = (Array.isArray(legacyStages) ? legacyStages : []).map(s=>String(s?.title ?? s)).filter(s=>s.trim());
+ const sources = Array.isArray(legacyStages) ? legacyStages : [];
+ const titles = sources.map(s=>String(s?.title ?? s)).filter(s=>s.trim());
  const task = typeof config.test_task === 'string' ? config.test_task : '';
- const stages = titles.map((title,index)=>({id:'legacy_'+createHash('sha256').update(JSON.stringify([index,title])).digest('hex').slice(0,24),title,instruction:'Опишите, что нужно сделать на этом этапе.',completion_result:'Опишите результат, после которого этап выполнен.',material:'',material_mode:'context'}));
- // Migration-only mapping proposes a test-material location; not runtime planning.
+ const stages = sources.map((source,index)=>{
+  const title=String(source?.title ?? source);if (!title.trim()) return null;
+  const defaults=legacyStageDefaults(title);
+  const existing=source && typeof source==='object' ? source : {};
+  const stage={...defaults,id:'legacy_'+createHash('sha256').update(JSON.stringify([index,title])).digest('hex').slice(0,24),title};
+  for (const key of ['instruction','completion_result','material','material_mode']) if (typeof existing[key]==='string') stage[key]=existing[key];
+  if (!stage.instruction.trim() || !stage.completion_result.trim()) warnings.push(`Заполните инструкцию и результат этапа «${title}»: для него нет готового шаблона.`);
+  return stage;
+ }).filter(Boolean);
  if (task.trim()) {
-  let stage = stages.find(s=>/тестов|задани/i.test(s.title));
-  if (!stage) {stage={id:'legacy_test_task',title:'Тестовое задание'};stages.push(stage);}
-  Object.assign(stage,{instruction:'Отправить сохранённое задание и дождаться выполнения; учитывать вопросы и согласованные изменения срока.',completion_result:'Получено выполнение задания. Подтверждение получения само по себе не означает выполнение.',material:task,material_mode:'verbatim'});
+  let stage = stages.find(s=>s.template_id==='test_task');
+  if (!stage) {stage={...legacyStageDefaults('Тестовое задание'),id:'legacy_test_task',title:'Тестовое задание'};stages.push(stage);}
+  // Preserve an existing stage's nonempty exact material instead of replacing it.
+  if (stage.material && stage.material !== task) {
+   warnings.push('У этапа уже есть другой материал. Прежнее test_task сохранено в legacy-источнике; проверьте оба текста.');
+  } else stage.material=task;
+  stage.material_mode='verbatim';
  }
  if (config.message_instructions) warnings.push('Прежняя инструкция сохранена отдельно; проверьте ручные ограничения и повторяющиеся вопросы при переносе.');
- return {plan:{version:PLAN_VERSION,stages},requires_review:true,warnings,legacy_source:{stages:titles,test_task:task,message_instructions:config.message_instructions || ''}};
+ return {plan:{version:PLAN_VERSION,stages},requires_review:true,warnings,legacy_source:{stages:titles,stage_details:JSON.parse(JSON.stringify(sources)),test_task:task,message_instructions:config.message_instructions || ''}};
 }
 // Explicit legacy rollback accessor. New scenario consumers use resolveStageMaterial.
 function legacyTestTask(config) { return typeof config?.test_task === 'string' ? config.test_task : ''; }
