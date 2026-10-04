@@ -11,8 +11,9 @@ const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-mes
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
+const {reconcilePendingSend,performCommunicationSend}=require('../../hh-communication-send');
 const {acquireCandidateSendLock}=require('../../hh-send-lock');
-const {contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
+const {captureGenerationGuard,readCommunicationGenerationInputs,contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
 const { asksKnownFact } = require('../../hh-known-facts');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
@@ -21,6 +22,7 @@ const { readAtsConfig: readAtsConfigForVacancy } = require('../../hh-scoring');
 const { publicPageBase, internalApiBase, savePublishDomain, loadPublishDomain, clearPublishDomain, HH_PAGES_ENV } = require('../../hh-publish-domain');
 
 const USER_ID = process.env.USER_ID || '';
+const candidateHistoryFiles = new WeakMap();
 
 // ── Context store (mirrors 03-context-store.js logic) ────────────────────────────
 
@@ -1202,7 +1204,7 @@ module.exports = {
     // ── Messaging ───────────────────────────────────────────────────────────
 
     hh_generate_message: {
-      description: 'Generate a personalized message for a candidate. Types: initial (first outreach with all qualification questions at once), followup (reminder if no reply), invite_call (invite to 15-min call). Reads candidate history automatically.',
+      description: 'Generate a candidate draft from the saved vacancy communication_plan, current full HH conversation history and full candidate profile. The Communication chain chooses a free goal from the editable scenario; generation does not send a message. message_type is retained for legacy compatibility, with rejection requesting an explicit rejection draft.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1210,7 +1212,7 @@ module.exports = {
           message_type: {
             type: 'string',
             enum: ['initial', 'followup', 'invite_call', 'rejection'],
-            description: 'Message type (default: initial). rejection — uses stored template, no LLM',
+            description: 'Legacy message type hint (default: initial). Under Communication, the saved scenario determines the next goal; rejection explicitly requests a rejection draft.',
           },
           ats_result: {
             type: 'object',
@@ -1228,7 +1230,7 @@ module.exports = {
           const neg = await hhGet(`/negotiations/${negotiation_id}`, token);
           const { name } = await formatCandidateContext(neg);
 
-          if (message_type === 'rejection') {
+          if (message_type === 'rejection' && !communicationEnabledFor(USER_ID,neg.vacancy?.id||neg.vacancy_id||readContext('hh','active_vacancy')?.value?.id)) {
             const template = loadRejectionTemplate(USER_ID);
             const firstName = name.split(' ')[0];
             const message = template.replace(/\{firstName\}/g, firstName);
@@ -1243,7 +1245,7 @@ module.exports = {
           }
 
           const apiKey = llmReady();
-          if (!communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) && !ladderToken()) return { error: 'llm-ladder token не найден.' };
+          if (!communicationEnabledFor(USER_ID,neg.vacancy?.id||neg.vacancy_id||readContext('hh','active_vacancy')?.value?.id) && !ladderToken()) return { error: 'llm-ladder token не найден.' };
 
           const { text: candidateContext } = await formatCandidateContext(neg);
           const contextWithVacancy = vacancy_context
@@ -1251,7 +1253,7 @@ module.exports = {
             : candidateContext;
 
           const history = readCandidateHistory(USER_ID, negotiation_id);
-          const vid=neg.vacancy?.id||readContext('hh','active_vacancy')?.value?.id;
+          const vid=neg.vacancy?.id||neg.vacancy_id||readContext('hh','active_vacancy')?.value?.id;
           const atsConfigCtx={value:vid?readAtsConfigForVacancy(profileWorkDir(),vid):null};
 
           const message = await generateMessage(
@@ -1347,6 +1349,10 @@ module.exports = {
         if(!releaseSendLock)return {ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'};
         try {
           const stored=readCandidateHistory(USER_ID,negotiation_id);
+          const communicationSend=communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&!!stored.communication_steps;
+          const refresh=()=>refreshCommunicationHistory(stored,negotiation_id,endpoint=>hhGet(endpoint,token));
+          const persist=()=>saveCandidateHistory(USER_ID,negotiation_id,stored);
+          if(communicationSend){const prior=await reconcilePendingSend({history:stored,message,refresh,persist});if(prior)return {ok:true,negotiation_id,reconciled:true,send_event:prior.event};}
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&contactForbidden(stored))return {ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id)&&!stored.communication_steps&&(message===stored.ats_result?.draft_message||message===stored.message_draft?.text))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&stored.communication_steps){
@@ -1355,9 +1361,10 @@ module.exports = {
             const currentResumeHash=resumeHash(latest);
             const vid=stored.communication_snapshot?.context?.vacancy_id||readContext('hh','active_vacancy')?.value?.id;
             const config=vid?readAtsConfigForVacancy(profileWorkDir(),vid):null;
-            if(staleCommunicationDraft(stored,config||{},currentResumeHash))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик.'};
+            if(staleCommunicationDraft(stored,config||{},currentResumeHash,readCommunicationGenerationInputs({username:USER_ID,workDir:profileWorkDir(),vacancyId:vid})))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик.'};
           }
-          const sent = await hhPost(`/negotiations/${negotiation_id}/messages`, token, { message });
+          const delivery=communicationSend?await performCommunicationSend({history:stored,message,refresh,persist,source:'mcp',send:()=>hhPost(`/negotiations/${negotiation_id}/messages`, token, { message })}):null;
+          const sent = delivery?delivery.sent:await hhPost(`/negotiations/${negotiation_id}/messages`, token, { message });
 
           // hh-history dedupes against the HH mirror on the next sync — without the
           // confirmed id (and with the dedupe below) this message reappeared twice.
@@ -1366,11 +1373,11 @@ module.exports = {
             role: 'employer', text: message,
             hhId: sent?.id ?? null, timestamp: sent?.created_at || null,
           });
-          if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&history.communication_steps){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhGet(endpoint,token));}catch(e){history.communication_delivery_refresh_error=e.message;}}
           saveCandidateHistory(USER_ID, negotiation_id, history);
 
-          return { ok: true, negotiation_id, message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };
+          return { ok: true, negotiation_id, ...(delivery?{send_event:delivery.event,reconciled:delivery.reconciled}:{}), message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };
         } catch (e) {
+          if(e.code==='SEND_OUTCOME_UNKNOWN')return {ok:false,code:e.code,error:e.message};
           return hhAuthAwareError(e);
         }finally{releaseSendLock();}
       },
@@ -1404,7 +1411,7 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = llmReady();
-        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
+        if (!communicationEnabledFor(USER_ID,vacancy_id||readContext('hh','active_vacancy')?.value?.id) && !ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         // Resolve vacancy_id from context if not provided
         if (!vacancy_id) {
@@ -1492,9 +1499,9 @@ module.exports = {
 
             // Persist message_draft so the live /hh/review page can pre-fill the textarea
             let messageDraft = history.message_draft || null;
-            if ((communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) || atsResult.score != null) && atsResult.verdict !== 'ОТКЛОНИТЬ') {
+            if ((communicationEnabledFor(USER_ID,vacancy_id) || atsResult.score != null) && atsResult.verdict !== 'ОТКЛОНИТЬ') {
               const configVersion = ats_config.updated_at || null;
-              if (!messageDraft || messageDraft.config_version !== configVersion || (communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id)&&staleCommunicationDraft(history,ats_config))) {
+              if (!messageDraft || messageDraft.config_version !== configVersion || (communicationEnabledFor(USER_ID,vacancy_id)&&staleCommunicationDraft(history,ats_config))) {
                 try {
                   const alreadySent = (history.messages || []).some(m => m.role === 'employer');
                   const msgType = atsResult.verdict === 'ПРОПУСТИТЬ' ? 'invite_call'
@@ -1511,7 +1518,7 @@ module.exports = {
                     ats_config,
                     null,history,
                   );
-                  if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id))saveCandidateHistory(USER_ID,neg.id,history);
+                  if(communicationEnabledFor(USER_ID,vacancy_id))saveCandidateHistory(USER_ID,neg.id,history);
                   if (draftText) {
                     messageDraft = { text: draftText, generated_at: new Date().toISOString(), config_version: configVersion };
                     history.message_draft = messageDraft;
@@ -1570,7 +1577,7 @@ module.exports = {
         'Use this right after editing the message prompt/interview_config (e.g. in the ATS editor) so every candidate draft reflects the new rules — ' +
         'this is the "update all written candidate messages" trigger. Unlike hh_batch_evaluate, it ignores config_version caching and overwrites ' +
         'existing drafts unconditionally. Does NOT send anything — drafts only, review/send separately via hh_draft_review_page or /hh/review. ' +
-        'Skips candidates with verdict ОТКЛОНИТЬ (rejections use a separate flow) and candidates with no ats_result yet (run hh_batch_evaluate first). ' +
+        'Skips candidates with verdict ОТКЛОНИТЬ (rejections use a separate flow). Communication drafts do not require an ATS score; the legacy path requires an existing evaluation. ' +
         'If vacancy_id is omitted — reads from context (set with hh_set_active_vacancy).',
       inputSchema: {
         type: 'object',
@@ -1589,7 +1596,7 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = llmReady();
-        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
+        if (!communicationEnabledFor(USER_ID,vacancy_id||readContext('hh','active_vacancy')?.value?.id) && !ladderToken()) return { error: 'llm-ladder token не найден.' };
 
         if (!vacancy_id) {
           const ctx = readContext('hh', 'active_vacancy');
@@ -1631,9 +1638,9 @@ module.exports = {
 
           for (const neg of allNegsRegen) {
             const history = readCandidateHistory(USER_ID, neg.id);
-            const atsResult = history.ats_result;
+            const atsResult = history.ats_result || {};
 
-            if (!communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) && atsResult?.score == null) {
+            if (!communicationEnabledFor(USER_ID,vacancy_id) && atsResult?.score == null) {
               skipped.push({ id: neg.id, reason: 'не оценён — сначала hh_batch_evaluate' });
               continue;
             }
@@ -1660,7 +1667,7 @@ module.exports = {
                 ats_config,
                 null,history,
               );
-              if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id))saveCandidateHistory(USER_ID,neg.id,history);
+              if(communicationEnabledFor(USER_ID,vacancy_id))saveCandidateHistory(USER_ID,neg.id,history);
               if (draftText) {
                 history.message_draft = { text: draftText, generated_at: new Date().toISOString(), config_version: configVersion };
                 // /hh/review reads ats_result.draft_message, not message_draft — keep both in sync so the
@@ -1716,12 +1723,12 @@ module.exports = {
         for (const c of candidates) {
           let draft = null;
           let alreadySent = false;
-          if (c.verdict !== 'ОТКЛОНИТЬ' && (communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) || ladderToken())) { // drafts are written through the ladder now (apiKey stays for the planNextStep arg)
+          if (c.verdict !== 'ОТКЛОНИТЬ' && (communicationEnabledFor(USER_ID,resolvedVacancyId) || ladderToken())) { // drafts are written through the ladder now (apiKey stays for the planNextStep arg)
             const history = readCandidateHistory(USER_ID, c.negotiation_id);
             alreadySent = (history.messages || []).some(m => m.role === 'employer');
             const configVersion = atsConfigCtx?.value?.updated_at || null;
             let fullCandidateContext=null;
-            if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id)){
+            if(communicationEnabledFor(USER_ID,resolvedVacancyId)){
               const hhToken=readHhToken(USER_ID);
               if(!hhToken)throw new Error('HH не подключён.');
               const neg=await refreshCommunicationHistory(history,c.negotiation_id,endpoint=>hhGet(endpoint,hhToken));
@@ -1731,7 +1738,7 @@ module.exports = {
             // Reuse existing draft if it was generated for the same ATS config version.
             // Without this check, every call to hh_draft_review_page overwrites any text
             // the recruiter manually edited in the textarea.
-            if (history.message_draft?.text && history.message_draft.config_version === configVersion && (!communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) || !staleCommunicationDraft(history,atsConfig))) {
+            if (history.message_draft?.text && history.message_draft.config_version === configVersion && (!communicationEnabledFor(USER_ID,resolvedVacancyId) || !staleCommunicationDraft(history,atsConfig))) {
               draft = history.message_draft.text;
             } else {
               const msgType = c.verdict === 'ПРОПУСТИТЬ' ? 'invite_call'
@@ -1749,7 +1756,7 @@ module.exports = {
                   atsConfigCtx?.value || null,
                   null,history,
                 );
-                if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id))saveCandidateHistory(USER_ID,c.negotiation_id,history);
+                if(communicationEnabledFor(USER_ID,resolvedVacancyId))saveCandidateHistory(USER_ID,c.negotiation_id,history);
                 if (draft) {
                   if (!history.ats_result) history.ats_result = {};
                   history.ats_result.draft_message = draft;
@@ -2157,7 +2164,16 @@ async function evaluateCandidate(candidateText, atsConfig, apiKey) {
 async function generateMessage(candidateContext, atsResult, name, apiKey, messageType = 'initial', history = [], userId = null, atsConfig = null, planOut = null, historyRecord = null) {
   if(communicationEnabledFor(userId||USER_ID,atsConfig?.vacancy_id)){
     const record=historyRecord||{messages:history,ats_result:atsResult};
-    const result=await generateAndStoreCommunication(record,{atsConfig:atsConfig||{},resumeText:candidateContext,candidateName:name,senderProfile:loadRecruiterIdentityConfig()||{},communicationStyle:loadCommunicationStyle(userId||USER_ID)||undefined,context:{vacancy_id:atsConfig?.vacancy_id||null},...(messageType==='rejection'?{forceGoal:{instruction:'Напиши вежливый отказ кандидату.'}}:{})});
+    const username=userId||USER_ID;
+    const expectedInputs={atsConfig:atsConfig||{},senderProfile:loadRecruiterIdentityConfig()||{},communicationStyle:loadCommunicationStyle(username)||undefined};
+    const baseline=candidateHistoryFiles.get(record);
+    if(!baseline)throw Object.assign(new Error('Неизвестен файл истории для проверки актуальности генерации.'),{code:'HH_GENERATION_HISTORY_UNKNOWN'});
+    const assertFresh=captureGenerationGuard({historyFile:baseline.file,expectedHistoryText:baseline.text,expectedInputs,readInputs:()=>readCommunicationGenerationInputs({username,workDir:profileWorkDir(),vacancyId:atsConfig?.vacancy_id})});
+    const token=readHhToken(username);if(!token)throw new Error('HH не подключён для проверки истории.');
+    const latest=await refreshCommunicationHistory(record,baseline.negotiationId,endpoint=>hhGet(endpoint,token));
+    const full=await formatCandidateContext(latest);
+    assertFresh();
+    const result=await generateAndStoreCommunication(record,{...expectedInputs,assertFresh,resumeText:full.text,candidateName:full.name,sourceResumeHash:resumeHash(latest),context:{vacancy_id:atsConfig?.vacancy_id||null},...(messageType==='rejection'?{forceGoal:{instruction:'Напиши вежливый отказ кандидату.'}}:{})});
     if(planOut)Object.assign(planOut,{action:result.action,reason:result.reason,steps:result.steps});
     return result.message||'';
   }
@@ -2265,14 +2281,18 @@ function candidateHistoryPath(userId, negotiationId) {
 
 function readCandidateHistory(userId, negotiationId) {
   const file = candidateHistoryPath(userId, negotiationId);
-  if (!fs.existsSync(file)) return { messages: [], ats_result: null };
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { messages: [], ats_result: null }; }
+  let history={messages:[],ats_result:null},text=null;
+  try {text=fs.readFileSync(file,'utf8');const saved=JSON.parse(text);if(saved&&typeof saved==='object'&&!Array.isArray(saved))history=saved; } catch {}
+  candidateHistoryFiles.set(history,{file,text,negotiationId:String(negotiationId)});
+  return history;
 }
 
 function saveCandidateHistory(userId, negotiationId, data) {
   const file = candidateHistoryPath(userId, negotiationId);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), { mode: 0o600 });
+  const text=JSON.stringify(data,null,2);
+  fs.writeFileSync(file,text,{mode:0o600});
+  if(data&&typeof data==='object')candidateHistoryFiles.set(data,{file,text,negotiationId:String(negotiationId)});
 }
 
 // ── Review page HTML ────────────────────────────────────────────────────────

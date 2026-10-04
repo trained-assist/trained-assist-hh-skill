@@ -64,19 +64,23 @@ async function generateCommunicationDraft(options={}){
  if(stateResponse.conversation_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Извлечённое состояние относится к другому снимку');
  const state=stateResponse.state;assertState(state,plan,thread,profile,context);
  const bindings=plan.stages.filter(s=>s.material_mode==='verbatim'&&s.material.trim()).map(s=>({stage_id:s.id}));
- const objective=buildCommunicationObjective(atsConfig)+'\nАктуальное время: '+new Date(now).toISOString();
- const goalSig=signature({version:VERSION,stateSig,state,objective:buildCommunicationObjective(atsConfig),bindings,forceGoal});
+ const sourceSpeakers=Object.fromEntries([...thread.map(m=>[m.id,m.speaker]),['profile','partner'],['context','other']]);
+ const goalState={...state,source_speakers:sourceSpeakers};
+ const actorPolicy='Автор каждого источника указан в conversation_state.source_speakers: sender — рекрутер, partner — кандидат, other — внешний контекст. Определяй, кто предложил условие и от кого нужен следующий ответ, по автору evidence.source_id, а не по пассивной формулировке summary. Не ожидай подтверждения от стороны, которая уже предложила условие. Не спрашивай автора предложения, подходит ли ему его же условие, и не проси повторять уже данное. Если возможность sender исполнить предложенное условие неизвестна, цель и сообщение — принять предложение к сведению и честно обозначить необходимость проверки своей возможности. Не выдавай это за подтверждение доступности, не выдумывай согласие и не переноси проверку собственной возможности на partner. Подтверждай условие только при известных фактах о возможности sender. Предложение одной стороны не является двусторонней договорённостью.';
+ const baseObjective=buildCommunicationObjective(atsConfig)+'\n'+actorPolicy;
+ const objective=baseObjective+'\nАктуальное время: '+new Date(now).toISOString();
+ const goalSig=signature({version:VERSION,stateSig,state:goalState,sourceSpeakers,objective:baseObjective,bindings,forceGoal});
  const next=Date.parse(previousSteps?.next_check_at || state.next_check_at || '');
  const waitExpired=validPrevious&&(['wait','no_matching_option'].includes(previousSteps.goal?.status)||previousSteps.writer?.status==='no_message_needed') && (Number.isFinite(next)?now>=next:now-Date.parse(previousSteps.computed_at)>=60000);
  let goalResponse;
  if(state.contact_allowed===false)goalResponse={status:'do_not_contact',requires_message:false,goal:null,execution:null,reason:'Явный запрет контакта',conversation_revision:revision};
  else if(forceGoal)goalResponse={status:'goal_ready',requires_message:true,goal:forceGoal,execution:null,reason:'Явное действие рекрутера',conversation_revision:revision};
  else if(validPrevious&&previousSteps.goal_sig===goalSig&&!waitExpired)goalResponse=cached('goal',previousSteps.goal);
- else goalResponse=await invoke('goal',{conversation_revision:revision,conversation_state:state,conversation_objective:objective,material_bindings:bindings,language});
+ else goalResponse=await invoke('goal',{conversation_revision:revision,conversation_state:goalState,conversation_objective:objective,material_bindings:bindings,language});
  if(goalResponse.conversation_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Цель относится к другому снимку');
  if(!['goal_ready','wait','no_matching_option','do_not_contact'].includes(goalResponse.status))throw new CommunicationError('GOAL_REJECTED','Неизвестный исход выбора цели');
  const style=typeof communicationStyle==='string'?{instructions:communicationStyle.trim() || 'Деловой, вежливый и краткий тон.'}:communicationStyle;
- const steps={version:VERSION,state:stateResponse,state_sig:stateSig,goal:goalResponse,goal_sig:goalSig,computed_at:new Date(now).toISOString(),next_check_at:state.next_check_at || (['wait','no_matching_option'].includes(goalResponse.status)?new Date(now+60000).toISOString():null),conversation_revision:revision,contract_version:'v1',metrics:chainMetrics(events)};
+ const steps={version:VERSION,state:stateResponse,state_sig:stateSig,goal:goalResponse,goal_sig:goalSig,computed_at:new Date(now).toISOString(),next_check_at:state.next_check_at || (['wait','no_matching_option'].includes(goalResponse.status)?new Date(now+60000).toISOString():null),conversation_revision:revision,contract_version:'v1',source_speakers:sourceSpeakers,metrics:chainMetrics(events)};
  if(goalResponse.status!=='goal_ready')return {message:null,action:goalResponse.status,reason:goalResponse.reason,steps,revision};
  if(!goalResponse.goal?.instruction?.trim())throw new CommunicationError('GOAL_REJECTED','Пустая цель');
  let message,action='write_message';
@@ -94,8 +98,13 @@ async function generateCommunicationDraft(options={}){
   }
   if(validPrevious&&previousSteps.draft_sig===draftSig&&typeof previousSteps.message==='string'){message=previousSteps.message;steps.writer=cached('writer',previousSteps.writer);steps.metrics=chainMetrics(events);}
   else{
-   const written=await invoke('writer',{context_revision:revision,goal:goalResponse.goal,communication_style:style,language,conversation_history:{format:'messages',messages:thread},partner_profile:profile,sender_profile:senderProfile,context:{...ctx,communication_plan:plan,conversation_state:state},constraints:{preserve_links:true,forbidden_claims:['Не выдумывать слоты, имена, требования, условия и сроки.']}});
+   const written=await invoke('writer',{context_revision:revision,goal:goalResponse.goal,communication_style:style,language,conversation_history:{format:'messages',messages:thread},partner_profile:profile,sender_profile:senderProfile,context:{...ctx,communication_plan:plan,conversation_state:goalState,source_actor_policy:actorPolicy},constraints:{preserve_links:true,forbidden_claims:['Не выдумывать слоты, имена, требования, условия и сроки.']}});
    if(written.context_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Черновик относится к другому снимку');
+   if(written.status==='needs_context'){
+    const error=new CommunicationError('NEEDS_CONTEXT',written.reason || 'Для черновика не хватает подтверждённого контекста');
+    error.missing_fields=Array.isArray(written.missing_fields)?written.missing_fields:[];
+    steps.writer=written;steps.metrics=chainMetrics(events);steps.missing_fields=error.missing_fields;error.steps=steps;error.metrics=steps.metrics;error.communication_metrics=steps.metrics;throw error;
+   }
    if(written.status==='no_message_needed'){
     steps.writer=written;steps.metrics=chainMetrics(events);steps.next_check_at=state.next_check_at || new Date(now+60000).toISOString();
     return {message:null,action:'wait',reason:written.reason,steps,revision};

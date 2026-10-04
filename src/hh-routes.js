@@ -27,13 +27,15 @@ const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, loadInstructionsTemplate, resolveMessageInstructions, DEFAULT_MESSAGE_BASE, DEFAULT_MESSAGE_INSTRUCTIONS, BASE_PROMPT_FILENAME, INSTRUCTIONS_TEMPLATE_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
-const {contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
+const {readCommunicationGenerationInputs,captureGenerationGuard,contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
 const { generateConversation } = require('./conversation-generation');
 const { hhLlm } = require('./hh-llm');
 const { ladderToken } = require('./llm-ladder');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
 const {acquireCandidateSendLock}=require('./hh-send-lock');
+const {skillRevision,isSha}=require('./hh-version');
+const {reconcilePendingSend,performCommunicationSend}=require('./hh-communication-send');
 
 // Cold-search schedule lives in the host's generic cron (#1489 S7.1); these routes reach
 // it only through the provider's hh_proactive_schedule tool, invoked via the host's
@@ -345,6 +347,7 @@ async function doSend(force) {
  * Returns true if the request was handled.
  */
 async function handleHhPublic(req, url, res, ctx) {
+  if(['/hh/ats-editor','/hh/ats-config','/hh/generate-message'].includes(url.pathname)){const rev=skillRevision();if(isSha(rev))res.setHeader('X-HH-Skill-Rev',rev);}
   if (ctx.runMcpTool) hostRunMcpTool = ctx.runMcpTool;
   // Recruiting-hub nav bar (#1742): injected into every authorized GET /hh/* HTML page
   // by wrapping res — the page handlers below are unchanged.
@@ -846,22 +849,29 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
 
   // Per-vacancy guard scope (epic #112): the interview-time rules come from THIS
   // vacancy's ATS config, not a global singleton that spills one vacancy into another.
-  let effectiveVacancyId = body?.vacancy_id || null;
+  let effectiveVacancyId=body?.vacancy_id||history.communication_snapshot?.context?.vacancy_id||history.vacancy_id||null;
   if (!effectiveVacancyId) {
     const vcFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json');
     try { effectiveVacancyId = JSON.parse(fs.readFileSync(vcFile, 'utf8'))?.value?.id || null; } catch { /* no active vacancy */ }
   }
+  const communicationSend=communicationEnabledFor(username,effectiveVacancyId)&&!!history.communication_steps;
+  const refreshSendHistory=()=>refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));
+  const persistSendHistory=()=>fs.writeFileSync(histFile,JSON.stringify(history,null,2),{mode:0o600});
+  if(communicationSend){
+    try{const previous=await reconcilePendingSend({history,message,refresh:refreshSendHistory,persist:persistSendHistory});if(previous?.delivered)return json(res,200,{ok:true,reconciled:true,send_event:previous.event});}
+    catch(e){return json(res,503,{ok:false,error:e.message,code:e.code||'SEND_OUTCOME_UNKNOWN'});}
+  }
   if(communicationEnabledFor(username,effectiveVacancyId)&&contactForbidden(history))return json(res,409,{ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'});
   if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
-  if (communicationEnabledFor(username,body?.vacancy_id) && history.communication_steps) {
+  if (communicationEnabledFor(username,effectiveVacancyId) && history.communication_steps) {
     let currentResumeHash=null;
     try{const latest=await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
     const {readAtsConfig}=require('./hh-scoring');
     const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),effectiveVacancyId);
-    if(staleCommunicationDraft(history,config||{},currentResumeHash)) return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+    if(staleCommunicationDraft(history,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId}))) return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
   }
   const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
-  const exactPlannedMaterial=communicationEnabledFor(username,body?.vacancy_id)&&history.communication_steps?.material&&message===history.communication_steps.message;
+  const exactPlannedMaterial=communicationEnabledFor(username,effectiveVacancyId)&&history.communication_steps?.material&&message===history.communication_steps.message;
   const guard = exactPlannedMaterial?{ok:true,checks:{}}:await bullshitGuard(message, history.messages, { username, allowSpecificTime });
   if (!guard.ok) {
     if (!force) {
@@ -885,7 +895,9 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
 
   const firstContact = !history.messages.some(m => m.role === 'employer');
   try {
-    const sent = await hhPostForm(`/negotiations/${negotiation_id}/messages`, tokenData, { message });
+    let delivery=null;
+    const send=()=>hhPostForm(`/negotiations/${negotiation_id}/messages`,tokenData,{message});
+    const sent=communicationSend?(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:'http'})).sent:await send();
     // Persist the id HH confirmed: without it the next sync re-added the same message
     // as a second copy (every outbound message looked like two sends — and the guard
     // read that inflated history). See src/hh-history.js.
@@ -894,13 +906,12 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
       hhId: sent?.id ?? sent?.message?.id ?? null,
       timestamp: sent?.created_at || null,
     });
-    if(communicationEnabledFor(username,body?.vacancy_id)&&history.communication_steps){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));}catch(e){history.communication_delivery_refresh_error=e.message;}}
     fs.writeFileSync(histFile, JSON.stringify(history, null, 2), { mode: 0o600 });
     console.log(`[hh/send] user=${username} neg=${negotiation_id} len=${message.length}`);
     // Delivery already succeeded — answer now and move the stage afterwards. Awaiting
     // the negotiation fetch + stage move inline added up to 30 s of a dead-looking
     // spinner on the review page for a cosmetic HH state change.
-    json(res, 200, { ok: true });
+    json(res, 200, { ok: true,...(delivery?{send_event:delivery.event,reconciled:delivery.reconciled}:{}) });
     if (firstContact) {
       (async () => {
         try {
@@ -916,7 +927,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     return;
   } catch (e) {
     console.error('[hh/send] error:', e.message);
-    return json(res, 500, { error: e.message });
+    return json(res,e.code==='SEND_OUTCOME_UNKNOWN'?503:500,{ok:false,error:e.message,...(e.code?{code:e.code}:{})});
   }
   }finally{releaseSendLock();}
 }
@@ -953,7 +964,8 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   const dataDir = dataRoot();
   const candDir = path.join(dataDir, 'hh', String(username), 'candidates');
   const histFile = path.join(candDir, `${negotiation_id}.json`);
-  const history = fs.existsSync(histFile) ? JSON.parse(fs.readFileSync(histFile, 'utf8')) : { messages: [] };
+  const historyText=fs.existsSync(histFile)?fs.readFileSync(histFile,'utf8'):null;
+  const history=historyText!==null?JSON.parse(historyText):{messages:[]};
   let msgs = history.messages || [];
   const hasPriorContact = msgs.some(m => m.role === 'employer');
   const candidateReplied = msgs.some(m => m.role === 'applicant');
@@ -1016,8 +1028,11 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
 
   if (communicationEnabledFor(username,body?.vacancy_id)) {
     try {
+      const readGenerationInputs=()=>readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId});
+      const assertFresh=captureGenerationGuard({historyFile:histFile,expectedHistoryText:historyText,readInputs:readGenerationInputs,expectedInputs:{atsConfig:atsConfig||{},communicationStyle:commStyle||undefined,senderProfile:msgCfg||{}}});
+      assertFresh();
       const result=await generateAndStoreCommunication(history,{
-        atsConfig:atsConfig||{},sourceResumeHash,resumeText:fullResumeText,candidateName:candidate_name||'',
+        assertFresh,atsConfig:atsConfig||{},sourceResumeHash,resumeText:fullResumeText,candidateName:candidate_name||'',
         senderProfile:msgCfg||{},communicationStyle:commStyle||undefined,
         context:{vacancy_id:effectiveVacancyId},
         ...(msgType==='rejection'?{forceGoal:{instruction:'Напиши вежливый отказ кандидату, сохраняя фактические условия вакансии.'}}:{})
@@ -1172,6 +1187,14 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
   // before sendRejection can perform the safe stage-only retry.
   const resumeOnly = ['message_sent', 'done', 'sending', 'unknown', 'discarding'].includes(history2.rejection_operation?.status);
   if(!resumeOnly&&communicationEnabledFor(username,body?.vacancy_id||history2.vacancy_id||history2.communication_snapshot?.context?.vacancy_id)&&contactForbidden(history2))return json(res,409,{ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'});
+  if(!resumeOnly&&communicationEnabledFor(username,body?.vacancy_id||history2.vacancy_id||history2.communication_snapshot?.context?.vacancy_id)&&history2.communication_steps){
+    let currentResumeHash=null;
+    try{const latest=await refreshCommunicationHistory(history2,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
+    const {readAtsConfig}=require('./hh-scoring');
+    const vid=body?.vacancy_id||history2.vacancy_id||history2.communication_snapshot?.context?.vacancy_id;
+    const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),vid);
+    if(staleCommunicationDraft(history2,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:vid})))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+  }
   const guard2 = resumeOnly ? { ok: true, checks: {} } : await bullshitGuard(message, history2.messages, { username });
   if (!guard2.ok) {
     if (!force) {

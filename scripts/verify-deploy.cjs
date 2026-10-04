@@ -77,10 +77,11 @@ async function main() {
   }
 
   const url = `${base}/hh/ats-editor?${new URLSearchParams({ username: user, token, vacancy_id: '0' })}`;
-  let html;
+  let html,editorRevision;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
     html = await res.text();
+    editorRevision=res.headers.get('x-hh-skill-rev');
     if (res.status !== 200) {
       console.error(`verify-deploy: страница отдаёт HTTP ${res.status} — проверь base/токен`);
       process.exit(2);
@@ -106,6 +107,14 @@ async function main() {
     console.error('  Прод отдаёт не тот коммит. Проверь, что deploy.sh запущен с');
     console.error('  DEPLOY_TARGET_COMMIT=$(git rev-parse origin/main), а не с HEAD устаревшей ветки.');
     process.exit(1);
+  }
+
+  if(editorRevision!==expected){console.error('verify-deploy: ✗ редактор не подтвердил X-HH-Skill-Rev ожидаемого модуля');process.exit(1);}
+  for(const route of ['/hh/ats-config','/hh/generate-message']){
+    const response=await fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(20_000)});
+    const body=await response.json().catch(()=>null);
+    const validation=route==='/hh/ats-config'?'config required':'missing fields';
+    if(response.status!==400||response.headers.get('x-hh-skill-rev')!==expected||body?.error!==validation){console.error(`verify-deploy: ✗ ${route} не подтвердил текущий маршрут и безопасную валидацию`);process.exit(1);}
   }
 
   console.log(`verify-deploy: ✓ прод отдаёт ${short(m[1])} — совпадает с целью ${short(expected)}`);

@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {createRequire} from 'module';
 const require=createRequire(import.meta.url);
-const {freshnessSignature,staleCommunicationDraft,refreshCommunicationHistory}=require('../src/hh-communication-runtime');
+const {captureGenerationGuard,generateAndStoreCommunication,freshnessSignature,staleCommunicationDraft,refreshCommunicationHistory}=require('../src/hh-communication-runtime');
 describe('Communication runtime freshness',()=>{
  const base={history:[{role:'applicant',text:'Работал 3 года',hh_id:'1'}],atsConfig:{communication_plan:{version:1,stages:[]}},atsResult:{score:8},resumeText:'Полное резюме'};
  it('ignores an exact thank-you acknowledgement, but preserves new facts',()=>{
@@ -19,6 +19,13 @@ describe('Communication runtime freshness',()=>{
   const history={messages:base.history,ats_result:base.atsResult,communication_snapshot:snapshot,communication_freshness_sig:freshnessSignature(snapshot),communication_steps:{material:{stage_id:'task'},message:'Exact task'}};
   expect(staleCommunicationDraft(history,base.atsConfig,'resume-before')).toBe(false);
   expect(staleCommunicationDraft(history,base.atsConfig,'resume-after')).toBe(true);
+ });
+ it('invalidates a saved draft when the current recruiter style or identity changes',()=>{
+  const snapshot={...base,communicationStyle:'Кратко',senderProfile:{name:'Анна'}};
+  const history={messages:base.history,ats_result:base.atsResult,communication_snapshot:snapshot,communication_freshness_sig:freshnessSignature(snapshot)};
+  expect(staleCommunicationDraft(history,base.atsConfig,null,{communicationStyle:'Кратко',senderProfile:{name:'Анна'}})).toBe(false);
+  expect(staleCommunicationDraft(history,base.atsConfig,null,{communicationStyle:'Подробно',senderProfile:{name:'Анна'}})).toBe(true);
+  expect(staleCommunicationDraft(history,base.atsConfig,null,{communicationStyle:'Кратко',senderProfile:{name:'Иван'}})).toBe(true);
  });
  it('prefers current HH chat payloads and merges canonical sender IDs',async()=>{
   const paths=[];const history={messages:[]};
@@ -54,5 +61,29 @@ describe('Communication runtime freshness',()=>{
  });
  it('does not treat malformed HH response as an empty current history',async()=>{
   await expect(refreshCommunicationHistory({messages:[]},'n',async p=>p==='/negotiations/n'?{}:{})).rejects.toThrow('актуальную историю');
+ });
+ it('rejects changed plan or style before mutating a completed generation',async()=>{
+  const fs=require('fs'),os=require('os'),path=require('path');const root=fs.mkdtempSync(path.join(os.tmpdir(),'hh-generation-freshness-'));
+  try{
+   const historyFile=path.join(root,'candidate.json');const history={messages:[],ats_result:{draft_message:'existing'}};fs.writeFileSync(historyFile,JSON.stringify(history));
+   const expectedInputs={atsConfig:{communication_plan:{version:1,stages:[]}},communicationStyle:'Кратко',senderProfile:{}};let current=structuredClone(expectedInputs);
+   const assertFresh=captureGenerationGuard({historyFile,expectedInputs,readInputs:()=>current});
+   await expect(generateAndStoreCommunication(history,{...expectedInputs,assertFresh,call:async(method,input)=>{
+    if(method==='state')return {conversation_revision:input.conversation_revision,state:{summary:'',contact_allowed:true,stages:[],requirements:[],open_questions:[],uncertainties:[],next_check_at:null}};
+    current.communicationStyle='Другой стиль';return {conversation_revision:input.conversation_revision,status:'wait',goal:null,reason:'Не писать'};
+   }})).rejects.toMatchObject({code:'STALE_COMMUNICATION_DRAFT'});
+   expect(history.ats_result.draft_message).toBe('existing');expect(history.communication_steps).toBeUndefined();
+   current=structuredClone(expectedInputs);const check=captureGenerationGuard({historyFile,expectedInputs,readInputs:()=>current});current.atsConfig.message_instructions='Изменённое правило';expect(check).toThrow('изменились');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+ });
+ it('rejects concurrent history/send persistence and already stale input without overwriting disk',()=>{
+  const fs=require('fs'),os=require('os'),path=require('path');const root=fs.mkdtempSync(path.join(os.tmpdir(),'hh-generation-history-'));
+  try{
+   const historyFile=path.join(root,'candidate.json');const expectedInputs={atsConfig:{},senderProfile:{}};const check=captureGenerationGuard({historyFile,expectedInputs,readInputs:()=>expectedInputs});
+   fs.writeFileSync(historyFile,JSON.stringify({messages:[{text:'Новый ответ'}],communication_send_events:[{status:'confirmed'}]}));
+   expect(check).toThrow('изменились');expect(JSON.parse(fs.readFileSync(historyFile)).communication_send_events).toHaveLength(1);
+   expect(()=>captureGenerationGuard({historyFile,expectedInputs,readInputs:()=>({...expectedInputs,senderProfile:{name:'Изменённое имя'}})})).toThrow('изменились');
+   expect(()=>captureGenerationGuard({historyFile,expectedHistoryText:null,expectedInputs,readInputs:()=>expectedInputs})).toThrow('изменились');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
  });
 });

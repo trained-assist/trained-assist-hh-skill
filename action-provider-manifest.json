@@ -430,7 +430,7 @@
               "invite_call",
               "rejection"
             ],
-            "description": "Message type (default: initial). rejection — uses stored template, no LLM"
+            "description": "Legacy message type hint (default: initial). Under Communication, the saved scenario determines the next goal; rejection explicitly requests a rejection draft."
           },
           "ats_result": {
             "type": "object",

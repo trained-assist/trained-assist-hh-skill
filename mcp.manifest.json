@@ -11,7 +11,7 @@
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "a1eb53e158cbed4993e6b7dd84560b3d5d5ab0f3421d362a5e7b09b5c0c448c3",
+      "artifactDigest": "b43d991c6fcf9d55d889cb4ceb3bb616230b84891609757e693e5a516bfb22e4",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -444,7 +444,7 @@
                     "invite_call",
                     "rejection"
                   ],
-                  "description": "Message type (default: initial). rejection — uses stored template, no LLM"
+                  "description": "Legacy message type hint (default: initial). Under Communication, the saved scenario determines the next goal; rejection explicitly requests a rejection draft."
                 },
                 "ats_result": {
                   "type": "object",

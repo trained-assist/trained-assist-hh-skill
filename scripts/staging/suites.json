@@ -4,6 +4,7 @@
     "tests/contract/provider.test.cjs",
     "tests/behavior/tools.test.cjs",
     "tests/behavior/fake-provider.test.cjs",
+    "tests/behavior/communication-paths.test.cjs",
     "tests/guards/guards.test.cjs",
     "scenarios/cold-search-replay/replay.test.cjs",
     "scenarios/recruiting-plan-replay/replay.test.cjs"

@@ -126,3 +126,25 @@ describe('explicit scoped Communication rollout',()=>{
 });
 
 it('requires explicit review/save of legacy plan before new-path generation',async()=>{let calls=0;await expect(generateCommunicationDraft({atsConfig:{test_task:'legacy'},call:async()=>{calls++;}})).rejects.toMatchObject({code:'PLAN_REVIEW_REQUIRED'});expect(calls).toBe(0);});
+
+
+it('goal receives trusted source authors rather than guessing who proposed from passive summary',async()=>{
+ const f=fixture({history:[{id:'offer',role:'applicant',text:'Для звонка предлагаю 7 октября в 11:00.'},{id:'previous',role:'employer',text:'Когда удобно?'}]});
+ const original=f.options.call;f.options.call=async(m,i)=>{const r=await original(m,i);if(m==='state'){r.state.summary='Время звонка предложено, ожидается подтверждение.';r.state.source_speakers={offer:'sender'};}return r;};
+ const result=await generateCommunicationDraft(f.options);
+ expect(f.calls[1].input.conversation_state.source_speakers).toMatchObject({offer:'partner',previous:'sender',profile:'partner',context:'other'});
+ expect(result.steps.source_speakers.offer).toBe('partner');
+ expect(f.calls[1].input.conversation_objective).toContain('Не ожидай подтверждения от стороны, которая уже предложила условие');
+ expect(f.calls[1].input.conversation_objective).toContain('Не спрашивай автора предложения, подходит ли ему его же условие');
+ expect(f.calls[2].input.context.source_actor_policy).toContain('не переноси проверку собственной возможности на partner');
+ expect(f.calls[2].input.context.source_actor_policy).toContain('честно обозначить необходимость проверки своей возможности');
+ expect(f.calls[2].input.context.conversation_state.source_speakers.offer).toBe('partner');
+});
+
+
+it('writer needs_context remains typed and preserves missing fields, reason and generation metrics',async()=>{
+ const f=fixture();const original=f.options.call;f.options.call=async(m,i)=>{const r=await original(m,i);return m==='writer'?{context_revision:i.context_revision,status:'needs_context',reason:'Нет подтверждённой доступности отправителя',missing_fields:['sender availability'],generation:{model:'fixture-model',attempts:0},usage:{source:'none'}}:r;};
+ try{await generateCommunicationDraft(f.options);throw new Error('expected NEEDS_CONTEXT');}catch(error){
+  expect(error.code).toBe('NEEDS_CONTEXT');expect(error.message).toBe('Нет подтверждённой доступности отправителя');expect(error.missing_fields).toEqual(['sender availability']);expect(error.steps.writer.status).toBe('needs_context');expect(error.metrics.stages.map(x=>x.stage)).toEqual(['state','goal','writer']);
+ }
+});

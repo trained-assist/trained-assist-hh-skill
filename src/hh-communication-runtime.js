@@ -5,10 +5,26 @@ function scoringFacts(ats={}) { const out={...ats}; for(const k of Object.keys(o
 function meaningfulMessages(messages=[]) { return messages.filter(m=>!(m.role==='applicant'&&/^(?:спасибо(?: большое)?|благодарю|thanks|thank you)[.!\s]*$/iu.test(String(m.text||'').trim()))); }
 function freshnessInput(input) { return {...input,history:meaningfulMessages(input.history),atsResult:scoringFacts(input.atsResult)}; }
 function freshnessSignature(input){return signature(freshnessInput(input));}
-function staleCommunicationDraft(history,atsConfig,currentResumeHash=null){ const snap=history.communication_snapshot; if(!snap)return false; if(currentResumeHash && snap.sourceResumeHash && currentResumeHash!==snap.sourceResumeHash)return true; return freshnessSignature({...snap,history:history.messages||[],atsConfig,atsResult:scoringFacts(history.ats_result)})!==history.communication_freshness_sig; }
+function staleCommunicationDraft(history,atsConfig,currentResumeHash=null,currentInputs={}){ const snap=history.communication_snapshot; if(!snap)return false; if(currentResumeHash && snap.sourceResumeHash && currentResumeHash!==snap.sourceResumeHash)return true; return freshnessSignature({...snap,...currentInputs,history:history.messages||[],atsConfig,atsResult:scoringFacts(history.ats_result)})!==history.communication_freshness_sig; }
+function captureGenerationGuard({historyFile,readInputs,expectedInputs,...options}){
+ const fs=require('fs');
+ const readHistory=()=>{try{return fs.readFileSync(historyFile,'utf8');}catch(e){if(e.code==='ENOENT')return null;throw e;}};
+ const initialHistory=Object.hasOwn(options,'expectedHistoryText')?options.expectedHistoryText:readHistory(),expected=signature(expectedInputs);
+ const assertFresh=()=>{
+  if(readHistory()!==initialHistory||signature(readInputs())!==expected)throw new CommunicationError('STALE_COMMUNICATION_DRAFT','История, настройки вакансии или стиль изменились во время генерации. Обновите черновик.');
+ };
+ assertFresh();return assertFresh;
+}
+function readCommunicationGenerationInputs({username,workDir,vacancyId}){
+ const fs=require('fs'),path=require('path'),{tokensRoot}=require('./data-paths');
+ let senderProfile={};try{let v=JSON.parse(fs.readFileSync(path.join(workDir,'contexts','hh','message_config.json'),'utf8')).value;if(typeof v==='string')v=JSON.parse(v);if(v&&typeof v==='object')senderProfile=v;}catch{}
+ return {atsConfig:require('./hh-scoring').readAtsConfig(workDir,vacancyId)||{},communicationStyle:require('./hh-utils').readCredentialFileSafe(path.join(tokensRoot(),String(username),'hh-message-style'))?.trim()||undefined,senderProfile};
+}
 async function generateAndStoreCommunication(history,input={}){
- const snapshot={...input,sourceResumeHash:input.sourceResumeHash||history.ats_result?.resume_hash||null,history:history.messages||[],atsResult:scoringFacts(history.ats_result)};
+ const {assertFresh,...generationInput}=input;
+ const snapshot={...generationInput,sourceResumeHash:input.sourceResumeHash||history.ats_result?.resume_hash||null,history:history.messages||[],atsResult:scoringFacts(history.ats_result)};
  const result=await generateCommunicationDraft({...snapshot,previousSteps:history.communication_steps});
+ if(assertFresh)assertFresh();
  if(input.atsConfig?.vacancy_id)history.vacancy_id=String(input.atsConfig.vacancy_id);
  history.communication_steps=result.steps;history.communication_snapshot=snapshot;history.communication_freshness_sig=freshnessSignature(snapshot);
  history.ats_result=history.ats_result||{};history.ats_result.funnel_action=result.action;history.ats_result.funnel_reason=result.reason;
@@ -55,4 +71,4 @@ function communicationEnabledFor(username,vacancyId){
  return communicationEnabled(process.env,{username:String(username),vacancyId:vacancyId?String(vacancyId):null});
 }
 function contactForbidden(history){return history?.communication_steps?.state?.state?.contact_allowed===false||history?.communication_steps?.goal?.status==='do_not_contact';}
-module.exports={contactForbidden,communicationEnabled,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,freshnessSignature,scoringFacts,refreshCommunicationHistory};
+module.exports={captureGenerationGuard,readCommunicationGenerationInputs,contactForbidden,communicationEnabled,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,freshnessSignature,scoringFacts,refreshCommunicationHistory};
