@@ -35,4 +35,5 @@ function communicationEnabledFor(username,vacancyId){
  if(!vacancyId){try{const fs=require('fs'),path=require('path'),{usersRoot}=require('./data-paths');vacancyId=JSON.parse(fs.readFileSync(path.join(usersRoot(),String(username),'contexts','hh','active_vacancy.json'),'utf8'))?.value?.id;}catch{}}
  return communicationEnabled(process.env,{username:String(username),vacancyId:vacancyId?String(vacancyId):null});
 }
-module.exports={communicationEnabled,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,freshnessSignature,scoringFacts,refreshCommunicationHistory};
+function contactForbidden(history){return history?.communication_steps?.state?.state?.contact_allowed===false||history?.communication_steps?.goal?.status==='do_not_contact';}
+module.exports={contactForbidden,communicationEnabled,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,freshnessSignature,scoringFacts,refreshCommunicationHistory};

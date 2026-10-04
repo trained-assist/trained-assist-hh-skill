@@ -5,6 +5,10 @@
     "tests/behavior/tools.test.cjs",
     "tests/behavior/fake-provider.test.cjs",
     "tests/guards/guards.test.cjs",
-    "scenarios/cold-search-replay/replay.test.cjs"
+    "scenarios/cold-search-replay/replay.test.cjs",
+    "scenarios/recruiting-plan-replay/replay.test.cjs"
+  ],
+  "browser": [
+    "tests/staging/hh-communication-plan-editor.spec.cjs"
   ]
 }

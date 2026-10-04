@@ -12,7 +12,7 @@ const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
 const {acquireCandidateSendLock}=require('../../hh-send-lock');
-const {communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
+const {contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
 const { asksKnownFact } = require('../../hh-known-facts');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
@@ -1347,6 +1347,7 @@ module.exports = {
         if(!releaseSendLock)return {ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'};
         try {
           const stored=readCandidateHistory(USER_ID,negotiation_id);
+          if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&contactForbidden(stored))return {ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id)&&!stored.communication_steps&&(message===stored.ats_result?.draft_message||message===stored.message_draft?.text))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&stored.communication_steps){
             const latest=await refreshCommunicationHistory(stored,negotiation_id,endpoint=>hhGet(endpoint,token));
