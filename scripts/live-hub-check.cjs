@@ -21,7 +21,7 @@ const PLAIN_PAGES = ['/hh/vacancies'];
 const GLOBALS = new Set((
   'Math JSON Object Array String Number Boolean Promise Map Set Date RegExp Error TypeError isNaN parseInt parseFloat ' +
   'fetch setTimeout clearTimeout setInterval confirm alert prompt location document window navigator console ' +
-  'encodeURIComponent decodeURIComponent Blob URL FormData Headers Request Response Intl require module exports ' +
+  'encodeURIComponent decodeURIComponent Blob URL URLSearchParams FormData Headers Request Response Intl require module exports ' +
   'if for while do switch try catch finally return throw typeof instanceof new delete void in of function var let const ' +
   'class extends super this null true false undefined structuredClone async await').split(/\s+/));
 
