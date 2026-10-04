@@ -1,4 +1,5 @@
 'use strict';
+const { revisionMetaTag } = require('./hh-version');
 // mcp-skill-conformance: browser-fetch — every fetch() here is emitted client-side JS inside <script>.
 
 // Generates the HH style-update page HTML.
@@ -8,6 +9,7 @@ function hhStylePageHtml(opts = {}) {
   const { username = '', rulesValue = '', baseValue = '', hasBaseOverride = false, instructionsValue = '', hasInstructionsOverride = false, callbackBase = '', hmacToken = '' } = opts;
 
   return `<!doctype html><html><head><meta charset="utf-8">
+${revisionMetaTag()}
 <title>Стиль общения — ${username}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>

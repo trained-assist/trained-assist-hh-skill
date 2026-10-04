@@ -5,6 +5,7 @@
 // Links are relative to /hh/ (works for legacy /agent/hh/ too); the shared nav bar is
 // injected by hh-nav.js, not rendered here.
 const { escHtml } = require('./hh-nav');
+const { revisionMetaTag } = require('./hh-version');
 
 const BASE_CSS = `*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b}
@@ -34,7 +35,8 @@ function jsonForScript(value) {
 }
 
 function pageShell(title, body) {
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
+${revisionMetaTag()}<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escHtml(title)}</title>
 <style>${BASE_CSS}</style>
 </head><body>

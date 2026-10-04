@@ -4,6 +4,7 @@
 // Данные и логика — те же MCP-тулы hh_portrait_*, что и у агента/бота (#84/#86).
 const { escHtml } = require('./hh-nav');
 const { SECTIONS, BLOCK_FIELDS, ARRAY_FIELDS } = require('./hh-portrait');
+const { revisionMetaTag } = require('./hh-version');
 
 const CSS = `*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b}
@@ -334,7 +335,8 @@ ${editorCard}
 })();
 </script>`;
 
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
+${revisionMetaTag()}<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Портрет вакансии</title>
 <style>${CSS}</style>
 </head><body>

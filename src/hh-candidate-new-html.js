@@ -4,6 +4,7 @@
 // типа → манифест → «сжать всё в профиль» (LLM-выжимка в разрезы).
 const { escHtml } = require('./hh-nav');
 const { TYPE_LABELS } = require('./hh-doc-classify');
+const { revisionMetaTag } = require('./hh-version');
 
 const CSS = `*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b}
@@ -414,7 +415,8 @@ ${profileCard}
 })();
 </script>
 </body>`;
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
+${revisionMetaTag()}<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Новый кандидат</title>
 <style>${CSS}</style>
 </head><body>

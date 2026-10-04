@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { buildResumeText, resumeNotice } = require('./hh-resume');
 const { standardRejectionText, REJECTION_GREETING } = require('./hh-rejection');
+const { revisionMetaTag } = require('./hh-version');
 
 const BASE_USERS_DIR = usersRoot();
 
@@ -279,6 +280,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+${revisionMetaTag()}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ревью кандидатов — ${esc(vacancyTitle)}</title>
 <style>

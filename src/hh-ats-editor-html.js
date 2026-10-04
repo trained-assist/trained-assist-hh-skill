@@ -1,4 +1,5 @@
 'use strict';
+const { revisionMetaTag } = require('./hh-version');
 // mcp-skill-conformance: browser-fetch — every fetch() here is emitted client-side JS inside <script>.
 
 // Generates the ATS Template Editor HTML page.
@@ -131,6 +132,7 @@ function atsEditorHtml(currentConfig, currentStages, opts = {}) {
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+${revisionMetaTag()}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Candidate Funnel Editor</title>
 <style>

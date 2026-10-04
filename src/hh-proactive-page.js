@@ -1,4 +1,5 @@
 'use strict';
+const { revisionMetaTag } = require('./hh-version');
 // mcp-skill-conformance: browser-fetch — every fetch() here is emitted client-side JS inside <script>.
 
 function fmtSalary(salary) {
@@ -169,6 +170,7 @@ function generateProactivePageHtml(results, username, callbackBase, token, exist
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+${revisionMetaTag()}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Проактивный поиск — ${escHtml(results.vacancy_title || 'Вакансия')}</title>
 <style>
