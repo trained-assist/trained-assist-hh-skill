@@ -536,6 +536,7 @@ function showToast(msg, isError) {
 // /hh/send could sit on "⏳" for as long as the server took (guard LLM call + HH POST),
 // with no way to tell "still working" from "hung" — that read as a frozen page.
 window.HH_ACTION_TIMEOUT_MS = 45000;
+window.HH_GENERATION_TIMEOUT_MS = 210000;
 
 async function hhAction(endpoint, payload, timeoutMs) {
   const deadline = timeoutMs || window.HH_ACTION_TIMEOUT_MS;
@@ -552,9 +553,11 @@ async function hhAction(endpoint, payload, timeoutMs) {
     return data;
   } catch(e) {
     if (e.name === 'AbortError') {
+      if(endpoint === '/hh/generate-message')throw new Error('Подготовка черновика не завершилась за ' + Math.round(deadline / 1000) + ' с. Сообщение кандидату не отправлялось. Попробуйте обновить черновик.');
       throw new Error('Ответ HH не пришёл за ' + Math.round(deadline / 1000) + ' c. Запрос мог выполниться — проверьте переписку на HH перед повтором.');
     }
     if (e instanceof TypeError || e instanceof SyntaxError) {
+      if(endpoint === '/hh/generate-message')throw new Error('Не удалось получить черновик. Сообщение кандидату не отправлялось. Попробуйте обновить черновик.');
       throw new Error('Не удалось получить подтверждение. Запрос мог выполниться — проверьте переписку и статус на HH перед повтором.');
     }
     throw e;
@@ -681,8 +684,10 @@ async function regenerateAll() {
 async function generateOne(i, negId, candidateName, alreadySent) {
   const btn = document.getElementById('gen-'+i);
   const ta = document.getElementById('msg-'+i);
-  if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
-  if (ta) { ta.classList.add('generating'); ta.placeholder = '⏳ Генерирую...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Подготовка…'; }
+  const startedAt=Date.now();
+  if (ta) { ta.classList.add('generating'); ta.placeholder = 'Изучаем диалог и готовим следующий шаг. Это может занять до 3,5 минут.'; }
+  const progressTimer=setInterval(()=>{if(btn)btn.textContent='⏳ Подготовка · '+Math.floor((Date.now()-startedAt)/1000)+' с';},1000);
   try {
     const resumeEl = document.querySelector('#card-'+i+' pre.resume-text');
     const resumeText = resumeEl?.textContent || '';
@@ -694,7 +699,7 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       // Without this the route falls back to the legacy singleton config — on a
       // multi-vacancy profile that is another vacancy's criteria and no test task.
       vacancy_id: HH_VACANCY_ID || null,
-    });
+    }, window.HH_GENERATION_TIMEOUT_MS);
     if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; }
     const step = document.querySelector('#card-'+i+' .funnel-step');
     if (step) step.textContent = data.funnel_action
@@ -728,7 +733,7 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     // The failure used to be swallowed here: the button simply reset and the
     // recruiter read it as "nothing changed" (issue #126, defect 2).
     showToast('❌ Ошибка генерации: ' + (e && e.message ? e.message : e), true);
-  }
+  } finally { clearInterval(progressTimer); }
 }
 
 function generateRejection(i) {
