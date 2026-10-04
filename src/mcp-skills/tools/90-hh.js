@@ -1,4 +1,5 @@
 'use strict';
+const {legacyTestTask} = require('../../hh-communication-plan');
 const { dataRoot, tokensRoot, profileWorkDir } = require('../../data-paths.js');
 const { hydrateResume, buildResumeText, resumeHash, RESUME_VERSION } = require('../../hh-resume');
 
@@ -10,6 +11,8 @@ const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-mes
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
+const {acquireCandidateSendLock}=require('../../hh-send-lock');
+const {communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
 const { asksKnownFact } = require('../../hh-known-facts');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
@@ -1083,10 +1086,11 @@ module.exports = {
         type: 'object',
         properties: {
           vacancy_text: { type: 'string', description: 'Full vacancy description text' },
+          vacancy_id: { type: 'string', description: 'Explicit vacancy scope; takes precedence over active vacancy' },
         },
         required: ['vacancy_text'],
       },
-      handler: async ({ vacancy_text }) => {
+      handler: async ({ vacancy_text, vacancy_id }) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = llmReady();
@@ -1119,7 +1123,9 @@ module.exports = {
               };
             }
           }
-          const activeVacancy = readContext('hh', 'active_vacancy')?.value;
+          const currentVacancy = readContext('hh', 'active_vacancy')?.value;
+          if (vacancy_id != null && !/^[a-zA-Z0-9_-]+$/.test(String(vacancy_id))) return {error:'Invalid vacancy_id'};
+          const activeVacancy = vacancy_id ? {id:String(vacancy_id),title:String(currentVacancy?.id) === String(vacancy_id) ? currentVacancy.title : config.vacancy_title} : currentVacancy;
           if (activeVacancy?.id) {
             config.vacancy_id = activeVacancy.id;
             config.vacancy_title = activeVacancy.title;
@@ -1237,7 +1243,7 @@ module.exports = {
           }
 
           const apiKey = llmReady();
-          if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
+          if (!communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) && !ladderToken()) return { error: 'llm-ladder token не найден.' };
 
           const { text: candidateContext } = await formatCandidateContext(neg);
           const contextWithVacancy = vacancy_context
@@ -1245,7 +1251,8 @@ module.exports = {
             : candidateContext;
 
           const history = readCandidateHistory(USER_ID, negotiation_id);
-          const atsConfigCtx = readContext('hh', 'ats_config');
+          const vid=neg.vacancy?.id||readContext('hh','active_vacancy')?.value?.id;
+          const atsConfigCtx={value:vid?readAtsConfigForVacancy(profileWorkDir(),vid):null};
 
           const message = await generateMessage(
             contextWithVacancy,
@@ -1256,7 +1263,9 @@ module.exports = {
             history.messages || [],
             USER_ID,
             atsConfigCtx?.value || null,
+            null,history,
           );
+          saveCandidateHistory(USER_ID,negotiation_id,history);
 
           return {
             negotiation_id,
@@ -1321,7 +1330,7 @@ module.exports = {
     },
 
     hh_send_message: {
-      description: 'Send a message to a candidate in a negotiation thread on hh.ru. Always show the message to recruiter for confirmation before calling this.',
+      description: 'Send a message to a candidate in a negotiation thread on hh.ru. Follow recruiter authorization in the active task.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1334,22 +1343,35 @@ module.exports = {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
 
+        const releaseSendLock=acquireCandidateSendLock(USER_ID,negotiation_id);
+        if(!releaseSendLock)return {ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'};
         try {
+          const stored=readCandidateHistory(USER_ID,negotiation_id);
+          if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id)&&!stored.communication_steps&&(message===stored.ats_result?.draft_message||message===stored.message_draft?.text))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию.'};
+          if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&stored.communication_steps){
+            const latest=await refreshCommunicationHistory(stored,negotiation_id,endpoint=>hhGet(endpoint,token));
+            await formatCandidateContext(latest);
+            const currentResumeHash=resumeHash(latest);
+            const vid=stored.communication_snapshot?.context?.vacancy_id||readContext('hh','active_vacancy')?.value?.id;
+            const config=vid?readAtsConfigForVacancy(profileWorkDir(),vid):null;
+            if(staleCommunicationDraft(stored,config||{},currentResumeHash))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик.'};
+          }
           const sent = await hhPost(`/negotiations/${negotiation_id}/messages`, token, { message });
 
           // hh-history dedupes against the HH mirror on the next sync — without the
           // confirmed id (and with the dedupe below) this message reappeared twice.
-          const history = readCandidateHistory(USER_ID, negotiation_id);
+          const history = stored;
           history.messages = require('../../hh-history').appendLocalMessage(history, {
             role: 'employer', text: message,
             hhId: sent?.id ?? null, timestamp: sent?.created_at || null,
           });
+          if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&history.communication_steps){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhGet(endpoint,token));}catch(e){history.communication_delivery_refresh_error=e.message;}}
           saveCandidateHistory(USER_ID, negotiation_id, history);
 
           return { ok: true, negotiation_id, message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };
         } catch (e) {
           return hhAuthAwareError(e);
-        }
+        }finally{releaseSendLock();}
       },
     },
 
@@ -1469,9 +1491,9 @@ module.exports = {
 
             // Persist message_draft so the live /hh/review page can pre-fill the textarea
             let messageDraft = history.message_draft || null;
-            if (atsResult.score != null && atsResult.verdict !== 'ОТКЛОНИТЬ') {
+            if ((communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) || atsResult.score != null) && atsResult.verdict !== 'ОТКЛОНИТЬ') {
               const configVersion = ats_config.updated_at || null;
-              if (!messageDraft || messageDraft.config_version !== configVersion) {
+              if (!messageDraft || messageDraft.config_version !== configVersion || (communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id)&&staleCommunicationDraft(history,ats_config))) {
                 try {
                   const alreadySent = (history.messages || []).some(m => m.role === 'employer');
                   const msgType = atsResult.verdict === 'ПРОПУСТИТЬ' ? 'invite_call'
@@ -1486,7 +1508,9 @@ module.exports = {
                     history.messages || [],
                     USER_ID,
                     ats_config,
+                    null,history,
                   );
+                  if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id))saveCandidateHistory(USER_ID,neg.id,history);
                   if (draftText) {
                     messageDraft = { text: draftText, generated_at: new Date().toISOString(), config_version: configVersion };
                     history.message_draft = messageDraft;
@@ -1608,7 +1632,7 @@ module.exports = {
             const history = readCandidateHistory(USER_ID, neg.id);
             const atsResult = history.ats_result;
 
-            if (atsResult?.score == null) {
+            if (!communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) && atsResult?.score == null) {
               skipped.push({ id: neg.id, reason: 'не оценён — сначала hh_batch_evaluate' });
               continue;
             }
@@ -1633,7 +1657,9 @@ module.exports = {
                 history.messages || [],
                 USER_ID,
                 ats_config,
+                null,history,
               );
+              if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id))saveCandidateHistory(USER_ID,neg.id,history);
               if (draftText) {
                 history.message_draft = { text: draftText, generated_at: new Date().toISOString(), config_version: configVersion };
                 // /hh/review reads ats_result.draft_message, not message_draft — keep both in sync so the
@@ -1689,15 +1715,22 @@ module.exports = {
         for (const c of candidates) {
           let draft = null;
           let alreadySent = false;
-          if (c.verdict !== 'ОТКЛОНИТЬ' && ladderToken()) { // drafts are written through the ladder now (apiKey stays for the planNextStep arg)
+          if (c.verdict !== 'ОТКЛОНИТЬ' && (communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) || ladderToken())) { // drafts are written through the ladder now (apiKey stays for the planNextStep arg)
             const history = readCandidateHistory(USER_ID, c.negotiation_id);
             alreadySent = (history.messages || []).some(m => m.role === 'employer');
             const configVersion = atsConfigCtx?.value?.updated_at || null;
+            let fullCandidateContext=null;
+            if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id)){
+              const hhToken=readHhToken(USER_ID);
+              if(!hhToken)throw new Error('HH не подключён.');
+              const neg=await refreshCommunicationHistory(history,c.negotiation_id,endpoint=>hhGet(endpoint,hhToken));
+              fullCandidateContext=(await formatCandidateContext(neg)).text;
+            }
 
             // Reuse existing draft if it was generated for the same ATS config version.
             // Without this check, every call to hh_draft_review_page overwrites any text
             // the recruiter manually edited in the textarea.
-            if (history.message_draft?.text && history.message_draft.config_version === configVersion) {
+            if (history.message_draft?.text && history.message_draft.config_version === configVersion && (!communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id) || !staleCommunicationDraft(history,atsConfig))) {
               draft = history.message_draft.text;
             } else {
               const msgType = c.verdict === 'ПРОПУСТИТЬ' ? 'invite_call'
@@ -1705,7 +1738,7 @@ module.exports = {
                 : 'initial';
               try {
                 draft = await generateMessage(
-                  vacancy_context ? `## О вакансии\n${vacancy_context}\n\nКандидат: ${c.name}` : `Кандидат: ${c.name}`,
+                  fullCandidateContext || (vacancy_context ? `## О вакансии\n${vacancy_context}\n\nКандидат: ${c.name}` : `Кандидат: ${c.name}`),
                   c,
                   c.name,
                   apiKey,
@@ -1713,7 +1746,9 @@ module.exports = {
                   history.messages || [],
                   USER_ID,
                   atsConfigCtx?.value || null,
+                  null,history,
                 );
+                if(communicationEnabledFor(USER_ID,readContext('hh','active_vacancy')?.value?.id))saveCandidateHistory(USER_ID,c.negotiation_id,history);
                 if (draft) {
                   if (!history.ats_result) history.ats_result = {};
                   history.ats_result.draft_message = draft;
@@ -2118,7 +2153,13 @@ async function evaluateCandidate(candidateText, atsConfig, apiKey) {
   return computeScore(llmResult, config);
 }
 
-async function generateMessage(candidateContext, atsResult, name, apiKey, messageType = 'initial', history = [], userId = null, atsConfig = null, planOut = null) {
+async function generateMessage(candidateContext, atsResult, name, apiKey, messageType = 'initial', history = [], userId = null, atsConfig = null, planOut = null, historyRecord = null) {
+  if(communicationEnabledFor(userId||USER_ID,atsConfig?.vacancy_id)){
+    const record=historyRecord||{messages:history,ats_result:atsResult};
+    const result=await generateAndStoreCommunication(record,{atsConfig:atsConfig||{},resumeText:candidateContext,candidateName:name,senderProfile:loadRecruiterIdentityConfig()||{},communicationStyle:loadCommunicationStyle(userId||USER_ID)||undefined,context:{vacancy_id:atsConfig?.vacancy_id||null},...(messageType==='rejection'?{forceGoal:{instruction:'Напиши вежливый отказ кандидату.'}}:{})});
+    if(planOut)Object.assign(planOut,{action:result.action,reason:result.reason,steps:result.steps});
+    return result.message||'';
+  }
   const firstName = name.split(' ')[0];
 
   const commStyle = loadCommunicationStyle(userId || USER_ID);
@@ -2149,7 +2190,7 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
     // The test task leaves word-for-word, assembled in code — a model paraphrase
     // would break the promise the vacancy text makes.
     if (plan.action === 'send_test') {
-      const verbatim = buildTestTaskMessage(atsConfig?.test_task);
+      const verbatim = buildTestTaskMessage(legacyTestTask(atsConfig));
       if (verbatim) {
         if (planOut) { planOut.action = plan.action; planOut.reason = plan.reason; planOut.by = plan.by; }
         return verbatim;
@@ -2166,7 +2207,7 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
     candidateContext,
     action: plan ? plan.action : null,
     missingSkills: plan?.missing_skills || [],
-    testTask: atsConfig?.test_task || '',
+    testTask: legacyTestTask(atsConfig),
   });
 
   // The write itself goes through conversation generation (ladder 'conversation',

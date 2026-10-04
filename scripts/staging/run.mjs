@@ -54,7 +54,7 @@ function run(args, { capture = false } = {}) {
     cwd: root, env, stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit', timeout: 300_000, encoding: capture ? 'utf8' : undefined,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Scenario command failed (${result.status}): ${args.join(' ')}`);
+  if (result.status !== 0) { if (capture && result.stdout) process.stderr.write(result.stdout); throw new Error(`Scenario command failed (${result.status}): ${args.join(' ')}`); }
   return capture ? result.stdout : '';
 }
 try {

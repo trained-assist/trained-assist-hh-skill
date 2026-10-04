@@ -8,6 +8,7 @@
 // inline script instead of asserting on one name.
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
+import { Script } from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const { atsEditorHtml } = require('../../src/hh-ats-editor-html.js');
@@ -46,7 +47,7 @@ function calledButUndefined(script) {
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\/\/[^\n]*/g, ' ');
   const declared = new Set();
-  for (const m of code.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)) declared.add(m[1]);
+  for (const m of script.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(/g)) declared.add(m[1]);
   for (const m of code.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) declared.add(m[1]);
   for (const m of code.matchAll(/class\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
   const missing = new Set();
@@ -175,10 +176,11 @@ describe('ATS editor validation (issue #126)', () => {
     expect(s).toMatch(/return errors\.length === 0;/);
   });
 
-  it('genuinely broken configs still block: inverted thresholds and empty stages', () => {
+  it('broken thresholds and incomplete stages block; zero or one stage is allowed', () => {
     const s = scriptOf(editor({}));
     expect(s).toMatch(/errors\.push\('Pass threshold должен быть выше review threshold\.'\)/);
-    expect(s).toMatch(/errors\.push\('Нужно минимум 2 этапа подбора\.'\)/);
+    expect(s).not.toContain("errors.push('Нужно минимум 2 этапа подбора.')");
+    expect(s).toContain("errors.push('У этапа не заполнен результат");
     expect(s).toMatch(/errors\.push\('Review threshold: от 0 до pass threshold\.'\)/);
   });
 
@@ -198,5 +200,35 @@ describe('ATS editor validation (issue #126)', () => {
     const bare = atsEditorHtml(null, null, { callbackBase: 'https://host/agent', username: 'u', pageToken: 't' });
     expect(calledButUndefined(inlineScript(bare))).toEqual([]);
     expect(inlineScript(bare)).toContain('"vacancyTitle":""');
+  });
+});
+
+
+describe('editable communication plan (#144/#145)', () => {
+  it('emitted browser script compiles, including hostile data', () => {
+    const h = atsEditorHtml({ ...CONFIG, message_instructions: '</script><img src=x onerror=alert(1)>', communication_plan: { version: 1, stages: [] } }, [], { username: "u'</script>", pageToken: "t'", callbackBase: 'https://host', configRevision: 'rev' });
+    expect(() => new Script(h.slice(h.indexOf('<script>') + 8, h.lastIndexOf('</script>')))).not.toThrow();
+    expect(h).not.toContain('</script><img');
+  });
+  it('catalog copies are independent and IDs survive rename', () => {
+    const { createStageFromTemplate, stageTemplates } = require('../../src/hh-stage-templates');
+    const a = createStageFromTemplate('test_task');
+    const b = createStageFromTemplate('test_task');
+    expect(a.id).not.toBe(b.id);
+    a.title = 'Работа с Excel';
+    a.material = '  точный\nтекст  ';
+    expect(a.material_mode).toBe('verbatim');
+    expect(b.material).toBe('');
+    expect(stageTemplates().find(x => x.id === 'test_task').title).toBe('Тестовое задание');
+  });
+  it('explicit migration remains a draft, empty saved scenario stays empty', () => {
+    const p = { version: 1, stages: [] };
+    const h = atsEditorHtml({ communication_plan: p }, [], { migration: { plan: p, requires_review: true } });
+    expect(h).toContain('const PLAN_STATE = "draft"');
+    const extracted = atsEditorHtml({ communication_plan: p }, [], { isDraft: true });
+    expect(extracted).toContain('const PLAN_STATE = "draft"');
+    const saved = atsEditorHtml({ communication_plan: p }, ['Не добавлять'], {});
+    expect(saved).toContain('const PLAN_STATE = "saved"');
+    expect(saved).toContain('const INIT_PLAN = {"version":1,"stages":[]}');
   });
 });

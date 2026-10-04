@@ -1015,3 +1015,34 @@ describe('POST /hh/generate-message on a vacancy without ATS criteria (issue #12
     }
   });
 });
+
+
+describe('vacancy scoped communication storage',()=>{
+ const plan=(id='s')=>({version:1,stages:[{id,title:'Этап',instruction:'Спросить',completion_result:'Ответ',material:' exact\n',material_mode:'verbatim'}]});
+ async function save(vacancy_id,config,extra={}) {
+  const token=require('crypto').createHmac('sha256',process.env.AGENT_SECRET).update('alice').digest('hex').slice(0,16);
+  const u=new URL('http://x/hh/ats-config');const res=fakeRes();
+  await handleHhPublic(req('POST',u.pathname,{username:'alice',token,vacancy_id,config,...extra}),u,res,ctx());return res;
+ }
+ it('isolates plans, preserves omitted manual restrictions, rejects stale/invalid saves and backs up originals',async()=>{
+  const initial=await save('A',{communication_plan:plan(),message_instructions:'не упоминай Ozon'});
+  expect(initial.status).toBe(200);const revision=JSON.parse(initial.body).revision;
+  await save('B',{communication_plan:plan('b')});
+  const stale=await save('A',{communication_plan:plan()},{expected_revision:'old'});expect(stale.status).toBe(409);
+  const invalid=await save('A',{communication_plan:{version:1,stages:[{}]}},{expected_revision:revision});expect(invalid.status).toBe(400);
+  const valid=await save('A',{communication_plan:plan('renamed')},{expected_revision:revision});expect(valid.status).toBe(200);
+  const dir=path.join(root,'users','alice','contexts','hh');
+  expect(JSON.parse(fs.readFileSync(path.join(dir,'ats_config:A.json'),'utf8')).value.message_instructions).toBe('не упоминай Ozon');
+  expect(JSON.parse(fs.readFileSync(path.join(dir,'ats_config:B.json'),'utf8')).value.communication_plan.stages[0].id).toBe('b');
+  expect(fs.readdirSync(path.join(dir,'backups')).length).toBe(1);
+  expect(fs.existsSync(path.join(dir,'ats_stages.json'))).toBe(false);
+ });
+ it('reset affects only stamped target vacancy and retains sends and other vacancy results',async()=>{
+  const dir=path.join(root,'data','hh','alice','candidates');fs.mkdirSync(dir,{recursive:true});
+  for(const [id,vacancy_id] of [['a','A'],['b','B'],['unknown',null]]) fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify({vacancy_id,ats_result:{score:7},events:[{type:'sent',text:'material'}]}));
+  const token=require('crypto').createHmac('sha256',process.env.AGENT_SECRET).update('alice').digest('hex').slice(0,16);
+  const u=new URL('http://x/hh/reset-ats-results');const res=fakeRes();await handleHhPublic(req('POST',u.pathname,{username:'alice',token,vacancy_id:'B'}),u,res,ctx());
+  expect(JSON.parse(res.body).reset).toBe(1);expect(JSON.parse(fs.readFileSync(path.join(dir,'a.json'))).ats_result.score).toBe(7);
+  expect(JSON.parse(fs.readFileSync(path.join(dir,'b.json'))).events).toHaveLength(1);expect(JSON.parse(fs.readFileSync(path.join(dir,'unknown.json'))).ats_result).toBeDefined();
+ });
+});

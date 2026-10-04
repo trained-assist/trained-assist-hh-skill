@@ -7,6 +7,7 @@ const path = require('path');
 const { buildResumeText, resumeNotice } = require('./hh-resume');
 const { standardRejectionText, REJECTION_GREETING } = require('./hh-rejection');
 const { revisionMetaTag } = require('./hh-version');
+const {communicationReviewHtml}=require('./hh-communication-review');
 
 const BASE_USERS_DIR = usersRoot();
 
@@ -67,6 +68,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
       scoring_error: history.scoring_error?.message || null,
       matched: ats?.matched || [],
       gaps: ats?.gaps || [],
+      communication_steps:history.communication_steps||null,
       draft_message: (() => {
         const md = history.message_draft;
         if (md?.text && (!atsConfigVersion || md.config_version === atsConfigVersion)) return md.text;
@@ -234,6 +236,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
              <button class="btn btn-gen" id="gen-${i}" data-idx="${i}" data-negid="${esc(c.negotiation_id)}" data-name="${esc(c.name)}" data-sent="${c.already_sent ? '1' : '0'}" onclick="generateOne(${i},'${esc(c.negotiation_id)}','${esc(c.name)}',${!!c.already_sent})" title="Сгенерировать черновик">✦ Сгенерировать</button>
            </div>
            <div class="funnel-step" style="font-size:11px;color:var(--muted);margin:-4px 0 6px"></div>
+           <div class="communication-review">${communicationReviewHtml(c.communication_steps)}</div>
            <textarea class="msg-area" id="msg-${i}" rows="5">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
              <button class="btn btn-send" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}')">✓ Отправить</button>
@@ -697,6 +700,18 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     if (step) step.textContent = data.funnel_action
       ? 'Шаг воронки: ' + data.funnel_action + (data.funnel_reason ? ' — ' + data.funnel_reason : '')
       : '';
+    if(data.communication_steps){
+      const panel=document.querySelector('#card-'+i+' .communication-review');
+      if(panel){
+        panel.replaceChildren();
+        const details=document.createElement('details'),summary=document.createElement('summary');
+        summary.textContent='Состояние и следующий шаг';details.append(summary);
+        for(const text of [data.communication_steps.state?.state?.summary,data.communication_steps.goal?.reason,data.communication_steps.goal?.goal?.instruction]){
+          if(text){const p=document.createElement('p');p.textContent=text;details.append(p);}
+        }
+        panel.append(details);
+      }
+    }
     if (btn) { btn.disabled = false; btn.textContent = '✦ Переписать'; }
     if (data.guard_warning) showToast('⚠️ Черновик после перегенерации всё ещё под вопросом: ' + data.guard_warning, true);
     // No ATS criteria for this vacancy: the letter was written and saved, but the
@@ -742,8 +757,8 @@ function rejectionStatus(negId, text, busy) {
 
 async function sendAndRejectOne(i, negId, force) {
   if (done.has(i) || rejecting.has(negId)) return;
-  const msg = document.getElementById('msg-'+i)?.value?.trim() || '';
-  if (!msg) return;
+  const msg = document.getElementById('msg-'+i)?.value || '';
+  if (!msg.trim()) return;
   rejecting.add(negId);
   rejectionStatus(negId, '⏳ Отправляем отказ. Дождитесь результата…', true);
   onCheck();
@@ -889,7 +904,7 @@ function insertSentMessage(i, text) {
 // window.event, which is undefined on the forced re-send path — the button then stayed
 // disabled with a "⏳..." label for the rest of the session.
 async function sendOne(btn, i, negId, force) {
-  const msg = document.getElementById('msg-'+i)?.value?.trim() || '';
+  const msg = document.getElementById('msg-'+i)?.value || '';
   if (!msg) { showToast('Сообщение пустое', true); return; }
   hideGuardBlock(i);
   const stopClock = startSendClock(btn, '⏳ Проверка и отправка');
@@ -933,7 +948,7 @@ async function sendAll() {
   for (const cb of cbs) {
     const i = parseInt(cb.dataset.idx);
     const negId = document.getElementById('card-'+i)?.dataset.neg || '';
-    const msg = document.getElementById('msg-'+i)?.value?.trim() || '';
+    const msg = document.getElementById('msg-'+i)?.value || '';
     if (!msg) continue;
     try {
       const d = await hhAction('/hh/send', { negotiation_id: negId, message: msg });

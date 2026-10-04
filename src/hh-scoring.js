@@ -1,4 +1,5 @@
 'use strict';
+const {legacyTestTask} = require('./hh-communication-plan');
 const { dataRoot, tokensRoot } = require('./data-paths.js');
 const { buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
 
@@ -10,12 +11,13 @@ const path = require('path');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride, resolveMessageInstructions, hasRealAvailability } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature, isDraftStale } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
+const {communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { generateConversation } = require('./conversation-generation');
 const { ladderChat, ladderToken } = require('./llm-ladder');
 // Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
 // per-profile LLM keys and `hh-message-style` live under agent-tokens.
-const { readCredentialFileSafe } = require('./hh-utils');
+const { readCredentialFileSafe,readHhToken } = require('./hh-utils');
 
 // Backoff for a candidate whose scoring failed: don't burn a ladder call on the same
 // broken candidate every 5-minute cycle. 15 min, doubling per consecutive failure, cap 6h.
@@ -313,7 +315,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
   // Every write goes through src/conversation-generation.js (model pick + Q/A history
   // for the bench) — the ladder token is the only credential; the old per-user
   // credential paths left this path with the switch to the 'conversation' ladder.
-  if (!ladderToken()) return 0;
+  if (!communicationEnabledFor(username,vacancyId) && !ladderToken()) return 0;
 
   const tokensBase = tokensRoot();
   const styleFile = path.join(tokensBase, String(username), 'hh-message-style');
@@ -347,7 +349,12 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     // LLM draft. Generated "rejections" produced invitations, "[Имя]" placeholders
     // and wrong-name greetings that a single click could send to a candidate.
     if (h.ats_result?.verdict === 'ОТКЛОНИТЬ') return false;
-    if (h.ats_result?.score == null) return false;
+    if (!communicationEnabledFor(username,vacancyId) && h.ats_result?.score == null) return false;
+    if(communicationEnabledFor(username,vacancyId)){
+      if(!h.communication_steps||staleCommunicationDraft(h,atsConfig)||h.communication_snapshot?.communicationStyle!==(commStyle||undefined)||JSON.stringify(h.communication_snapshot?.senderProfile||{})!==JSON.stringify(msgCfg||{}))return true;
+      const next=Date.parse(h.communication_steps.next_check_at||'');
+      return Number.isFinite(next)&&Date.now()>=next;
+    }
     // A draft written against an older thread is worse than no draft: /hh/review shows
     // it as-is and the recruiter can send one click away. Regenerate whenever the
     // candidate said something new (live case: neg 5610867713, drafted at 12:15 against
@@ -366,6 +373,12 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     await Promise.all(batch.map(async (neg) => {
       try {
         const history = readCandidateHistory(username, neg.id);
+        if(communicationEnabledFor(username,vacancyId)){
+          const token=readHhToken(username);if(!token)throw new Error('HH не подключён.');
+          await refreshCommunicationHistory(history,neg.id,endpoint=>require('./hh-utils').hhFetch(endpoint,token));
+          const result=await generateAndStoreCommunication(history,{atsConfig,sourceResumeHash:resumeHash(neg),resumeText:buildResumeText(neg),candidateName:neg.resume?.first_name||'',senderProfile:msgCfg||{},communicationStyle:commStyle||undefined,context:{vacancy_id:vacancyId}});
+          saveCandidateHistory(username,neg.id,history);if(result.message)generated++;return;
+        }
         const thread = history.messages || [];
 
         const r = neg.resume || {};
@@ -404,7 +417,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         // The test task goes out word-for-word, assembled in code — a model
         // paraphrase would break the promise the vacancy text makes.
         if (plan.action === 'send_test') {
-          const verbatim = buildTestTaskMessage(atsConfig?.test_task);
+          const verbatim = buildTestTaskMessage(legacyTestTask(atsConfig));
           if (verbatim) {
             history.ats_result.draft_message = verbatim;
             history.ats_result.draft_history_sig = historySignature(thread, vacancyInstruction, atsConfig);
@@ -427,7 +440,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           availabilityBlock,
           action: plan.action,
           missingSkills: plan.missing_skills,
-          testTask: atsConfig?.test_task || '',
+          testTask: legacyTestTask(atsConfig),
           vacancyInstruction,
         });
 

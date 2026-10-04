@@ -1,4 +1,5 @@
 'use strict';
+const {legacyTestTask} = require('./hh-communication-plan');
 
 // Recruitment funnel state machine — the "what do we do next" half of candidate
 // messaging, deliberately separated from the "how do we write it" half.
@@ -145,7 +146,7 @@ function deterministicStep({ history = [], atsResult = null, atsConfig = {}, now
     return { action: 'reject', reason: 'Скор ниже порога отсева — письмо с отказом, не приглашение.', by: 'rule' };
   }
 
-  const testTask = String(atsConfig.test_task || '').trim();
+  const testTask = String(legacyTestTask(atsConfig)).trim();
   // Promised but not sent: the letter that is due is the assignment itself, so
   // this must be decided BEFORE the "we spoke last → wait" branch below.
   if (testTask && !testTaskWasSent(history, testTask) && promisedTestTask(history)) {
@@ -212,7 +213,7 @@ function criteriaNames(list) {
 function buildPlannerMessage({ history, atsResult, atsConfig, resumeText = '' } = {}) {
   const gaps = (atsResult?.gaps || []).join(', ') || 'нет';
   const matched = (atsResult?.matched || []).join(', ') || 'нет';
-  const testTask = String(atsConfig?.test_task || '').trim();
+  const testTask = String(legacyTestTask(atsConfig)).trim();
   // Same resolution the scorer uses (pass_threshold || thresholds.strong), not 6.5:
   // showing the model a wrong pass line is how a passing candidate reads as failing.
   const passLine = Number(atsConfig?.pass_threshold ?? atsConfig?.thresholds?.strong ?? 6.5);
@@ -324,7 +325,7 @@ function guardPlannerAction(plan, { history = [], atsResult = null, atsConfig = 
   // owner reported («спрашиваем просто так»). deterministicStep covers first
   // contact; this catches the model choosing ask_skills anyway.
   if (plan.action === 'ask_skills' && atsResult?.verdict === 'ПРОПУСТИТЬ') {
-    const testTask = String(atsConfig.test_task || '').trim();
+    const testTask = String(legacyTestTask(atsConfig)).trim();
     const next = testTask && !testTaskWasSent(history, testTask) ? 'propose_test' : 'invite_call';
     return {
       ...plan,
@@ -338,7 +339,7 @@ function guardPlannerAction(plan, { history = [], atsResult = null, atsConfig = 
 
   // The assignment may only go out when the config actually carries it: an empty
   // test_task would send a letter about an assignment that does not exist.
-  if (plan.action === 'send_test' && !String(atsConfig.test_task || '').trim()) {
+  if (plan.action === 'send_test' && !String(legacyTestTask(atsConfig)).trim()) {
     return {
       action: 'wait',
       reason: 'Планировщик предложил отправить задание, а в вакансии его нет — ждём.',

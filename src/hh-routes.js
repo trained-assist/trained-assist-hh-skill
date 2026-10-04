@@ -1,4 +1,5 @@
 'use strict';
+const {legacyTestTask} = require('./hh-communication-plan');
 // HH HTTP routes — all /hh/* + /api/hh/proactive/* (moved from core src/handlers/hh.js,
 // trained-assist-agent#1470). The host (core server.js) owns the HTTP server and the
 // AGENT_SECRET gate and mounts these via hhLib('hh-routes'):
@@ -14,7 +15,7 @@ const { publicPageBase, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 const userWorkDir = (username) => path.join(usersRoot(), String(username));
 
 const { sendRejection, REJECT_REASON_ACTION } = require('./hh-rejection');
-const { hydrateResume, buildResumeText, resumeNotice } = require('./hh-resume');
+const { hydrateResume, buildResumeText, resumeNotice, resumeHash } = require('./hh-resume');
 const { hhFetch, hhPut, hhPostForm, readHhToken, readHhTokenFile, readCredentialFileSafe, refreshHhToken, readActiveVacancies } = require('./hh-utils');
 // Credential store (trained-assist-agent#1939): every credential file this
 // module touches (`hh`, `openrouter`, `hh-message-style`, `hh-message-base-prompt`)
@@ -26,11 +27,13 @@ const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, loadInstructionsTemplate, resolveMessageInstructions, DEFAULT_MESSAGE_BASE, DEFAULT_MESSAGE_INSTRUCTIONS, BASE_PROMPT_FILENAME, INSTRUCTIONS_TEMPLATE_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
+const {communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
 const { generateConversation } = require('./conversation-generation');
 const { hhLlm } = require('./hh-llm');
 const { ladderToken } = require('./llm-ladder');
 const { hhInterviewConfigAllowsTime } = require('./hh-negotiations');
 const { appendLocalMessage } = require('./hh-history');
+const {acquireCandidateSendLock}=require('./hh-send-lock');
 
 // Cold-search schedule lives in the host's generic cron (#1489 S7.1); these routes reach
 // it only through the provider's hh_proactive_schedule tool, invoked via the host's
@@ -592,6 +595,7 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
   const { config, stages, username, vacancy_id: vacancyId } = body || {};
   if (!config || typeof config !== 'object') return json(res, 400, { error: 'config required' });
   if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
+  if (!/^[a-zA-Z0-9_-]+$/.test(String(vacancyId || ''))) return json(res, 400, { error: 'vacancy_id required' });
   // Must match BASE_USERS_DIR so runHhScoringForUser can find the file
   const contextBase = username
     ? path.join(BASE_USERS_DIR, username, 'contexts')
@@ -599,7 +603,7 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
   const hhContextDir = path.join(contextBase, 'hh');
   fs.mkdirSync(hhContextDir, { recursive: true });
   const hhTokensBase = tokensRoot();
-  const now = new Date().toISOString();
+  let now = new Date().toISOString();
   // Once the editor knows which vacancy it's editing (multi-vacancy tabs), save under
   // the per-vacancy key only — writing to the legacy singleton too would let whichever
   // vacancy tab saves last silently clobber the others' config (same class of bug
@@ -609,9 +613,19 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
   // Keep whatever it doesn't send instead of silently dropping it on every save.
   const configFile = path.join(hhContextDir, `${configName}.json`);
   let prev = {};
-  try { prev = JSON.parse(fs.readFileSync(configFile, 'utf8')).value || {}; } catch { /* first save */ }
+  let currentRevision = null;
+  try { const envelope = JSON.parse(fs.readFileSync(configFile, 'utf8')); prev = envelope.value || {}; currentRevision = envelope.updated_at || null; } catch { /* first save */ }
+  if (Number.isFinite(Date.parse(currentRevision)) && Date.parse(now) <= Date.parse(currentRevision)) now = new Date(Date.parse(currentRevision) + 1).toISOString();
   if (typeof prev === 'string') { try { prev = JSON.parse(prev); } catch { prev = {}; } }
-  const merged = { ...prev, ...config, vacancy_id: vacancyId || config.vacancy_id || prev.vacancy_id };
+  const { normalizeCommunicationPlan } = require('./hh-communication-plan');
+  if (body.expected_revision !== undefined) {
+    if (body.expected_revision !== currentRevision) return json(res, 409, { error: 'Конфиг изменён. Перезагрузите страницу перед сохранением.', code: 'CONFIG_REVISION_CONFLICT' });
+  }
+  let normalizedPlan;
+  if (config.communication_plan !== undefined) {
+    try { normalizedPlan = normalizeCommunicationPlan(config.communication_plan); } catch (error) { return json(res, 400, { error: error.message, code: error.code }); }
+  }
+  const merged = { ...prev, ...config, vacancy_id: vacancyId, ...(normalizedPlan ? {communication_plan: normalizedPlan} : {}) };
   if (prev.filters && typeof prev.filters === 'object') merged.filters = { ...prev.filters, ...(config.filters || {}) };
   // Epic #112: the per-vacancy message instructions auto-fill from the recruiter's
   // global template (or the default) at the first save, and keep tracking it until
@@ -629,33 +643,25 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
       if (merged.message_instructions_source === 'global') merged.message_instructions_synced_at = now;
     }
   }
-  fs.writeFileSync(configFile, JSON.stringify({ value: merged, updated_at: now }, null, 2));
-  // Funnel stages stay a single global blob for now (deliberately deferred, like
-  // hh_generate_message tone context in PR #1067 — different vacancies commonly share
-  // the same interview stages; per-vacancy stages can follow if that stops being true).
-  if (Array.isArray(stages)) {
-    fs.writeFileSync(
-      path.join(hhContextDir, 'ats_stages.json'),
-      JSON.stringify({ value: stages, updated_at: now }, null, 2),
-    );
+  if (fs.existsSync(configFile)) {
+    const backupDir = path.join(hhContextDir, 'backups'); fs.mkdirSync(backupDir, {recursive:true, mode:0o700});
+    fs.copyFileSync(configFile, path.join(backupDir, `${configName}.${Date.now()}.json`));
   }
+  const temporary = `${configFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify({ value: merged, updated_at: now }, null, 2), {mode:0o600});
+  fs.renameSync(temporary, configFile);
+  if (Array.isArray(stages) && !normalizedPlan) fs.writeFileSync(path.join(hhContextDir, `ats_stages:${vacancyId}.json`), JSON.stringify({value:stages,updated_at:now},null,2));
   console.log(`[hh/ats-config] saved vacancy="${config.vacancy_title}" vacancy_id=${vacancyId || 'legacy'} stages=${stages?.length || 0} user=${username || 'default'}`);
-  return json(res, 200, { ok: true });
+  return json(res, 200, { ok: true, revision: now });
 }
 
 if (req.method === 'POST' && url.pathname === '/hh/reset-ats-results') {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  // NOTE (multi-vacancy step 3/6, deliberately deferred): candidate history files
-  // (candidates/{neg_id}.json) don't record which vacancy they belong to, so this
-  // still resets ALL of a user's candidates across every tracked vacancy — "Re-run
-  // Funnel" on one vacancy's tab wipes another vacancy's scores too. Scoping this
-  // properly needs either stamping vacancy_id onto candidate history on write, or
-  // fetching the vacancy's negotiation ID set here before filtering. Out of scope for
-  // the tabs-only pass; flagging so it isn't mistaken for "already handled".
+  // Only explicitly scoped histories are reset; legacy unstamped histories remain intact.
   const body = JSON.parse(await readBody(req));
-  const { username } = body || {};
-  if (!username) return json(res, 400, { error: 'username required' });
+  const { username, vacancy_id: vacancyId } = body || {};
   if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
+  if (!username || !/^[a-zA-Z0-9_-]+$/.test(String(vacancyId || ''))) return json(res, 400, { error: 'username and vacancy_id required' });
   const dataDir = dataRoot();
   const candDir = path.join(dataDir, 'hh', String(username), 'candidates');
   let reset = 0;
@@ -666,6 +672,7 @@ if (req.method === 'POST' && url.pathname === '/hh/reset-ats-results') {
       const fp = path.join(candDir, f);
       try {
         const hist = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        if (String(hist.vacancy_id || hist.ats_result?.vacancy_id || '') !== String(vacancyId)) { skipped++; continue; }
         if (hist.ats_result !== undefined) {
           delete hist.ats_result;
           hist.ats_reset_at = new Date().toISOString();
@@ -716,7 +723,7 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-extract') {
   try {
     const text = await hostRunMcpTool({
       tool: 'hh_extract_ats_config',
-      params: { vacancy_text: vacancyText },
+      params: { vacancy_text: vacancyText, vacancy_id: String(vacancyId) },
       username,
       workDir: path.join(BASE_USERS_DIR, username),
       timeoutMs: 120_000,
@@ -747,10 +754,17 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
   // Must match BASE_USERS_DIR — Claude writes contexts here via cwd
   const workDir = path.join(BASE_USERS_DIR, username);
   const contextBase = path.join(workDir, 'contexts');
-  const stagesFile = path.join(contextBase, 'hh', 'ats_stages.json');
+  let stagesFile = path.join(contextBase, 'hh', 'ats_stages.json');
   const activeVacancies = readActiveVacancies(workDir);
   const requestedVacancyId = url.searchParams.get('vacancy_id') || '';
-  const activeVacancy = activeVacancies.find(v => String(v.id) === requestedVacancyId) || activeVacancies[0] || null;
+  if (requestedVacancyId && !/^[a-zA-Z0-9_-]+$/.test(requestedVacancyId)) return json(res, 400, {error:'Invalid vacancy_id'});
+  const activeVacancy = requestedVacancyId
+    ? (activeVacancies.find(v => String(v.id) === requestedVacancyId) || {id:requestedVacancyId,title:''})
+    : activeVacancies[0] || null;
+  const scopedStagesFile = path.join(contextBase, 'hh', `ats_stages:${activeVacancy?.id || ''}.json`);
+  if (fs.existsSync(scopedStagesFile)) stagesFile = scopedStagesFile;
+  let configRevision = null;
+  try {configRevision = JSON.parse(fs.readFileSync(path.join(contextBase,'hh',`ats_config:${activeVacancy?.id}.json`),'utf8')).updated_at || null;} catch {}
   let currentConfig = readAtsConfig(workDir, activeVacancy?.id || null);
   // No live config yet — offer the LLM-extracted draft (hh_extract_ats_config) as the
   // starting point instead. The draft never goes live on its own: it only reaches
@@ -764,6 +778,8 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
   try {
     if (fs.existsSync(stagesFile)) currentStages = JSON.parse(fs.readFileSync(stagesFile, 'utf8')).value;
   } catch {}
+  const migration = require('./hh-communication-plan').prepareLegacyPlan(currentConfig || {}, currentStages || []);
+  if (currentConfig && !currentConfig.communication_plan) currentConfig = {...currentConfig, communication_plan:migration.plan};
   // Prefill from HH (issue #126). The editor used to demand a vacancy title and a
   // context the recruiter had to type by hand, and refuse to save without them — while
   // HH already knows both. Fill them in server-side, but only into fields that are
@@ -796,6 +812,8 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
     vacancies: activeVacancies,
     activeVacancyId: activeVacancy?.id || '',
     isDraft,
+    migration,
+    configRevision,
     prefill,
   });
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -816,6 +834,9 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   const tokenData = readHhTokenFile(tokenFile);
   if (!tokenData) return json(res, 403, { error: 'HH token unreadable' });
 
+  const releaseSendLock=acquireCandidateSendLock(username,negotiation_id);
+  if(!releaseSendLock)return json(res,409,{ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'});
+  try{
   const dataDir = dataRoot();
   const histDir = path.join(dataDir, 'hh', String(username), 'candidates');
   fs.mkdirSync(histDir, { recursive: true });
@@ -830,8 +851,17 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     const vcFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json');
     try { effectiveVacancyId = JSON.parse(fs.readFileSync(vcFile, 'utf8'))?.value?.id || null; } catch { /* no active vacancy */ }
   }
+  if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
+  if (communicationEnabledFor(username,body?.vacancy_id) && history.communication_steps) {
+    let currentResumeHash=null;
+    try{const latest=await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
+    const {readAtsConfig}=require('./hh-scoring');
+    const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),effectiveVacancyId);
+    if(staleCommunicationDraft(history,config||{},currentResumeHash)) return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+  }
   const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
-  const guard = await bullshitGuard(message, history.messages, { username, allowSpecificTime });
+  const exactPlannedMaterial=communicationEnabledFor(username,body?.vacancy_id)&&history.communication_steps?.material&&message===history.communication_steps.message;
+  const guard = exactPlannedMaterial?{ok:true,checks:{}}:await bullshitGuard(message, history.messages, { username, allowSpecificTime });
   if (!guard.ok) {
     if (!force) {
       console.warn(`[hh/send] guard blocked user=${username} neg=${negotiation_id} reason="${guard.reason}"`);
@@ -863,6 +893,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
       hhId: sent?.id ?? sent?.message?.id ?? null,
       timestamp: sent?.created_at || null,
     });
+    if(communicationEnabledFor(username,body?.vacancy_id)&&history.communication_steps){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));}catch(e){history.communication_delivery_refresh_error=e.message;}}
     fs.writeFileSync(histFile, JSON.stringify(history, null, 2), { mode: 0o600 });
     console.log(`[hh/send] user=${username} neg=${negotiation_id} len=${message.length}`);
     // Delivery already succeeded — answer now and move the stage afterwards. Awaiting
@@ -886,6 +917,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     console.error('[hh/send] error:', e.message);
     return json(res, 500, { error: e.message });
   }
+  }finally{releaseSendLock();}
 }
 
 if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
@@ -899,7 +931,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   // Writing goes through our llm-ladder (src/conversation-generation.js) — the ladder
   // token replaces the old per-user OpenRouter key requirement for this route; the
   // guard still degrades gracefully without its own key (hh-bullshit-guard.js).
-  if (!ladderToken()) return json(res, 503, { error: 'llm-ladder token not configured' });
+  if (!communicationEnabledFor(username,body?.vacancy_id) && !ladderToken()) return json(res, 503, { error: 'llm-ladder token not configured' });
 
   const styleFile = path.join(hhTokensBase, String(username), 'hh-message-style');
   const commStyle = readCredentialFileSafe(styleFile)?.trim() || null;
@@ -921,7 +953,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   const candDir = path.join(dataDir, 'hh', String(username), 'candidates');
   const histFile = path.join(candDir, `${negotiation_id}.json`);
   const history = fs.existsSync(histFile) ? JSON.parse(fs.readFileSync(histFile, 'utf8')) : { messages: [] };
-  const msgs = history.messages || [];
+  let msgs = history.messages || [];
   const hasPriorContact = msgs.some(m => m.role === 'employer');
   const candidateReplied = msgs.some(m => m.role === 'applicant');
   const msgType = message_type === 'rejection' ? 'rejection'
@@ -935,13 +967,16 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     if (fs.existsSync(hhTokenFile)) hhToken = readHhTokenFile(hhTokenFile);
   } catch { /* ignore */ }
 
+  if(communicationEnabledFor(username,body?.vacancy_id)&&hhToken){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,hhToken));msgs=history.messages||[];}catch(e){return json(res,503,{error:e.message,code:'HH_FRESHNESS_UNAVAILABLE'});}}
+
+  let sourceResumeHash=null;
   let fullResumeText = (resume_text || '').trim();
   if (hhToken) {
     try {
       const neg = await hhFetch(`/negotiations/${negotiation_id}`, hhToken);
       await hydrateResume(neg, hhToken);
-      if (neg._resume_status === 'full') fullResumeText = buildResumeText(neg);
-    } catch { /* use page text if HH is temporarily unavailable */ }
+      if (neg._resume_status === 'full'){fullResumeText = buildResumeText(neg);sourceResumeHash=resumeHash(neg);}else if(communicationEnabledFor(username,body?.vacancy_id))throw new Error('Полное резюме HH недоступно.');
+    } catch(e) {if(communicationEnabledFor(username,body?.vacancy_id))return json(res,503,{error:e.message,code:'HH_PROFILE_UNAVAILABLE'}); /* legacy preview may use page text */ }
   }
 
   // Fetch vacancy description from HH API for targeted message generation
@@ -978,6 +1013,20 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
   const availabilityBlock = buildAvailabilityBlock(interviewConfig);
   const vacancyInstruction = resolveMessageInstructions({ username, tokensBase: hhTokensBase, atsConfig });
 
+  if (communicationEnabledFor(username,body?.vacancy_id)) {
+    try {
+      const result=await generateAndStoreCommunication(history,{
+        atsConfig:atsConfig||{},sourceResumeHash,resumeText:fullResumeText,candidateName:candidate_name||'',
+        senderProfile:msgCfg||{},communicationStyle:commStyle||undefined,
+        context:{vacancy_id:effectiveVacancyId},
+        ...(msgType==='rejection'?{forceGoal:{instruction:'Напиши вежливый отказ кандидату, сохраняя фактические условия вакансии.'}}:{})
+      });
+      fs.mkdirSync(candDir,{recursive:true});
+      fs.writeFileSync(histFile,JSON.stringify(history,null,2),{mode:0o600});
+      return json(res,200,{ok:true,message:result.message||'',funnel_action:result.action,funnel_reason:result.reason,communication_steps:result.steps});
+    } catch(e) { return json(res,e.code==='PLAN_REVIEW_REQUIRED'?409:503,{error:e.message,code:e.code||'COMMUNICATION_FAILED'}); }
+  }
+
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
   const systemPrompt = msgType === 'rejection'
     ? buildRejectionSystemPrompt({ recruiterCtx, commStyle })
@@ -1010,7 +1059,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       availabilityBlock,
       action: plan ? plan.action : null,
       missingSkills: plan?.missing_skills || [],
-      testTask: atsConfig?.test_task || '',
+      testTask: legacyTestTask(atsConfig),
       vacancyInstruction,
     });
 
@@ -1035,7 +1084,7 @@ const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancy
     // The test task is the one letter that must NOT be written by a model: the
     // vacancy promises it goes out word-for-word.
     let message = plan?.action === 'send_test'
-      ? (buildTestTaskMessage(atsConfig?.test_task) || await callLlm(userMsg))
+      ? (buildTestTaskMessage(legacyTestTask(atsConfig)) || await callLlm(userMsg))
       : await callLlm(userMsg);
     let guard = await bullshitGuard(message, msgs, { username, allowSpecificTime, resumeText: fullResumeText });
     if (!guard.ok) {
@@ -1107,6 +1156,9 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
   const tokenData = readHhTokenFile(tokenFile);
   if (!tokenData) return json(res, 403, { error: 'HH token unreadable' });
 
+  const releaseSendLock=acquireCandidateSendLock(username,negotiation_id);
+  if(!releaseSendLock)return json(res,409,{ok:false,code:'SEND_IN_PROGRESS',error:'Отправка этому кандидату уже выполняется.'});
+  try{
   const dataDir2 = dataRoot();
   const histDir2 = path.join(dataDir2, 'hh', String(username), 'candidates');
   fs.mkdirSync(histDir2, { recursive: true });
@@ -1149,6 +1201,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
     console.error('[hh/send-and-reject] error:', e.message);
     return json(res, 500, { error: e.message });
   }
+  }finally{releaseSendLock();}
 }
 
 if (req.method === 'GET' && url.pathname === '/hh/style') {
@@ -2362,14 +2415,15 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-config') {
   const vacancyId = url.searchParams.get('vacancy_id') || null;
   // Must match BASE_USERS_DIR so runHhScoringForUser can find the file
   const workDir = username ? path.join(BASE_USERS_DIR, username) : process.cwd();
-  const stagesFile = path.join(workDir, 'contexts', 'hh', 'ats_stages.json');
+  const stagesFile = path.join(workDir, 'contexts', 'hh', `ats_stages:${vacancyId || ''}.json`);
   const { readAtsConfig } = require('./hh-scoring');
   const config = readAtsConfig(workDir, vacancyId);
   let stages = null;
   try {
     if (fs.existsSync(stagesFile)) stages = JSON.parse(fs.readFileSync(stagesFile, 'utf8')).value;
   } catch {}
-  return json(res, 200, { ok: true, config, stages });
+  let revision = null; try {revision = JSON.parse(fs.readFileSync(path.join(workDir,'contexts','hh',`ats_config:${vacancyId}.json`),'utf8')).updated_at || null;} catch {}
+  return json(res, 200, { ok: true, config, stages:config?.communication_plan?.stages || stages, revision });
 }
 
 
