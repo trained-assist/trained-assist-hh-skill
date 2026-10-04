@@ -82,7 +82,13 @@ rollback() {
 trap rollback ERR
 set_link "$TARGET_DIR"
 $SUDO systemctl restart "$SERVICE"
+for attempt in $(seq 1 30); do
+  if curl --fail --silent --max-time 1 http://127.0.0.1:8080/health >/dev/null; then break; fi
+  sleep 1
+done
 $SUDO systemctl is-active --quiet "$SERVICE"
 node "$TARGET_DIR/scripts/verify-deploy.cjs" --rev "$HH_REV"
+printf '%s\n' "$HH_REV" > /home/vova/hh-deploy-target.new
+mv /home/vova/hh-deploy-target.new /home/vova/hh-deploy-target
 trap - ERR
 printf 'HH pinned deployment verified: %s; rollback record: %s\n' "$HH_REV" "$RECORD"
