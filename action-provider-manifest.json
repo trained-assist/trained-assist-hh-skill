@@ -366,6 +366,10 @@
           "vacancy_text": {
             "type": "string",
             "description": "Full vacancy description text"
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Explicit vacancy scope; takes precedence over active vacancy"
           }
         },
         "required": [

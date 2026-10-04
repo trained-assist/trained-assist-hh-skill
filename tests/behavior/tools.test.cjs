@@ -94,3 +94,17 @@ test('the LLM and the HH platform were exercised through the sanctioned mocks on
     await f.close();
   }
 });
+
+test('explicit extract scope B overrides active vacancy A and remains review-only', async () => {
+  const f=await createBehaviorFixture();
+  try {
+    const result=parseEnvelope(await f.mcp.call('tools/call',{name:'hh_extract_ats_config',arguments:{vacancy_text:'Ищем Node.js разработчика',vacancy_id:'vac-B'}}));
+    assert.equal(result.ok,true); assert.equal(result.config.vacancy_id,'vac-B');
+    const {USER}=require('../helpers/hh-behavior-fixture');
+    const dir=path.join(f.root,'users',USER,'contexts','hh');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'ats_config_draft:vac-B.json'),'utf8')).value.vacancy_id,'vac-B');
+    assert.equal(fs.existsSync(path.join(dir,'ats_config:vac-B.json')),false);
+    assert.equal(fs.existsSync(path.join(dir,'ats_config_draft:vac-001.json')),false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'ats_config:vac-001.json'),'utf8')).value.vacancy_id,'vac-001');
+  } finally {await f.close();}
+});

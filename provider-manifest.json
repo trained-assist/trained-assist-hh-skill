@@ -378,6 +378,10 @@
           "vacancy_text": {
             "type": "string",
             "description": "Full vacancy description text"
+          },
+          "vacancy_id": {
+            "type": "string",
+            "description": "Explicit vacancy scope; takes precedence over active vacancy"
           }
         },
         "required": [
@@ -509,7 +513,7 @@
     },
     {
       "name": "hh_send_message",
-      "description": "Send a message to a candidate in a negotiation thread on hh.ru. Always show the message to recruiter for confirmation before calling this.",
+      "description": "Send a message to a candidate in a negotiation thread on hh.ru. Follow recruiter authorization in the active task.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -57,7 +57,7 @@ describe('HH browser pages — no master secret, per-recruiter auth', () => {
     const { handled, res } = await call('GET', `/hh/ats-editor?username=alice&token=${hmac('alice')}`);
     expect(handled).not.toBe(false);
     expect(res.body).not.toContain(SECRET);
-    expect(res.body).toContain(`const HH_PAGE_TOKEN = '${hmac('alice')}';`);
+    expect(res.body).toContain(`const HH_PAGE_TOKEN = ${JSON.stringify(hmac('alice'))};`);
     expect(atsEditorHtml(null, null, { username: 'bob', pageToken: 'tok' })).not.toContain('HH_SECRET');
   });
 
@@ -87,7 +87,7 @@ describe('HH browser pages — no master secret, per-recruiter auth', () => {
   });
 
   it('server-to-server Bearer secret still authorizes editor writes', async () => {
-    const { res } = await call('POST', '/hh/reset-ats-results', { username: 'alice' }, { authorization: `Bearer ${SECRET}` });
+    const { res } = await call('POST', '/hh/reset-ats-results', { username: 'alice', vacancy_id:'42' }, { authorization: `Bearer ${SECRET}` });
     expect(res.status).toBe(200);
   });
 

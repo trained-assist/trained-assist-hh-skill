@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "b1c2787781960dbc57e4b427bb0e12e6f3d0180e",
+      "revision": "1d0507b5b1cd4a943624d78b7fcd81122aaf8902",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "887367108e14c1a9b74d5d63f6ccbf05d09b4d54a0d1f97b0f6b2419672f4c71",
+      "artifactDigest": "9eaff317da67b034d2ebd9229bcc944de63a756bdf50e8b0bdf6d05265b116d2",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -380,6 +380,10 @@
                 "vacancy_text": {
                   "type": "string",
                   "description": "Full vacancy description text"
+                },
+                "vacancy_id": {
+                  "type": "string",
+                  "description": "Explicit vacancy scope; takes precedence over active vacancy"
                 }
               },
               "required": [
