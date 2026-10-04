@@ -900,6 +900,32 @@ describe('ats-config per-vacancy instructions (epic #112)', () => {
       if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
     }
   });
+
+  // The editor page is served from the recruiter's publish domain while CALLBACK_BASE is
+  // AGENT_PUBLIC_URL, so «Вернуть общий шаблон» is a cross-origin GET. This endpoint
+  // answered 200 with the right body and no Access-Control-Allow-Origin — the browser
+  // dropped it and the button reported "Ошибка сети: Failed to fetch" (issue #135).
+  it('GET /hh/message-instructions-template is readable cross-origin by the editor page', async () => {
+    const savedTokens = process.env.AGENT_TOKENS_DIR;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    try {
+      const u = new URL('http://x/hh/message-instructions-template?username=alice&token=' + tokFor('alice'));
+      const res = fakeRes();
+      await handleHhPublic(req('GET', u.pathname + u.search), u, res, ctx());
+      expect(res.status).toBe(200);
+      expect(res.headers['Access-Control-Allow-Origin']).toBe('*');
+    } finally {
+      if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    }
+  });
+
+  it('answers the CORS preflight for the template endpoint', async () => {
+    const u = new URL('http://x/hh/message-instructions-template');
+    const res = fakeRes();
+    await handleHhPublic(req('OPTIONS', u.pathname), u, res, ctx());
+    expect(res.status).toBe(204);
+    expect(res.headers['Access-Control-Allow-Origin']).toBe('*');
+  });
 });
 
 // Issue #126 — the live failure the owner reported: on vacancy 137012564 (no ATS config

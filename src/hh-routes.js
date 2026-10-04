@@ -357,7 +357,7 @@ async function handleHhPublic(req, url, res, ctx) {
 </head><body><h2>${msg}</h2></body></html>`);
   }
 
-if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/ats-extract' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/sync-negotiations')) {
+if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/ats-extract' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/message-instructions-template' || url.pathname === '/hh/sync-negotiations')) {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -1266,6 +1266,11 @@ if (req.method === 'POST' && url.pathname === '/hh/update-base-prompt') {
 // vacancy instruction's starting point on /hh/style and the ATS editor's
 // «Вернуть общий шаблон». Read by the editor at click time (no re-render needed).
 if (req.method === 'GET' && url.pathname === '/hh/message-instructions-template') {
+  // The editor page runs on the recruiter's publish domain while CALLBACK_BASE points at
+  // AGENT_PUBLIC_URL, so this GET is cross-origin — and it was the only /hh/* route
+  // without Access-Control-Allow-Origin. The browser dropped the (correct) 200 body and
+  // «Вернуть общий шаблон» failed with "Failed to fetch" instead of filling the field.
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const username = url.searchParams.get('username') || '';
   const agentSecret6 = process.env.AGENT_SECRET || '';
   if (agentSecret6) {
