@@ -357,7 +357,7 @@ async function handleHhPublic(req, url, res, ctx) {
 </head><body><h2>${msg}</h2></body></html>`);
   }
 
-if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/ats-extract' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/message-instructions-template' || url.pathname === '/hh/sync-negotiations')) {
+if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/ats-extract' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/message-instructions-template' || url.pathname === '/hh/response-state' || url.pathname === '/hh/sync-negotiations')) {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -381,6 +381,10 @@ if (req.method === 'GET' && url.pathname === '/hh/response-updates') {
 }
 
 if (req.method === 'POST' && url.pathname === '/hh/response-state') {
+  // Cross-origin: the review page (src/hh-review-page-html.js) stars/archives from
+  // CALLBACK_BASE, a different origin than the page. Same class as the
+  // /hh/message-instructions-template fix in #135 — see tests/guards/cross-origin-calls.
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const body = JSON.parse(await readBody(req));
   const { username, vacancy_id, negotiation_id, status, token } = body;
   if (![username, vacancy_id, negotiation_id].every(x => /^[a-zA-Z0-9_-]+$/.test(String(x || '')))) return json(res, 400, { error: 'Invalid scope' });
