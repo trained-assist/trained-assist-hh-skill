@@ -15,7 +15,7 @@ function communicationEnabled(env=process.env,scope=null){
  return true;
 }
 function communicationToken(){return process.env.COMMUNICATION_TOKEN || readCredentialFileSafe(path.join(tokensRoot(),'communication','token'));}
-async function callCommunication(method,input,{baseUrl=process.env.COMMUNICATION_API_URL,token=communicationToken(),fetchImpl=fetch,timeoutMs=45000}={}) {
+async function callCommunication(method,input,{baseUrl=process.env.COMMUNICATION_API_URL,token=communicationToken(),fetchImpl=fetch,timeoutMs=90000}={}) {
  if (!ROUTES[method]) throw new CommunicationError('INVALID_METHOD','Неизвестный метод Communication');
  if (!baseUrl || !token) throw new CommunicationError('COMMUNICATION_NOT_CONFIGURED','Communication endpoint/token не настроены');
  let url;try {url=new URL(ROUTES[method],baseUrl);}catch{throw new CommunicationError('COMMUNICATION_NOT_CONFIGURED','Некорректный endpoint Communication');}

@@ -428,7 +428,7 @@
     },
     {
       "name": "hh_generate_message",
-      "description": "Generate a personalized message for a candidate. Types: initial (first outreach with all qualification questions at once), followup (reminder if no reply), invite_call (invite to 15-min call). Reads candidate history automatically.",
+      "description": "Generate a candidate draft from the saved vacancy communication_plan, current full HH conversation history and full candidate profile. The Communication chain chooses a free goal from the editable scenario; generation does not send a message. message_type is retained for legacy compatibility, with rejection requesting an explicit rejection draft.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -444,7 +444,7 @@
               "invite_call",
               "rejection"
             ],
-            "description": "Message type (default: initial). rejection — uses stored template, no LLM"
+            "description": "Legacy message type hint (default: initial). Under Communication, the saved scenario determines the next goal; rejection explicitly requests a rejection draft."
           },
           "ats_result": {
             "type": "object",
@@ -569,7 +569,7 @@
     },
     {
       "name": "hh_regenerate_messages",
-      "description": "Force-regenerate the draft message for ALL already-evaluated candidates on a vacancy using the CURRENT ats_config/interview_config. Use this right after editing the message prompt/interview_config (e.g. in the ATS editor) so every candidate draft reflects the new rules — this is the \"update all written candidate messages\" trigger. Unlike hh_batch_evaluate, it ignores config_version caching and overwrites existing drafts unconditionally. Does NOT send anything — drafts only, review/send separately via hh_draft_review_page or /hh/review. Skips candidates with verdict ОТКЛОНИТЬ (rejections use a separate flow) and candidates with no ats_result yet (run hh_batch_evaluate first). If vacancy_id is omitted — reads from context (set with hh_set_active_vacancy).",
+      "description": "Force-regenerate the draft message for ALL already-evaluated candidates on a vacancy using the CURRENT ats_config/interview_config. Use this right after editing the message prompt/interview_config (e.g. in the ATS editor) so every candidate draft reflects the new rules — this is the \"update all written candidate messages\" trigger. Unlike hh_batch_evaluate, it ignores config_version caching and overwrites existing drafts unconditionally. Does NOT send anything — drafts only, review/send separately via hh_draft_review_page or /hh/review. Skips candidates with verdict ОТКЛОНИТЬ (rejections use a separate flow). Communication drafts do not require an ATS score; the legacy path requires an existing evaluation. If vacancy_id is omitted — reads from context (set with hh_set_active_vacancy).",
       "inputSchema": {
         "type": "object",
         "properties": {

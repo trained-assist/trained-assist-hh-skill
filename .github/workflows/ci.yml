@@ -105,6 +105,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --include=dev
+      - name: Install Chromium for mandatory recruitment browser replay
+        run: npx playwright install --with-deps chromium
       # Deterministic replay only: real MCP server + fixtures under the
       # isolation guard. The LLM judge belongs to staging, never here.
       - run: npm run test:staging

@@ -1,7 +1,7 @@
 'use strict';
 const {legacyTestTask} = require('./hh-communication-plan');
 const { dataRoot, tokensRoot } = require('./data-paths.js');
-const { buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
+const { hydrateResume,buildResumeText, resumeHash, RESUME_VERSION } = require('./hh-resume');
 
 // Pure scoring utilities — no global state, no USER_ID dependency.
 // Used by both 90-hh.js MCP tool and server.js /hh/review endpoint.
@@ -11,7 +11,7 @@ const path = require('path');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride, resolveMessageInstructions, hasRealAvailability } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature, isDraftStale } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
-const {communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
+const {captureGenerationGuard,readCommunicationGenerationInputs,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { generateConversation } = require('./conversation-generation');
 const { ladderChat, ladderToken } = require('./llm-ladder');
@@ -351,9 +351,8 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
     if (h.ats_result?.verdict === 'ОТКЛОНИТЬ') return false;
     if (!communicationEnabledFor(username,vacancyId) && h.ats_result?.score == null) return false;
     if(communicationEnabledFor(username,vacancyId)){
-      if(!h.communication_steps||staleCommunicationDraft(h,atsConfig)||h.communication_snapshot?.communicationStyle!==(commStyle||undefined)||JSON.stringify(h.communication_snapshot?.senderProfile||{})!==JSON.stringify(msgCfg||{}))return true;
-      const next=Date.parse(h.communication_steps.next_check_at||'');
-      return Number.isFinite(next)&&Date.now()>=next;
+      // A cached draft cannot prove that the remote chat/profile is unchanged.
+      return true;
     }
     // A draft written against an older thread is worse than no draft: /hh/review shows
     // it as-is and the recruiter can send one click away. Regenerate whenever the
@@ -374,10 +373,20 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
       try {
         const history = readCandidateHistory(username, neg.id);
         if(communicationEnabledFor(username,vacancyId)){
+          const historyFile=path.join(dataRoot(),'hh',String(username),'candidates',`${neg.id}.json`);
+          const expectedHistoryText=fs.existsSync(historyFile)?fs.readFileSync(historyFile,'utf8'):null;
+          const communicationHistory=expectedHistoryText===null?{messages:[],ats_result:null}:JSON.parse(expectedHistoryText);
           const token=readHhToken(username);if(!token)throw new Error('HH не подключён.');
-          await refreshCommunicationHistory(history,neg.id,endpoint=>require('./hh-utils').hhFetch(endpoint,token));
-          const result=await generateAndStoreCommunication(history,{atsConfig,sourceResumeHash:resumeHash(neg),resumeText:buildResumeText(neg),candidateName:neg.resume?.first_name||'',senderProfile:msgCfg||{},communicationStyle:commStyle||undefined,context:{vacancy_id:vacancyId}});
-          saveCandidateHistory(username,neg.id,history);if(result.message)generated++;return;
+          const latest=await refreshCommunicationHistory(communicationHistory,neg.id,endpoint=>require('./hh-utils').hhFetch(endpoint,token));
+          await hydrateResume(latest,token);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно.');
+          const expectedInputs={atsConfig,senderProfile:msgCfg||{},communicationStyle:commStyle||undefined};
+          const assertFresh=captureGenerationGuard({historyFile,expectedHistoryText,expectedInputs,readInputs:()=>readCommunicationGenerationInputs({username,workDir,vacancyId})});
+          const next=Date.parse(communicationHistory.communication_steps?.next_check_at||'');
+          if(communicationHistory.communication_steps&&!staleCommunicationDraft(communicationHistory,atsConfig,resumeHash(latest),expectedInputs)&&!(Number.isFinite(next)&&Date.now()>=next)){
+            assertFresh();saveCandidateHistory(username,neg.id,communicationHistory);return;
+          }
+          const result=await generateAndStoreCommunication(communicationHistory,{...expectedInputs,assertFresh,sourceResumeHash:resumeHash(latest),resumeText:buildResumeText(latest),candidateName:latest.resume?.first_name||'',context:{vacancy_id:vacancyId}});
+          saveCandidateHistory(username,neg.id,communicationHistory);if(result.message)generated++;return;
         }
         const thread = history.messages || [];
 

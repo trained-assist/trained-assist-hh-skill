@@ -6,6 +6,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 
 const suites = JSON.parse(readFileSync(new URL('./suites.json', import.meta.url)));
 const root = resolve('.');
@@ -18,6 +19,9 @@ const temporary = mkdtempSync(join(tmpdir(), 'staging-gate-'));
 // fast on a root outside it, prod credentials, or non-loopback outbound.
 const guard = resolve('scripts/staging/isolation-guard.cjs');
 const blockedLog = join(temporary, 'outbound-blocked.log');
+const require = createRequire(import.meta.url);
+const browserExecutable = require('@playwright/test').chromium.executablePath();
+const browserCache = process.env.PLAYWRIGHT_BROWSERS_PATH || browserExecutable.match(/^(.*)[/\\]chromium-\d+[/\\]/)?.[1];
 const env = {
   PATH: process.env.PATH, CI: 'true', NODE_ENV: 'test',
   STAGING_ROOT: temporary, STAGING_ISOLATION: '1', STAGING_RUNNER_PID: String(process.pid), STAGING_BLOCKED_LOG: blockedLog,
@@ -27,6 +31,7 @@ const env = {
   USERS_DIR: join(temporary, 'home', 'users'),
   AGENT_DATA_DIR: join(temporary, 'data'),
   AGENT_TOKENS_ROOT: join(temporary, 'tokens'),
+  ...(browserCache ? { PLAYWRIGHT_BROWSERS_PATH: browserCache } : {}),
 };
 for (const dir of [env.HOME, env.TMPDIR, env.USERS_DIR, env.AGENT_DATA_DIR, env.AGENT_TOKENS_ROOT]) mkdirSync(dir, { recursive: true });
 // Hash the actual checkout, including tracked edits and nonignored new files.
@@ -74,6 +79,14 @@ try {
     throw new Error(`Mandatory scenarios must pass; skipped/todo/empty runs cannot approve a release (pass=${passed}, fail=${count('fail')}, skipped=${count('skipped')}, todo=${count('todo')})`);
   }
   manifest.tests = { pass: passed, fail: count('fail'), skipped: count('skipped'), todo: count('todo') };
+  for (const file of suites.browser || []) if (!existsSync(file)) throw new Error(`Required browser scenario missing: ${file}`);
+  if (suites.browser?.length) {
+    const browserReport = run(['node_modules/@playwright/test/cli.js', 'test', ...suites.browser, '--reporter=json'], { capture: true });
+    writeFileSync(join(output, 'browser.json'), browserReport);
+    const report = JSON.parse(browserReport);
+    if (!report.stats?.expected || report.stats.unexpected || report.stats.flaky || report.stats.skipped) throw new Error('Mandatory browser scenarios must pass without retries or skips');
+    manifest.browserTests = report.stats;
+  }
   manifest.result = 'success';
 } catch (error) {
   manifest.error = error.message;
