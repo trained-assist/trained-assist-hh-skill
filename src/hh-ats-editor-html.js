@@ -189,6 +189,14 @@ main{max-width:960px;margin:0 auto;padding:28px 20px;display:flex;flex-direction
 .criteria-item input[type=number]{width:60px;background:var(--panel);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 6px;font-size:12px;text-align:center;outline:none}
 .criteria-item .del-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;flex-shrink:0}.del-btn:hover{color:var(--red)}
 
+/* Must-haves the writer already receives on its own — shown next to the instruction
+   textarea so nobody types them in there a second time (a copy goes stale the moment
+   the skills below change, and the two lists then contradict each other). */
+.autocriteria{font-size:11px;color:var(--muted);margin-top:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:6px}
+.autocriteria b{color:var(--text);font-weight:600}
+.autocriteria ul{margin:6px 0 0;padding-left:18px}
+.autocriteria li{margin-top:2px}
+
 /* Thresholds */
 .thresholds{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
 .threshold-field{display:flex;flex-direction:column;gap:5px}
@@ -292,8 +300,9 @@ ${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${call
     </div>
     <div class="field">
       <label>Инструкция для сообщений кандидатам</label>
-      <textarea id="fMessageInstructions" rows="4" placeholder="Порядок работы с кандидатом для этой вакансии. Вопросы — только по обязательным требованиям из этого же экрана."></textarea>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Порядок работы с кандидатом для этой вакансии. Вопросы — только по обязательным требованиям из этого же экрана. Правила применяются только к письмам этой вакансии; действие воронки приоритетнее этого текста.</div>
+      <textarea id="fMessageInstructions" rows="4" placeholder="Порядок работы с кандидатом для этой вакансии. Обязательные требования подставляются автоматически из «★ Обязательные навыки» — перечислять их здесь не нужно."></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Порядок работы с кандидатом для этой вакансии. Правила применяются только к письмам этой вакансии; действие воронки приоритетнее этого текста.</div>
+      <div class="autocriteria" id="autoCriteria"></div>
       <button type="button" class="btn btn-secondary btn-sm" id="resetInstructionBtn" ${isLive ? '' : 'disabled title="Недоступно в offline-режиме"'} style="margin-top:8px;align-self:flex-start">↩ Вернуть общий шаблон</button>
     </div>
   </div>
@@ -538,6 +547,27 @@ function renderStages() {
 
 // ── Required ──────────────────────────────────────────────────────────────────
 
+// ── Auto-injected must-haves ─────────────────────────────────────────────────
+// The writer prompt already gets the required criteria from the config
+// (buildCriteriaBlock in src/hh-message-prompts.js) — nothing to configure here. On
+// vacancy 138004863 the must-haves were ALSO written out by hand inside this very
+// textarea, in a wording that had already drifted from the ★ list, so the letters asked
+// questions the rubric no longer scored. Render what is injected automatically: same list,
+// same source, visibly live next to the field that must not duplicate it.
+function renderAutoCriteria() {
+  const box = document.getElementById('autoCriteria');
+  if (!box) return;
+  const names = required.map(r => r.name.trim()).filter(Boolean);
+  if (!names.length) {
+    box.innerHTML = '<b>Обязательные требования</b> — список «★ Обязательные навыки» пуст, поэтому в письма ничего не подставляется. Добавь навыки ниже или на этом же экране.';
+    return;
+  }
+  box.innerHTML = '<b>Уже подставляется в каждое письмо автоматически</b> — из «★ Обязательные навыки»,'
+    + ' не из этого поля. Перечислять их в инструкции не нужно: правка навыков ниже не обновит текст здесь,'
+    + ' и письма начнут спрашивать не то, что оценивается.'
+    + '<ul>' + names.map(n => '<li>' + escHtml(n) + '</li>').join('') + '</ul>';
+}
+
 function addRequired() { required.push({ name: '', weight: 2.0 }); renderRequired(); }
 
 function renderRequired() {
@@ -555,12 +585,14 @@ function renderRequired() {
     \`;
     list.appendChild(item);
   });
+  renderAutoCriteria();
   list.querySelectorAll('input').forEach(inp => {
     inp.addEventListener('input', e => {
       const idx = +e.target.dataset.idx;
       const field = e.target.dataset.field;
       required[idx][field] = field === 'weight' ? +e.target.value : e.target.value;
       updateJsonPreview();
+      renderAutoCriteria();
     });
   });
   list.querySelectorAll('.del-btn').forEach(btn => {

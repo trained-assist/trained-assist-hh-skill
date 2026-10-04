@@ -101,6 +101,54 @@ describe('ATS editor page (#121)', () => {
   });
 });
 
+// Issue #135: on vacancy 138004863 the must-haves were written out by hand inside the
+// «Инструкция для сообщений кандидатам» textarea, in a wording that had already drifted
+// from the ★ list — so letters asked about things the rubric no longer scored, and no
+// edit to the skills would ever reach that text. The writer prompt already receives the
+// required criteria from the config (buildCriteriaBlock, src/hh-message-prompts.js); the
+// page now shows that list so the instruction field is not used as a second copy of it.
+describe('must-haves are shown as injected, not typed into the instruction (#135)', () => {
+  const scriptOf = (config) => inlineScript(atsEditorHtml(config, ['Скрининг', 'Интервью'], {
+    callbackBase: 'https://host/agent', username: 'u', pageToken: 'tok',
+    vacancies: [{ id: '1', title: 'Менеджер WB' }], activeVacancyId: '1',
+  }));
+
+  it('renders the auto-injected list from the required criteria, next to the field', () => {
+    const html = atsEditorHtml(CONFIG, ['Скрининг', 'Интервью'], {
+      callbackBase: 'https://host/agent', username: 'u', pageToken: 'tok',
+      vacancies: [{ id: '1', title: 'Менеджер WB' }], activeVacancyId: '1',
+    });
+    expect(html).toContain('id="autoCriteria"');
+    expect(html).toContain('.autocriteria{');
+    // The list is read from the ★ criteria array, never from the instruction textarea.
+    const s = inlineScript(html);
+    expect(s).toMatch(/function renderAutoCriteria\(\)/);
+    expect(s).toMatch(/const names = required\.map\(r => r\.name\.trim\(\)\)\.filter\(Boolean\)/);
+    // …and the function body never reads the instruction textarea.
+    const body = s.slice(s.indexOf('function renderAutoCriteria()'), s.indexOf('function addRequired()'));
+    expect(body).not.toContain('fMessageInstructions');
+    // Empty ★ list is a fact, not a hole: say so instead of showing nothing.
+    expect(scriptOf({})).toMatch(/!names\.length/);
+  });
+
+  it('refreshes the shown list whenever the ★ criteria change', () => {
+    const s = scriptOf(CONFIG);
+    // add / delete / inline edit of a skill, plus the initial render and template switch.
+    expect(s.match(/renderAutoCriteria\(\)/g).length).toBeGreaterThanOrEqual(3);
+    expect(s).toMatch(/required\[idx\]\[field\] = .*\n\s*updateJsonPreview\(\);\n\s*renderAutoCriteria\(\);/);
+  });
+
+  it('tells the recruiter not to list must-haves in the instruction text', () => {
+    const html = atsEditorHtml(CONFIG, ['Скрининг', 'Интервью'], {
+      callbackBase: 'https://host/agent', username: 'u', pageToken: 'tok',
+      vacancies: [{ id: '1', title: 'Менеджер WB' }], activeVacancyId: '1',
+    });
+    expect(html).toContain('Обязательные требования подставляются автоматически');
+    expect(html).toContain('не из этого поля');
+    expect(html).not.toContain('Вопросы — только по обязательным требованиям из этого же экрана.');
+  });
+});
+
 // Issue #126, slice 5: the editor used to REFUSE to save a config without a vacancy
 // title / context / required skills. The recruiter only wanted to set the recruiter
 // availability — and since no config file existed, the background scorer skipped the
