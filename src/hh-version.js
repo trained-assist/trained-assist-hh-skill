@@ -16,7 +16,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 
@@ -30,9 +29,66 @@ function readReleaseFile() {
   return null;
 }
 
-function readGitHead() {
+// Read git HEAD without spawning. src/ is forbidden from requiring child_process
+// (tests/guards: quick-action tools never launch Claude), so the revision is parsed
+// out of .git by hand. Covers the shapes that matter here: a normal checkout, a
+// worktree/submodule (.git is a `gitdir:` file), a detached HEAD, loose refs and
+// packed-refs. Anything unreadable yields '' — the caller then omits the marker
+// rather than asserting a revision it cannot back up.
+const SHA = /^[0-9a-f]{40}$/;
+
+function gitDir(base) {
+  const dot = path.join(base, '.git');
   try {
-    return execSync('git rev-parse HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    // A worktree/submodule keeps .git as a `gitdir:` file; a normal checkout is a dir.
+    if (fs.statSync(dot).isFile()) {
+      const first = fs.readFileSync(dot, 'utf8').trim();
+      if (first.startsWith('gitdir:')) return first.slice('gitdir:'.length).trim();
+    }
+    return dot;
+  } catch {
+    return null; // no .git at all
+  }
+}
+
+function readPackedRef(dir, ref) {
+  try {
+    for (const line of fs.readFileSync(path.join(dir, 'packed-refs'), 'utf8').split('\n')) {
+      const m = line.match(/^([0-9a-f]{40})\s+(.+)$/);
+      if (m && m[2] === ref) return m[1];
+    }
+  } catch { /* no packed-refs */ }
+  return null;
+}
+
+// A ref is looked for in the given dir, then — for a linked worktree, whose own
+// gitdir holds only per-worktree refs — in the common dir its `commondir` file points
+// at. Without this a worktree resolves to nothing and silently drops the marker.
+function resolveRef(dir, ref) {
+  try {
+    const loose = fs.readFileSync(path.join(dir, ref), 'utf8').trim();
+    if (SHA.test(loose)) return loose;
+  } catch { /* packed, or not here */ }
+  const packed = readPackedRef(dir, ref);
+  if (packed) return packed;
+  try {
+    const common = fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim();
+    return resolveRef(path.resolve(dir, common), ref);
+  } catch {
+    return null;
+  }
+}
+
+// base defaults to the directory this module lives in; tests pass a fixture repo.
+function readGitHead(base = path.join(__dirname, '..')) {
+  const dir = gitDir(base);
+  if (!dir) return '';
+  try {
+    const head = fs.readFileSync(path.join(dir, 'HEAD'), 'utf8').trim();
+    if (SHA.test(head)) return head;                       // detached HEAD
+    const ref = head.match(/^ref:\s*(.+)$/)?.[1];
+    if (!ref) return '';
+    return resolveRef(dir, ref) || '';
   } catch {
     return '';
   }
@@ -55,4 +111,4 @@ function revisionMetaTag() {
   return isSha(sha) ? `\n<meta name="hh-skill-rev" content="${sha}">` : '';
 }
 
-module.exports = { skillRevision, isSha, revisionMetaTag };
+module.exports = { skillRevision, isSha, revisionMetaTag, readGitHead };

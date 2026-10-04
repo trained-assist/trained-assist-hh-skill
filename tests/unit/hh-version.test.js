@@ -15,7 +15,7 @@ import path from 'node:path';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { skillRevision, isSha, revisionMetaTag } = require('../../src/hh-version.js');
+const { skillRevision, isSha, revisionMetaTag, readGitHead } = require('../../src/hh-version.js');
 const { atsEditorHtml } = require('../../src/hh-ats-editor-html.js');
 
 describe('hh-version', () => {
@@ -52,5 +52,60 @@ describe('hh-version', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // The revision is read out of .git by hand (src/ may not spawn), so every shape a
+  // checkout can take has to resolve. A shape that silently returned '' would drop the
+  // marker on exactly the deployments that most need it.
+  describe('readGitHead resolves every .git shape', () => {
+    const { execFileSync } = require('node:child_process');
+    const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+
+    function fixture() {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-git-shape-'));
+      git(['init', '-q', '-b', 'main'], dir);
+      git(['config', 'user.email', 't@t'], dir);
+      git(['config', 'user.name', 't'], dir);
+      fs.writeFileSync(path.join(dir, 'f'), 'x');
+      git(['add', 'f'], dir);
+      git(['commit', '-qm', 'one'], dir);
+      return { dir, sha: git(['rev-parse', 'HEAD'], dir) };
+    }
+
+    it('loose ref', () => {
+      const { dir, sha } = fixture();
+      try { expect(readGitHead(dir)).toBe(sha); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('packed-refs', () => {
+      const { dir, sha } = fixture();
+      try {
+        git(['pack-refs', '--all'], dir);
+        fs.rmSync(path.join(dir, '.git', 'refs', 'heads', 'main'), { force: true });
+        expect(readGitHead(dir)).toBe(sha);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('detached HEAD', () => {
+      const { dir, sha } = fixture();
+      try {
+        git(['checkout', '-q', '--detach', 'HEAD'], dir);
+        expect(readGitHead(dir)).toBe(sha);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('worktree (.git is a gitdir: file)', () => {
+      const { dir, sha } = fixture();
+      const wt = path.join(dir, 'wt');
+      try {
+        git(['worktree', 'add', '-q', wt], dir);
+        expect(readGitHead(wt)).toBe(sha);
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('no .git at all yields empty, not a guess', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-git-none-'));
+      try { expect(readGitHead(dir)).toBe(''); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
   });
 });
