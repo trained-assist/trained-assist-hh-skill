@@ -95,7 +95,7 @@ describe('review page allows stale drafts in an explicitly confirmed batch', () 
 // Issue #168: the bulk actions call shared helpers (plural, activeTabLabel,
 // isHandEdited) that live outside the extracted slice, so the slice alone no
 // longer runs. Prepend them to every extracted fragment.
-const helperSource = (html) => ['function plural(', 'function activeTabLabel()', 'function markEdited(i)', 'function isHandEdited(i)']
+const helperSource = (html) => ['function plural(', 'function activeTabLabel()', 'function markEdited(target)', 'function isHandEdited(i)']
   .map(marker => {
     const s = scriptOf(html), at = s.indexOf(marker), next = s.indexOf('\nfunction ', at + marker.length);
     return s.slice(at, next === -1 ? s.length : next);
@@ -169,24 +169,15 @@ describe('review page selects score buckets and reports regeneration failures ho
     ]);expect(completed).toEqual([4]);
   });
 
-  it('runs a bounded batch and keeps a visible completion status', async () => {
+  it('submits bulk regeneration to the durable server queue', async () => {
     const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
-    const source=extract(html, 'async function regenerateAll() {', '\nasync function generateOne');
-    const button={disabled:false,textContent:''},status={hidden:true,textContent:''};
+    const source=extract(html, 'async function regenerateAll() {', '\nfunction regenerationStorageKey');
+    const button={disabled:false,textContent:''};
     const targets=Array.from({length:12},(_,idx)=>({disabled:false,dataset:{idx:String(idx),negid:'neg-'+idx,name:'Candidate',sent:'0'}}));
-    let active=0,maximum=0;
-    const context={window:{confirm:()=>true},document:{getElementById:(id)=>id==='regenAllBtn'?button:id.startsWith('msg-')?null:status,querySelector:(selector)=>String(selector).includes('tab-btn')?{textContent:'✉️ Все (12)'}:null,querySelectorAll:()=>targets},done:new Set(),bulkGenerationActive:false,parseInt,Array,Math,Promise,Date,generateOne:async()=>{active++;maximum=Math.max(maximum,active);await new Promise(resolve=>setTimeout(resolve,5));active--;return true},setInterval:()=>1,clearInterval(){},showToast(){}};
+    let request,polled=0;
+    const context={window:{confirm:()=>true},HH_VACANCY_ID:'vac',document:{getElementById:(id)=>id==='regenAllBtn'?button:null,querySelector:(selector)=>String(selector).includes('tab-btn')?{textContent:'✉️ Все (12)'}:null,querySelectorAll:()=>targets},done:new Set(),bulkGenerationActive:false,parseInt,Array,Math,Promise,Date,makeRegenerationRequestKey:()=> 'request-uuid',saveRegenerationState(){},setRegenerationCardState(){},hhAction:async(path,payload)=>{request={path,payload};return{job_id:'job-1'}},pollRegenerationJob:async(saved)=>{polled++;expect(saved.job_id).toBe('job-1')},showToast(){}};
     vm.runInNewContext(source+';this.regenerateAll=regenerateAll;',context);
-    const batch=context.regenerateAll();expect(status.textContent).toContain('около 3 мин');await batch;expect(maximum).toBe(5);expect(status.hidden).toBe(false);expect(status.textContent).toContain('завершена: 12/12');expect(targets.every(target=>!target.disabled)).toBe(true);expect(context.bulkGenerationActive).toBe(false);
-  });
-
-  it('does not report failed bulk generation as a green success', async () => {
-    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
-    const source=extract(html, 'async function regenerateAll() {', '\nasync function generateOne');
-    const button={disabled:false,textContent:''},target={disabled:false,dataset:{idx:'0',negid:'neg',name:'Candidate',sent:'0'}};let toast='';
-    const context={window:{confirm:()=>true},document:{getElementById:(id)=>id.startsWith('msg-')?null:button,querySelector:()=>null,querySelectorAll:()=>[target]},done:new Set(),bulkGenerationActive:false,parseInt,Array,Math,Promise,generateOne:async()=>false,setInterval:()=>1,clearInterval(){},showToast:(message)=>{toast=message}};
-    vm.runInNewContext(source+';this.regenerateAll=regenerateAll;',context);
-    await context.regenerateAll();expect(toast).toContain('Не удалось: 1');expect(toast).not.toContain('✅');expect(button.disabled).toBe(false);
+    const batch=context.regenerateAll();await batch;expect(request.path).toBe('/hh/review-regeneration-start');expect(request.payload.negotiation_ids).toEqual(targets.map(x=>x.dataset.negid));expect(polled).toBe(1);
   });
 
   it('restores a regenerated legacy card to bulk selection', async () => {
@@ -303,38 +294,40 @@ describe('issue #168 — bulk actions confirm scope and protect hand edits', () 
     expect(declined.map((b) => b.checked)).toEqual([false, false]);
   });
 
-  it('confirms bulk regeneration and skips cards the recruiter edited by hand', async () => {
+  it('confirms queue scope and excludes cards the recruiter edited by hand', async () => {
     const html = bulkPage();
-    const source = extract(html, 'async function regenerateAll() {', '\nasync function generateOne');
-    const button = { disabled: false, textContent: '' }, status = { hidden: true, textContent: '' };
-    const targets = [{ disabled: false, dataset: { idx: '0', negid: 'neg-0', name: 'A', sent: '0' } }, { disabled: false, dataset: { idx: '1', negid: 'neg-1', name: 'B', sent: '0' } }];
+    const source = extract(html, 'async function regenerateAll() {', '\nfunction regenerationStorageKey');
+    const button = { disabled: false, textContent: '' };
     const messages = { 'msg-0': { value: 'kept', dataset: {} }, 'msg-1': { value: 'kept', dataset: {} } };
+    const targets = ['0', '1'].map((idx) => ({ disabled: false, dataset: { idx, negid: 'neg-' + idx, name: idx === '0' ? 'A' : 'B', sent: '0' }, closest: () => ({ querySelector: () => messages['msg-' + idx] }) }));
     const questions = [];
-    const generated = [];
+    let request;
     const context = {
       window: { confirm: (m) => { questions.push(m); return true; } },
       document: {
-        getElementById: (id) => id === 'regenAllBtn' ? button : id === 'bulkGenerationStatus' ? status : messages[id] || null,
+        getElementById: (id) => id === 'regenAllBtn' ? button : messages[id] || null,
         querySelector: (s) => String(s).includes('tab-btn') ? { textContent: '✉️ Все (2)' } : null,
         querySelectorAll: () => targets,
       },
       done: new Set(), bulkGenerationActive: false, parseInt, Array, Math, Promise, Date,
-      generateOne: async (i) => { generated.push(i); return true; },
-      setInterval: () => 1, clearInterval() {}, showToast() {},
+      HH_VACANCY_ID: 'vac',
+      makeRegenerationRequestKey: () => 'request-uuid', isHandEdited: card => messages['msg-' + card.dataset.idx]?.dataset?.edited === '1',
+      setRegenerationCardState() {}, saveRegenerationState() {}, pollRegenerationJob: async () => {},
+      hhAction: async (endpoint, payload) => { request = { endpoint, payload }; return { job_id: 'job-1' }; },
+      showToast() {},
     };
     vm.runInNewContext(source + ';this.regenerateAll=regenerateAll;', context);
     const firstRun = context.regenerateAll();
     expect(questions).toHaveLength(1);
-    expect(questions[0]).toContain('Перегенерировать 2 черновика');
+    expect(questions[0]).toContain('Поставить в серверную очередь 2 черновика');
     await firstRun;
 
     // The recruiter hand-writes over one card, then regenerates: that text stays.
     messages['msg-0'].dataset = { edited: '1' };
-    generated.length = 0;
     await context.regenerateAll();
-    expect(questions[1]).toContain('Перегенерировать 1 черновик');
+    expect(questions[1]).toContain('Поставить в серверную очередь 1 черновик');
     expect(questions[1]).toContain('с ручной правкой останутся нетронутыми');
-    await new Promise((r) => setTimeout(r, 10));
-    expect(generated).not.toContain(0);
+    expect(request.endpoint).toBe('/hh/review-regeneration-start');
+    expect(request.payload.negotiation_ids).toEqual(['neg-1']);
   });
 });

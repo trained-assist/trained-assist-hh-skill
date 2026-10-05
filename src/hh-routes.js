@@ -76,6 +76,41 @@ const evalDocs = require('./hh-candidate-eval-docs');
 const reportPdf = require('./hh-report-pdf');
 const evalJob = require('./hh-eval-job');
 const hhReviewRefreshJobs = new Map();
+const { createRegenerationQueue } = require('./hh-regeneration-queue');
+
+const hhRegenerationQueue = createRegenerationQueue({
+  root: dataRoot(),
+  concurrency: 3,
+  processCandidate: async (job, item) => {
+    const port = Number(process.env.PORT) || 8080;
+    const { createHmac } = require('node:crypto');
+    const token = createHmac('sha256', process.env.AGENT_SECRET || '').update(job.username).digest('hex').slice(0, 16);
+    let response;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        response = await fetch(`http://127.0.0.1:${port}/hh/generate-message`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: job.username, token, negotiation_id: item.negotiation_id, vacancy_id: job.vacancy_id }),
+          signal: AbortSignal.timeout(240_000),
+        });
+        break;
+      } catch (error) {
+        const code = error?.cause?.code;
+        // On service startup, the persistent queue can wake before HTTP bind. A
+        // refused loopback connection has not reached the draft route, so retrying
+        // it is safe; other timeouts/errors stay visible and are never auto-replayed.
+        if (code !== 'ECONNREFUSED' || attempt >= 9) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    return result;
+  },
+});
+// A service restart leaves queued/running items on disk. Reclaim them after the
+// route module is mounted; the queue has a single bounded worker pool per process.
+setTimeout(() => hhRegenerationQueue.recoverAll(), 1000).unref?.();
 
 function hhReviewRefreshKey(username, vacancyId) { return `${username}:${vacancyId}`; }
 
@@ -391,6 +426,54 @@ if (req.method === 'GET' && url.pathname === '/hh/review-refresh-status') {
   return json(res, 200, job ? { status: job.status, count: job.count, error: job.status === 'failed' ? 'Не удалось обновить список. Показаны сохранённые данные.' : null } : { status: 'idle' });
 }
 
+if (req.method === 'POST' && url.pathname === '/hh/review-regeneration-start') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'no-store');
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, vacancy_id: vacancyId, token, request_key: requestKey } = body || {};
+  const ids = Array.isArray(body?.negotiation_ids) ? body.negotiation_ids : [];
+  if (![username, vacancyId].every(x => /^[a-zA-Z0-9_-]+$/.test(String(x || ''))) ||
+      !/^[0-9a-f-]{36}$/i.test(String(requestKey || '')) || !ids.length || ids.length > 500 ||
+      ids.some(id => !/^[a-zA-Z0-9_-]+$/.test(String(id || '')))) return json(res, 400, { error: 'Invalid regeneration scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  if (!readActiveVacancies(path.join(BASE_USERS_DIR, username)).some(v => String(v.id) === String(vacancyId))) return json(res, 403, { error: 'Unknown vacancy' });
+  const uniqueIds = [...new Set(ids.map(String))];
+  if (uniqueIds.length !== ids.length) return json(res, 400, { error: 'Duplicate candidate IDs' });
+  try {
+    const cache = JSON.parse(fs.readFileSync(hhCacheFile(dataRoot(), username, vacancyId), 'utf8'));
+    const known = new Set((cache.negotiations || []).map(n => String(n.id)));
+    if (uniqueIds.some(id => !known.has(id))) return json(res, 404, { error: 'Candidate is not in this vacancy response cache' });
+  } catch { return json(res, 503, { error: 'Отклики ещё не загружены. Обновите список и повторите.' }); }
+  const { job, existing, conflict } = hhRegenerationQueue.enqueue({ username, vacancyId, negotiationIds: uniqueIds, requestKey });
+  if (conflict) return json(res, 409, { error: 'Для этой вакансии уже выполняется перегенерация. Откройте её состояние или дождитесь завершения.' });
+  return json(res, existing ? 200 : 202, { job_id: job.id, existing, status: job.status, total: job.total, concurrency: job.concurrency });
+}
+
+if (req.method === 'GET' && url.pathname === '/hh/review-regeneration-status') {
+  res.setHeader('Cache-Control', 'no-store');
+  const username = url.searchParams.get('username') || '';
+  const jobId = url.searchParams.get('job_id') || '';
+  if (!/^[a-zA-Z0-9_-]+$/.test(username) || !/^[0-9a-f-]{36}$/i.test(jobId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && url.searchParams.get('token') !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const job = hhRegenerationQueue.get(username, jobId, url.searchParams.get('after'));
+  if (!job) return json(res, 404, { error: 'Задача перегенерации не найдена.' });
+  return json(res, 200, job);
+}
+
+if (req.method === 'POST' && url.pathname === '/hh/review-regeneration-retry') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'no-store');
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
+  const { username, token, job_id: jobId } = body || {};
+  if (!/^[a-zA-Z0-9_-]+$/.test(String(username || '')) || !/^[0-9a-f-]{36}$/i.test(String(jobId || ''))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && token !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const job = hhRegenerationQueue.retryFailed(username, jobId);
+  if (!job) return json(res, 409, { error: 'Нет завершённой задачи с ошибками для повтора.' });
+  return json(res, 202, { job_id: job.id, status: job.status });
+}
+
 function proactiveErrPage(msg) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Проактивный поиск</title>
@@ -398,7 +481,7 @@ function proactiveErrPage(msg) {
 </head><body><h2>${msg}</h2></body></html>`);
   }
 
-if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/ats-extract' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/message-instructions-template' || url.pathname === '/hh/response-state' || url.pathname === '/hh/sync-negotiations')) {
+if (req.method === 'OPTIONS' && (url.pathname === '/hh/send' || url.pathname === '/hh/reject' || url.pathname === '/hh/send-and-reject' || url.pathname === '/hh/ats-config' || url.pathname === '/hh/ats-extract' || url.pathname === '/hh/review-regeneration-start' || url.pathname === '/hh/review-regeneration-retry' || url.pathname === '/hh/review' || url.pathname === '/hh/candidate' || url.pathname === '/hh/reset-ats-results' || url.pathname === '/hh/generate-message' || url.pathname === '/hh/update-style' || url.pathname === '/hh/update-base-prompt' || url.pathname === '/hh/update-instructions-template' || url.pathname === '/hh/message-instructions-template' || url.pathname === '/hh/response-state' || url.pathname === '/hh/sync-negotiations')) {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',

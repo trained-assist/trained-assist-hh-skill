@@ -47,10 +47,11 @@ describe('review page — explicit single-candidate stale draft override', () =>
   );
 
   it('keeps stale drafts individually sendable and confirms the exact manual override', () => {
-    expect(page).toContain("sendOne(this,${i},'${esc(c.negotiation_id)}',false,${!!c.draft_is_stale})");
+    expect(page).toContain("sendOne(this,${i},'${esc(c.negotiation_id)}',false,this.dataset.stale==='1')");
     expect(page).toContain('if (forceStale && !window.confirm(');
     expect(page).toContain('force_stale: !!forceStale');
     expect(page).toContain("e.code === 'STALE_COMMUNICATION_DRAFT'");
+    expect(page).toContain("send.dataset.stale = '0'");
     expect(page).toContain('error.code = data.code');
     expect(page).not.toContain("c.draft_is_stale ? ' disabled title=");
   });
