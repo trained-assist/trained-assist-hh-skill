@@ -103,11 +103,22 @@ describe('review page selects score buckets and reports regeneration failures ho
     expect(checkboxes.map(cb=>cb.checked)).toEqual([true,false]);expect(checks).toBe(1);
   });
 
+  it('runs a bounded batch and keeps a visible completion status', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function regenerateAll() {'), end=source.indexOf('\nasync function generateOne',start);
+    const button={disabled:false,textContent:''},status={hidden:true,textContent:''};
+    const targets=Array.from({length:12},(_,idx)=>({disabled:false,dataset:{idx:String(idx),negid:'neg-'+idx,name:'Candidate',sent:'0'}}));
+    let active=0,maximum=0;
+    const context={document:{getElementById:(id)=>id==='regenAllBtn'?button:status,querySelectorAll:()=>targets},done:new Set(),bulkGenerationActive:false,parseInt,Array,Math,Promise,Date,generateOne:async()=>{active++;maximum=Math.max(maximum,active);await new Promise(resolve=>setTimeout(resolve,5));active--;return true},setInterval:()=>1,clearInterval(){},showToast(){}};
+    vm.runInNewContext(source.slice(start,end)+';this.regenerateAll=regenerateAll;',context);
+    const batch=context.regenerateAll();expect(status.textContent).toContain('около 3 мин');await batch;expect(maximum).toBe(5);expect(status.hidden).toBe(false);expect(status.textContent).toContain('завершена: 12/12');expect(targets.every(target=>!target.disabled)).toBe(true);expect(context.bulkGenerationActive).toBe(false);
+  });
+
   it('does not report failed bulk generation as a green success', async () => {
     const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
     const source=scriptOf(html), start=source.indexOf('async function regenerateAll() {'), end=source.indexOf('\nasync function generateOne',start);
     const button={disabled:false,textContent:''},target={disabled:false,dataset:{idx:'0',negid:'neg',name:'Candidate',sent:'0'}};let toast='';
-    const context={document:{getElementById:()=>button,querySelectorAll:()=>[target]},done:new Set(),parseInt,Array,Math,Promise,generateOne:async()=>false,showToast:(message)=>{toast=message}};
+    const context={document:{getElementById:()=>button,querySelectorAll:()=>[target]},done:new Set(),bulkGenerationActive:false,parseInt,Array,Math,Promise,generateOne:async()=>false,setInterval:()=>1,clearInterval(){},showToast:(message)=>{toast=message}};
     vm.runInNewContext(source.slice(start,end)+';this.regenerateAll=regenerateAll;',context);
     await context.regenerateAll();expect(toast).toContain('Не удалось: 1');expect(toast).not.toContain('✅');expect(button.disabled).toBe(false);
   });
@@ -118,9 +129,9 @@ describe('review page selects score buckets and reports regeneration failures ho
     const button={disabled:false,textContent:''},textarea={value:'',classList:{add(){},remove(){}},placeholder:''};
     const stale={remove(){}};const sendBtn={disabled:true};const selection={disabled:true,checked:false,dataset:{score:'9.5',autoSelect:'1'}};let checks=0;
     const card={querySelector:(selector)=>selector==='.draft-stale'?stale:selector==='.btn-send'?sendBtn:selector==='.card-cb'?selection:null};
-    const panel={replaceChildren(){},append(){}};
-    const context={document:{getElementById:(id)=>id.startsWith('gen-')?button:id.startsWith('msg-')?textarea:card,querySelector:()=>null,createElement:()=>({append(){},textContent:''})},window:{HH_GENERATION_TIMEOUT_MS:1},HH_VACANCY_ID:'vac',activeBuckets:new Set([10]),onCheck:()=>checks++,setInterval:()=>1,clearInterval(){},hhAction:async()=>({message:'new draft',communication_steps:{}}),showToast(){},Date,Math};
-    context.document.querySelector=()=>panel;
+    const panel={replaceChildren(){},append(){}};const funnelStep={style:{},removeAttribute(){},textContent:''};
+    const context={document:{getElementById:(id)=>id.startsWith('gen-')?button:id.startsWith('msg-')?textarea:card,querySelector:()=>funnelStep,createElement:()=>({append(){},textContent:''})},window:{HH_GENERATION_TIMEOUT_MS:1},HH_VACANCY_ID:'vac',bulkGenerationActive:false,activeBuckets:new Set([10]),onCheck:()=>checks++,setInterval:()=>1,clearInterval(){},hhAction:async()=>({message:'new draft',communication_steps:{}}),showToast(){},Date,Math};
+    context.document.querySelector=(selector)=>selector.includes('funnel-step')?funnelStep:panel;
     vm.runInNewContext(source.slice(start,end)+';this.generateOne=generateOne;',context);
     expect(await context.generateOne(0,'neg','Candidate',false)).toBe(true);expect(sendBtn.disabled).toBe(false);expect(selection.disabled).toBe(false);expect(selection.checked).toBe(true);expect(checks).toBe(1);
   });
@@ -129,7 +140,7 @@ describe('review page selects score buckets and reports regeneration failures ho
     const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
     const source=scriptOf(html), start=source.indexOf('async function generateOne('), end=source.indexOf('\nfunction generateRejection',start);
     const button={disabled:false,textContent:''},textarea={classList:{add(){},remove(){}},placeholder:''};let toast='';
-    const context={document:{getElementById:(id)=>id.startsWith('gen-')?button:textarea,querySelector:()=>null},window:{HH_GENERATION_TIMEOUT_MS:1},HH_VACANCY_ID:'vac',setInterval:()=>1,clearInterval(){},hhAction:async()=>{throw new Error('fixture failure')},showToast:(message)=>{toast=message},Date,Math};
+    const context={document:{getElementById:(id)=>id.startsWith('gen-')?button:textarea,querySelector:()=>null},window:{HH_GENERATION_TIMEOUT_MS:1},HH_VACANCY_ID:'vac',bulkGenerationActive:false,setInterval:()=>1,clearInterval(){},hhAction:async()=>{throw new Error('fixture failure')},showToast:(message)=>{toast=message},Date,Math};
     vm.runInNewContext(source.slice(start,end)+';this.generateOne=generateOne;',context);
     expect(await context.generateOne(0,'neg','Candidate',false)).toBe(false);expect(toast).toContain('fixture failure');expect(button.disabled).toBe(false);
   });

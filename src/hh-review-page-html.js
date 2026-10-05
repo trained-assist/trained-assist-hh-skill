@@ -357,6 +357,7 @@ h1{font-size:22px;font-weight:700;margin-bottom:4px}
 .hist-text{margin-top:4px;white-space:pre-wrap;line-height:1.4}
 .resume-text{font-size:12px;white-space:pre-wrap;font-family:inherit;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-top:8px;line-height:1.5;max-height:300px;overflow-y:auto;color:#334155}
 .footer{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;padding:12px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 -2px 8px rgba(0,0,0,.08)}
+.bulk-status{position:absolute;left:0;right:0;bottom:100%;padding:10px 18px;background:#eef2ff;color:#3730a3;border-top:1px solid #c7d2fe;font-size:13px}
 .counter{font-size:14px;color:#475569;flex:1}
 .counter strong{color:#1e293b}
 .btn-send-all{background:#4f46e5;color:#fff;padding:9px 22px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
@@ -462,6 +463,7 @@ ${repliedAfterReject.length ? `<div id="tab-postreject" class="tab-panel">
 </div>
 <div class="footer">
   <div class="counter">Отправить: <strong id="selCount">0</strong> · Отказать: <strong id="rejCount">0</strong> · Готово: <strong id="sentCount">0</strong></div>
+  <div class="bulk-status" id="bulkGenerationStatus" role="status" aria-live="polite" hidden></div>
   <button class="btn-reject-all" id="regenAllBtn" onclick="regenerateAll()">🔄 Перегенерировать все черновики</button>
   <button class="btn-reject-all" id="rejectAllBtn" onclick="rejectAll()" disabled>Отказать (0)</button>
   <button class="btn-send-all" id="sendAllBtn" onclick="sendAll()" disabled>Отправить (0)</button>
@@ -473,6 +475,8 @@ const HH_VACANCY_ID = '${esc(String(vacancyId || ''))}';
 const HH_PAGE_TOKEN = '${pageToken}';
 const REJECTION_GREETING = ${JSON.stringify(REJECTION_GREETING)};
 const done = new Set();
+let bulkGenerationActive = false;
+window.addEventListener('beforeunload', event => { if (bulkGenerationActive) { event.preventDefault(); event.returnValue = ''; } });
 async function checkResponseUpdates() {
   if (document.hidden) return;
   try {
@@ -510,6 +514,7 @@ function copyMsg(i) {
 }
 
 async function syncNow() {
+  if (bulkGenerationActive) { showToast('⏳ Дождитесь завершения перегенерации черновиков.', true); return; }
   const btn = document.getElementById('syncBtn');
   btn.disabled = true; btn.textContent = '↻ Обновляю…';
   try {
@@ -669,24 +674,44 @@ async function regenerateAll() {
   let finished = 0;
   let succeeded = 0;
   let failed = 0;
+  const durations = [];
+  const concurrency = Math.min(5, total);
+  const status = document.getElementById('bulkGenerationStatus');
+  const etaText = (minutes) => minutes < 1 ? 'меньше минуты' : 'около ' + Math.ceil(minutes) + ' мин';
+  const renderProgress = () => {
+    const meanDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 60000;
+    const etaMinutes = ((total - finished) * meanDuration / concurrency) / 60000;
+    if (status) { status.hidden = false; status.textContent = 'Перегенерация черновиков: ' + finished + '/' + total + ' · ошибок ' + failed + ' · осталось ' + etaText(etaMinutes) + '. Не закрывайте вкладку. Параллельно: ' + concurrency + '.'; }
+  };
+  const progressTimer = setInterval(renderProgress, 10000);
+  bulkGenerationActive = true;
   btn.disabled = true;
-  btn.textContent = '⏳ 0/' + total + '…';
-  const CONCURRENCY = 3;
+  targets.forEach(target => { target.disabled = true; });
+  renderProgress();
   let cursor = 0;
   async function worker() {
     while (cursor < targets.length) {
       const b = targets[cursor++];
+      const itemStartedAt = Date.now();
       try {
         if (await generateOne(parseInt(b.dataset.idx), b.dataset.negid, b.dataset.name, b.dataset.sent === '1')) succeeded++;
         else failed++;
       } catch (e) { failed++; /* generateOne normally surfaces its own error state */ }
+      b.disabled = true;
+      durations.push(Date.now() - itemStartedAt);
       finished++;
-      btn.textContent = '⏳ ' + finished + '/' + total + '…';
+      renderProgress();
     }
   }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
-  btn.disabled = false;
-  btn.textContent = '🔄 Перегенерировать все черновики';
+  try { await Promise.all(Array.from({ length: concurrency }, worker)); }
+  finally {
+    clearInterval(progressTimer);
+    bulkGenerationActive = false;
+    targets.forEach(target => { target.disabled = false; });
+    btn.disabled = false;
+    btn.textContent = '🔄 Перегенерировать все черновики';
+  }
+  if (status) { status.textContent = 'Перегенерация завершена: ' + succeeded + '/' + total + ' успешно · ошибок ' + failed + '.'; }
   if (failed === 0) showToast('✅ Черновики обновлены: ' + succeeded + '/' + total);
   else showToast('⚠️ Обновлено: ' + succeeded + '/' + total + '. Не удалось: ' + failed + '. Ошибки показаны отдельно.', true);
 }
@@ -714,9 +739,9 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     if(card?.querySelector('.draft-stale')&&!data.communication_steps) throw new Error('Сценарий не подтвердил обновление черновика. Старый текст оставлен без изменений.');
     if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; }
     const step = document.querySelector('#card-'+i+' .funnel-step');
-    if (step) step.textContent = data.funnel_action
+    if (step) { step.style.color='';step.removeAttribute('role');step.textContent = data.funnel_action
       ? 'Шаг воронки: ' + data.funnel_action + (data.funnel_reason ? ' — ' + data.funnel_reason : '')
-      : '';
+      : ''; }
     card?.querySelector('.draft-stale')?.remove();
     const sendBtn=card?.querySelector('.btn-send');if(sendBtn)sendBtn.disabled=false;
     const sendSelection=card?.querySelector('.card-cb');
@@ -749,7 +774,10 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     if (btn) { btn.disabled = false; btn.textContent = '✦ Сгенерировать'; }
     // The failure used to be swallowed here: the button simply reset and the
     // recruiter read it as "nothing changed" (issue #126, defect 2).
-    showToast('❌ Ошибка генерации: ' + (e && e.message ? e.message : e), true);
+    const errorMessage = e && e.message ? e.message : String(e);
+    const step = document.querySelector('#card-'+i+' .funnel-step');
+    if (step) { step.style.color='#b91c1c';step.setAttribute('role','alert');step.textContent = 'Ошибка обновления черновика: ' + errorMessage; }
+    if (!bulkGenerationActive) showToast('❌ Ошибка генерации: ' + errorMessage, true);
     return false;
   } finally { clearInterval(progressTimer); }
 }
