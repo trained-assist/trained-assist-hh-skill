@@ -242,9 +242,9 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            <div class="funnel-step" style="font-size:11px;color:var(--muted);margin:-4px 0 6px"></div>
            <div class="communication-review">${communicationReviewHtml(c.communication_steps)}</div>
            ${c.draft_is_stale ? '<p class="draft-stale" role="status">Старый черновик: обновите его по сценарию перед отправкой.</p>' : ''}
-           <textarea class="msg-area" id="msg-${i}" rows="5" oninput="markEdited(${i})">${hasDraft ? esc(c.draft_message) : ''}</textarea>
+           <textarea class="msg-area" id="msg-${i}" rows="5" oninput="markEdited(this)">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
-             <button class="btn btn-send" data-stale="${c.draft_is_stale ? '1' : '0'}" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}',false,${!!c.draft_is_stale})"${c.draft_is_stale ? ' title="Черновик устарел — отправка потребует ручного подтверждения"' : ''}>✓ Отправить</button>
+             <button class="btn btn-send" data-stale="${c.draft_is_stale ? '1' : '0'}" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}',false,this.dataset.stale==='1')"${c.draft_is_stale ? ' title="Черновик устарел — отправка потребует ручного подтверждения"' : ''}>✓ Отправить</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
              <button class="btn btn-skip" onclick="setResponseState(this,'${esc(c.negotiation_id)}','archived')">В архив</button>
              <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">✗ Отправить отказ</button>
@@ -476,6 +476,7 @@ ${repliedAfterReject.length ? `<div id="tab-postreject" class="tab-panel">
 <div class="footer">
   <div class="counter" id="bulkScopeHint">Массовые действия — только на открытой вкладке: Отправить <strong id="selCount">0</strong> · Отказать <strong id="rejCount">0</strong> · Готово (все вкладки): <strong id="sentCount">0</strong></div>
   <div class="bulk-status" id="bulkGenerationStatus" role="status" aria-live="polite" hidden></div>
+  <button class="btn-reject-all" id="regenRetryFailedBtn" onclick="retryFailedRegeneration()" hidden>Повторить ошибки</button>
   <button class="btn-reject-all" id="regenAllBtn" onclick="regenerateAll()" title="Перегенерировать черновики на открытой вкладке; отредактированные вручную не трогаются">🔄 Перегенерировать черновики</button>
   <button class="btn-reject-all" id="rejectAllBtn" onclick="rejectAll()" disabled title="Отказать отмеченным на открытой вкладке">Отказать (0) на вкладке</button>
   <button class="btn-send-all" id="sendAllBtn" onclick="sendAll()" disabled title="Отправить отмеченным на открытой вкладке">Отправить (0) на вкладке</button>
@@ -488,7 +489,7 @@ const HH_PAGE_TOKEN = '${pageToken}';
 const REJECTION_GREETING = ${JSON.stringify(REJECTION_GREETING)};
 const done = new Set();
 let bulkGenerationActive = false;
-window.addEventListener('beforeunload', event => { if (bulkGenerationActive) { event.preventDefault(); event.returnValue = ''; } });
+let bulkJobPolling = false;
 async function checkResponseUpdates() {
   if (document.hidden) return;
   try {
@@ -643,12 +644,15 @@ function activeTabLabel() {
   const btn = document.querySelector('.tab-btn.active');
   return btn ? btn.textContent.trim() : 'открытой вкладке';
 }
-function markEdited(i) {
-  const ta = document.getElementById('msg-' + i);
+function markEdited(target) {
+  const ta = typeof target === 'number' ? document.getElementById('msg-' + target) : target;
   if (ta) ta.dataset.edited = '1';
 }
 function isHandEdited(i) {
-  return document.getElementById('msg-' + i)?.dataset?.edited === '1';
+  const textarea = typeof i === 'number'
+    ? document.getElementById('msg-' + i)
+    : i?.closest?.('.card')?.querySelector('.msg-area');
+  return textarea?.dataset?.edited === '1';
 }
 
 function onCheck() {
@@ -713,57 +717,155 @@ async function regenerateAll() {
   const btn = document.getElementById('regenAllBtn');
   const candidates = Array.from(document.querySelectorAll('.tab-panel.active .btn-gen[data-negid]'))
     .filter(b => !b.disabled && !done.has(parseInt(b.dataset.idx)));
-  const handEdited = candidates.filter(b => isHandEdited(parseInt(b.dataset.idx)));
-  const targets = candidates.filter(b => !isHandEdited(parseInt(b.dataset.idx)));
+  const handEdited = candidates.filter(b => isHandEdited(b));
+  const targets = candidates.filter(b => !isHandEdited(b));
   if (!targets.length) { showToast(handEdited.length ? 'Все черновики на вкладке отредактированы вручную — они не перезаписываются' : 'Нечего перегенерировать'); return; }
-  if (!window.confirm('Перегенерировать ' + targets.length + ' ' + plural(targets.length, ['черновик', 'черновика', 'черновиков'])
+  if (!window.confirm('Поставить в серверную очередь ' + targets.length + ' ' + plural(targets.length, ['черновик', 'черновика', 'черновиков'])
     + ' на вкладке «' + activeTabLabel() + '»? Тексты будут заменены целиком.'
-    + (handEdited.length ? '\\n\\n' + handEdited.length + ' ' + plural(handEdited.length, ['черновик', 'черновика', 'черновиков']) + ' с ручной правкой останутся нетронутыми.' : '')
-    + (bulkGenerationActive ? '\\n\\nПерегенерация уже идёт.' : ''))) return;
-  const total = targets.length;
-  let finished = 0;
-  let succeeded = 0;
-  let failed = 0;
-  const durations = [];
-  const concurrency = Math.min(5, total);
-  const status = document.getElementById('bulkGenerationStatus');
-  const etaText = (minutes) => minutes < 1 ? 'меньше минуты' : 'около ' + Math.ceil(minutes) + ' мин';
-  const renderProgress = () => {
-    const meanDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 60000;
-    const etaMinutes = ((total - finished) * meanDuration / concurrency) / 60000;
-    if (status) { status.hidden = false; status.textContent = 'Перегенерация черновиков: ' + finished + '/' + total + ' · ошибок ' + failed + ' · осталось ' + etaText(etaMinutes) + '. Не закрывайте вкладку. Параллельно: ' + concurrency + '.'; }
-  };
-  const progressTimer = setInterval(renderProgress, 10000);
-  bulkGenerationActive = true;
-  btn.disabled = true;
-  targets.forEach(target => { target.disabled = true; });
-  renderProgress();
-  let cursor = 0;
-  async function worker() {
-    while (cursor < targets.length) {
-      const b = targets[cursor++];
-      const itemStartedAt = Date.now();
-      try {
-        if (await generateOne(parseInt(b.dataset.idx), b.dataset.negid, b.dataset.name, b.dataset.sent === '1')) succeeded++;
-        else failed++;
-      } catch (e) { failed++; /* generateOne normally surfaces its own error state */ }
-      b.disabled = true;
-      durations.push(Date.now() - itemStartedAt);
-      finished++;
-      renderProgress();
-    }
-  }
-  try { await Promise.all(Array.from({ length: concurrency }, worker)); }
-  finally {
-    clearInterval(progressTimer);
+    + (handEdited.length ? '\\n\\n' + handEdited.length + ' ' + plural(handEdited.length, ['черновик', 'черновика', 'черновиков']) + ' с ручной правкой останутся нетронутыми.' : ''))) return;
+  const saved = { request_key: makeRegenerationRequestKey(), vacancy_id: HH_VACANCY_ID,
+    negotiation_ids: targets.map(b => b.dataset.negid), revision: 0 };
+  targets.forEach(b => setRegenerationCardState(b.dataset.negid, 'queued'));
+  saveRegenerationState(saved);
+  try {
+    const started = await hhAction('/hh/review-regeneration-start', {
+      vacancy_id: saved.vacancy_id, request_key: saved.request_key, negotiation_ids: saved.negotiation_ids,
+    });
+    saved.job_id = started.job_id;
+    saveRegenerationState(saved);
+    await pollRegenerationJob(saved);
+  } catch (e) {
+    targets.forEach(b => setRegenerationCardState(b.dataset.negid, 'failed', e.message));
     bulkGenerationActive = false;
-    targets.forEach(target => { target.disabled = false; });
-    btn.disabled = false;
-    btn.textContent = '🔄 Перегенерировать все черновики';
+    showToast('❌ Не удалось поставить черновики в очередь: ' + e.message, true);
   }
-  if (status) { status.textContent = 'Перегенерация завершена: ' + succeeded + '/' + total + ' успешно · ошибок ' + failed + '.'; }
-  if (failed === 0) showToast('✅ Черновики обновлены: ' + succeeded + '/' + total);
-  else showToast('⚠️ Обновлено: ' + succeeded + '/' + total + '. Не удалось: ' + failed + '. Ошибки показаны отдельно.', true);
+}
+
+function regenerationStorageKey() { return 'hh-review-regeneration:' + HH_USER + ':' + HH_VACANCY_ID; }
+function makeRegenerationRequestKey() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.floor(Math.random() * 16);
+    return (c === 'x' ? r : (r & 3) | 8).toString(16);
+  });
+}
+function saveRegenerationState(saved) {
+  try { localStorage.setItem(regenerationStorageKey(), JSON.stringify(saved)); } catch { /* optional resume hint */ }
+}
+function queueEta(job) {
+  const pending = (job.counts?.queued || 0) + (job.counts?.running || 0);
+  if (!pending) return '';
+  const mean = job.average_duration_ms || 60000;
+  const minutes = Math.max(1, Math.ceil(pending * mean / Math.max(1, job.concurrency || 3) / 60000));
+  return ' · осталось около ' + minutes + ' мин';
+}
+function setRegenerationCardState(negId, state, error, message, action) {
+  document.querySelectorAll('.card').forEach(card => {
+    if (card.dataset.neg !== negId) return;
+    const i = Number(card.id.slice(5));
+    const textarea = card.querySelector('.msg-area');
+    const gen = card.querySelector('.btn-gen');
+    const busy = state === 'queued' || state === 'running';
+    if (textarea) textarea.disabled = busy;
+    if (gen) { gen.disabled = busy; gen.textContent = busy ? (state === 'running' ? '⏳ Генерируется' : 'В очереди') : '✦ Переписать'; }
+    card.querySelectorAll('.btn-send, .card-cb, .reject-cb, .btn-send-reject').forEach(el => { el.disabled = busy || done.has(i); });
+    const step = card.querySelector('.funnel-step');
+    if (step && busy) step.textContent = state === 'running' ? '⏳ Черновик генерируется на сервере…' : 'В очереди на перегенерацию';
+    if (step && error) { step.style.color = '#b91c1c'; step.setAttribute('role', 'alert'); step.textContent = 'Ошибка обновления черновика: ' + error; }
+    if (state === 'succeeded') {
+      if (textarea && !textarea.dataset.edited) textarea.value = message || '';
+      card.querySelector('.draft-stale')?.remove();
+      if (step) { step.style.color = ''; step.removeAttribute('role'); step.textContent = action ? 'Шаг воронки: ' + action : ''; }
+      const send = card.querySelector('.btn-send');
+      if (send) { send.dataset.stale = '0'; send.removeAttribute('title'); send.disabled = false; }
+      const checkbox = card.querySelector('.card-cb');
+      if (checkbox) {
+        checkbox.dataset.stale = '0';
+        const bucket = Math.round(parseFloat(checkbox.dataset.score || '0'));
+        checkbox.checked = activeBuckets.has(bucket) || (!activeBuckets.size && checkbox.dataset.autoSelect === '1');
+        checkbox.disabled = false;
+      }
+      const rejectCheckbox = card.querySelector('.reject-cb'); if (rejectCheckbox) rejectCheckbox.disabled = false;
+      const rejectButton = card.querySelector('.btn-send-reject'); if (rejectButton) rejectButton.disabled = false;
+    }
+    if (state === 'failed') {
+      if (textarea) textarea.disabled = false;
+      if (gen) gen.disabled = false;
+      card.querySelectorAll('.btn-send, .card-cb, .reject-cb, .btn-send-reject').forEach(el => { el.disabled = false; });
+    }
+    if (busy) bulkGenerationActive = true;
+  });
+}
+
+async function pollRegenerationJob(saved) {
+  if (bulkJobPolling) return;
+  bulkJobPolling = true;
+  const key = regenerationStorageKey();
+  const status = document.getElementById('bulkGenerationStatus');
+  const retry = document.getElementById('regenRetryFailedBtn');
+  const btn = document.getElementById('regenAllBtn');
+  bulkGenerationActive = true;
+  if (btn) btn.disabled = true;
+  if (retry) retry.hidden = true;
+  try {
+    if (!saved.job_id) {
+      const started = await hhAction('/hh/review-regeneration-start', {
+        vacancy_id: saved.vacancy_id, request_key: saved.request_key, negotiation_ids: saved.negotiation_ids,
+      });
+      saved.job_id = started.job_id;
+    }
+    let terminal = false;
+    while (!terminal) {
+      const query = new URLSearchParams({ username: HH_USER, token: HH_PAGE_TOKEN,
+        job_id: saved.job_id, after: String(saved.revision || 0) });
+      const response = await fetch(CALLBACK_BASE + '/hh/review-regeneration-status?' + query);
+      const job = await response.json();
+      if (!response.ok) throw new Error(job.error || 'Не удалось прочитать состояние очереди');
+      for (const item of job.changes || []) setRegenerationCardState(item.negotiation_id, item.status, item.error, item.message, item.funnel_action);
+      saved.revision = job.revision;
+      saved.job_id = job.id;
+      saveRegenerationState(saved);
+      const complete = (job.counts?.succeeded || 0) + (job.counts?.failed || 0);
+      const failed = job.counts?.failed || 0;
+      const running = job.counts?.running || 0;
+      if (status) {
+        status.hidden = false;
+        status.textContent = ['completed', 'completed_with_errors'].includes(job.status)
+          ? 'Перегенерация завершена: ' + (job.counts?.succeeded || 0) + '/' + job.total + ' успешно · ошибок ' + failed + '.'
+          : 'Серверная очередь: ' + complete + '/' + job.total + ' готово · ' + running + ' выполняется' + queueEta(job) + '. Можно закрыть страницу; очередь продолжит работу.';
+      }
+      terminal = ['completed', 'completed_with_errors'].includes(job.status);
+      if (terminal && failed && retry) retry.hidden = false;
+      if (!terminal) await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  } catch (e) {
+    if (status) { status.hidden = false; status.textContent = 'Не удалось получить состояние очереди: ' + e.message + '. Задача сохранена; обновите страницу для продолжения.'; }
+    showToast('⚠️ Очередь сохранена на сервере. Состояние можно восстановить, обновив страницу.', true);
+  } finally {
+    bulkJobPolling = false;
+    bulkGenerationActive = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function retryFailedRegeneration() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(regenerationStorageKey()) || 'null'); } catch { saved = null; }
+  if (!saved?.job_id) return showToast('Не найдена сохранённая задача для повтора.', true);
+  try {
+    await hhAction('/hh/review-regeneration-retry', { job_id: saved.job_id });
+    saved.revision = 0;
+    saveRegenerationState(saved);
+    await pollRegenerationJob(saved);
+  } catch (e) { showToast('❌ Не удалось поставить ошибки на повтор: ' + e.message, true); }
+}
+
+async function resumeRegenerationJob() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(regenerationStorageKey()) || 'null'); } catch { saved = null; }
+  if (saved?.vacancy_id === HH_VACANCY_ID && (saved.job_id || (saved.request_key && saved.negotiation_ids?.length))) {
+    await pollRegenerationJob(saved);
+  }
 }
 
 async function generateOne(i, negId, candidateName, alreadySent) {
@@ -1148,6 +1250,7 @@ async function rejectAll() {
 }
 
 onCheck();
+resumeRegenerationJob();
 </script>
 </body>
 </html>`;
