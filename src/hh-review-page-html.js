@@ -391,8 +391,14 @@ h1{font-size:18px}
 .btns{flex-wrap:wrap}
 .btn{flex:1;min-width:120px;text-align:center}
 .toolbar{gap:5px}
-.tb-btn{padding:5px 8px;font-size:12px}
+.tb-btn{padding:5px 8px;font-size:12px;min-height:36px}
 .msg-area{font-size:13px}
+/* Мобильный аудит #174: 6 вкладок-фильтров в один ряд давали вылет страницы на
+   116px при 360 — вся навигация по откликам уезжала за экран. Переносим. */
+.tabs{flex-wrap:wrap}
+.tab-btn{min-height:40px}
+.btn-send-all,.btn-reject-all{min-height:44px}
+#regenAllBtn{flex:1 1 100%}
 }
 .sync-btn{background:none;border:none;color:#6366f1;font-size:13px;cursor:pointer;font-weight:500;padding:0;text-decoration:underline;text-underline-offset:2px}
 .sync-btn:hover{opacity:.75}

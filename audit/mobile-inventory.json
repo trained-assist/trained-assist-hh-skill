@@ -1,0 +1,1609 @@
+{
+  "generated_at": "2026-10-05T13:56:13.579Z",
+  "viewport_heights": {
+    "360": 800,
+    "390": 844
+  },
+  "results": [
+    {
+      "screen": "vacancies",
+      "path": "/hh/vacancies",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "card",
+          "label": "собери портрет вакансии в вебе",
+          "left": 78,
+          "right": 318,
+          "top": 344,
+          "width": 240,
+          "height": 17
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 1,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "vacancy-new",
+      "path": "/hh/vacancy-new",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "card",
+          "label": "Текст вакансии / бриф",
+          "left": 36,
+          "right": 324,
+          "top": 343,
+          "width": 288,
+          "height": 14
+        },
+        {
+          "sel": "card",
+          "label": "Переписка с клиентом (сообщения по вакансии)",
+          "left": 36,
+          "right": 324,
+          "top": 497,
+          "width": 288,
+          "height": 28
+        },
+        {
+          "sel": "card",
+          "label": "Файлы (txt/md/docx/pdf)",
+          "left": 36,
+          "right": 324,
+          "top": 650,
+          "width": 288,
+          "height": 14
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 3,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "review",
+      "path": "/hh/review",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "#hh-hub-nav>hh-nav-row>vacancy-picker",
+          "label": "Вакансия (0)",
+          "left": 20,
+          "right": 100,
+          "top": 26,
+          "width": 80,
+          "height": 17
+        },
+        {
+          "sel": "#no-ats-banner",
+          "label": "Собрать критерии из текста вакансии",
+          "left": 35,
+          "right": 298,
+          "top": 308,
+          "width": 263,
+          "height": 16
+        },
+        {
+          "sel": "#no-ats-banner",
+          "label": "Открыть редактор →",
+          "left": 29,
+          "right": 175,
+          "top": 324,
+          "width": 146,
+          "height": 16
+        },
+        {
+          "sel": "vacancy-tabs>vacancy-tab",
+          "label": "vacancy-tab active",
+          "left": 12,
+          "right": 126,
+          "top": 365,
+          "width": 114,
+          "height": 29
+        },
+        {
+          "sel": "vacancy-tabs>vacancy-tab",
+          "label": "vacancy-tab",
+          "left": 130,
+          "right": 268,
+          "top": 365,
+          "width": 138,
+          "height": 29
+        },
+        {
+          "sel": "vacancy-tabs>vacancy-tab",
+          "label": "vacancy-tab",
+          "left": 12,
+          "right": 102,
+          "top": 398,
+          "width": 90,
+          "height": 29
+        },
+        {
+          "sel": "subtitle>#syncBtn",
+          "label": "syncBtn",
+          "left": 12,
+          "right": 190,
+          "top": 460,
+          "width": 178,
+          "height": 15
+        },
+        {
+          "sel": "#card-3>card-header>card-header-left>#cb-3",
+          "label": "cb-3",
+          "left": 30,
+          "right": 48,
+          "top": 793,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "#card-3>card-header>card-header-left>#reject-cb-3",
+          "label": "reject-cb-3",
+          "left": 119,
+          "right": 137,
+          "top": 793,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "card-header>card-header-left>name>hh-link-btn",
+          "label": "hh-link-btn",
+          "left": 205,
+          "right": 297,
+          "top": 812,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "sel": "#card-3>msg-section>msg-label-row>msg-label",
+          "label": "msg-label",
+          "left": 30,
+          "right": 205,
+          "top": 1136,
+          "width": 175,
+          "height": 14
+        },
+        {
+          "sel": "#card-4>card-header>card-header-left>#cb-4",
+          "label": "cb-4",
+          "left": 30,
+          "right": 48,
+          "top": 1482,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "#card-4>card-header>card-header-left>#reject-cb-4",
+          "label": "reject-cb-4",
+          "left": 119,
+          "right": 137,
+          "top": 1482,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "card-header>card-header-left>name>hh-link-btn",
+          "label": "hh-link-btn",
+          "left": 205,
+          "right": 297,
+          "top": 1501,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "sel": "#card-4>msg-section>msg-label-row>msg-label",
+          "label": "msg-label",
+          "left": 30,
+          "right": 205,
+          "top": 1825,
+          "width": 175,
+          "height": 14
+        },
+        {
+          "sel": "#card-5>card-header>card-header-left>#cb-5",
+          "label": "cb-5",
+          "left": 30,
+          "right": 48,
+          "top": 2171,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "#card-5>card-header>card-header-left>#reject-cb-5",
+          "label": "reject-cb-5",
+          "left": 119,
+          "right": 137,
+          "top": 2171,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "card-header>card-header-left>name>hh-link-btn",
+          "label": "hh-link-btn",
+          "left": 205,
+          "right": 297,
+          "top": 2190,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "sel": "#card-5>msg-section>msg-label-row>msg-label",
+          "label": "msg-label",
+          "left": 30,
+          "right": 205,
+          "top": 2514,
+          "width": 175,
+          "height": 14
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 19,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "candidate-new",
+      "path": "/hh/candidate-new",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "card",
+          "label": "Имя кандидата (необязательно — можно бросить файлы и указать позже)",
+          "left": 36,
+          "right": 324,
+          "top": 332,
+          "width": 288,
+          "height": 28
+        },
+        {
+          "sel": "card>linkrow",
+          "label": "Ссылка на материал (видеоинтервью на Google Drive)",
+          "left": 36,
+          "right": 324,
+          "top": 631,
+          "width": 288,
+          "height": 28
+        },
+        {
+          "sel": "card>linkrow",
+          "label": "Тип",
+          "left": 36,
+          "right": 256,
+          "top": 713,
+          "width": 220,
+          "height": 14
+        },
+        {
+          "sel": "card>linkrow>#link-type",
+          "label": "link-type",
+          "left": 36,
+          "right": 237,
+          "top": 730,
+          "width": 201,
+          "height": 29
+        },
+        {
+          "sel": "card",
+          "label": "Вставить текстом (если резюме — картинка/скан, или просто есть текст)",
+          "left": 36,
+          "right": 324,
+          "top": 813,
+          "width": 288,
+          "height": 28
+        },
+        {
+          "sel": "card>linkrow",
+          "label": "Тип",
+          "left": 36,
+          "right": 256,
+          "top": 944,
+          "width": 220,
+          "height": 14
+        },
+        {
+          "sel": "card>linkrow>#paste-type",
+          "label": "paste-type",
+          "left": 36,
+          "right": 237,
+          "top": 961,
+          "width": 201,
+          "height": 29
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 7,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "proactive",
+      "path": "/hh/proactive",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "#hh-hub-nav>hh-nav-row>vacancy-picker",
+          "label": "Вакансия (0)",
+          "left": 8,
+          "right": 88,
+          "top": 14,
+          "width": 80,
+          "height": 17
+        },
+        {
+          "sel": "header>state-tabs>state-tab",
+          "label": "state-tab active",
+          "left": 24,
+          "right": 145,
+          "top": 195,
+          "width": 121,
+          "height": 29
+        },
+        {
+          "sel": "header>state-tabs>state-tab",
+          "label": "state-tab",
+          "left": 149,
+          "right": 292,
+          "top": 195,
+          "width": 143,
+          "height": 29
+        },
+        {
+          "sel": "header>state-tabs>state-tab",
+          "label": "state-tab",
+          "left": 24,
+          "right": 142,
+          "top": 228,
+          "width": 118,
+          "height": 29
+        },
+        {
+          "sel": "header",
+          "label": "Включить мониторинг",
+          "left": 129,
+          "right": 269,
+          "top": 306,
+          "width": 139,
+          "height": 19
+        },
+        {
+          "sel": "header",
+          "label": "☆ Отметить вакансию",
+          "left": 24,
+          "right": 166,
+          "top": 326,
+          "width": 142,
+          "height": 19
+        },
+        {
+          "sel": "header",
+          "label": "Архивировать вакансию",
+          "left": 171,
+          "right": 325,
+          "top": 326,
+          "width": 154,
+          "height": 19
+        },
+        {
+          "sel": "header>header-top>#searchBtn",
+          "label": "searchBtn",
+          "left": 24,
+          "right": 152,
+          "top": 398,
+          "width": 128,
+          "height": 31
+        },
+        {
+          "sel": "header>import-row>btn-import",
+          "label": "btn-import",
+          "left": 24,
+          "right": 207,
+          "top": 512,
+          "width": 183,
+          "height": 27
+        },
+        {
+          "sel": "header>import-row>btn-import",
+          "label": "btn-import secondary",
+          "left": 30,
+          "right": 246,
+          "top": 539,
+          "width": 216,
+          "height": 27
+        },
+        {
+          "sel": "header>filter-bar>#nameSearch",
+          "label": "nameSearch",
+          "left": 24,
+          "right": 336,
+          "top": 587,
+          "width": 312,
+          "height": 31
+        },
+        {
+          "sel": "header>filter-bar>score-filter>#scoreSlider",
+          "label": "scoreSlider",
+          "left": 81,
+          "right": 221,
+          "top": 628,
+          "width": 140,
+          "height": 16
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset active",
+          "left": 24,
+          "right": 65,
+          "top": 654,
+          "width": 41,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset",
+          "left": 69,
+          "right": 120,
+          "top": 654,
+          "width": 51,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset",
+          "left": 124,
+          "right": 191,
+          "top": 654,
+          "width": 67,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset",
+          "left": 195,
+          "right": 251,
+          "top": 654,
+          "width": 56,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#sourceFilter",
+          "label": "sourceFilter",
+          "left": 24,
+          "right": 196,
+          "top": 688,
+          "width": 172,
+          "height": 29
+        },
+        {
+          "sel": "main>#promptPanel",
+          "label": "Поисковые запросы в базу резюме HH (по одному на строку)",
+          "left": 30,
+          "right": 330,
+          "top": 981,
+          "width": 300,
+          "height": 30
+        },
+        {
+          "sel": "main>#promptPanel>prompt-actions>#promptRunBtn",
+          "label": "promptRunBtn",
+          "left": 30,
+          "right": 237,
+          "top": 1245,
+          "width": 207,
+          "height": 31
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 19,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "ats-editor",
+      "path": "/hh/ats-editor",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "#hh-hub-nav>hh-nav-row>vacancy-picker",
+          "label": "Вакансия (0)",
+          "left": 8,
+          "right": 88,
+          "top": 14,
+          "width": 80,
+          "height": 17
+        },
+        {
+          "sel": "",
+          "label": "Шаблон:",
+          "left": 296,
+          "right": 344,
+          "top": 196,
+          "width": 48,
+          "height": 14
+        },
+        {
+          "sel": "#validateBtn",
+          "label": "validateBtn",
+          "left": 26,
+          "right": 114,
+          "top": 270,
+          "width": 87,
+          "height": 24
+        },
+        {
+          "sel": "#exportBtn",
+          "label": "exportBtn",
+          "left": 138,
+          "right": 202,
+          "top": 270,
+          "width": 64,
+          "height": 24
+        },
+        {
+          "sel": "#saveBtn",
+          "label": "saveBtn",
+          "left": 227,
+          "right": 339,
+          "top": 266,
+          "width": 113,
+          "height": 31
+        },
+        {
+          "sel": "config-card>row2>field",
+          "label": "Название вакансии",
+          "left": 29,
+          "right": 331,
+          "top": 416,
+          "width": 302,
+          "height": 12
+        },
+        {
+          "sel": "config-card>row2>thresholds>threshold-field",
+          "label": "Pass ≥",
+          "left": 29,
+          "right": 109,
+          "top": 480,
+          "width": 80,
+          "height": 12
+        },
+        {
+          "sel": "config-card>row2>thresholds>threshold-field",
+          "label": "Review ≥",
+          "left": 129,
+          "right": 209,
+          "top": 480,
+          "width": 80,
+          "height": 12
+        },
+        {
+          "sel": "config-card>field",
+          "label": "Контекст вакансии",
+          "left": 29,
+          "right": 331,
+          "top": 545,
+          "width": 302,
+          "height": 12
+        },
+        {
+          "sel": "config-card>field",
+          "label": "Инструкция для сообщений кандидатам",
+          "left": 29,
+          "right": 331,
+          "top": 638,
+          "width": 302,
+          "height": 12
+        },
+        {
+          "sel": "config-card>field>#resetInstructionBtn",
+          "label": "resetInstructionBtn",
+          "left": 29,
+          "right": 206,
+          "top": 913,
+          "width": 177,
+          "height": 24
+        },
+        {
+          "sel": "config-card>criteria-section>criteria-label>btn",
+          "label": "btn btn-sm btn-secondary",
+          "left": 242,
+          "right": 331,
+          "top": 987,
+          "width": 89,
+          "height": 24
+        },
+        {
+          "sel": "config-card>criteria-section>#requiredList>criteria-item",
+          "label": "INPUT",
+          "left": 61,
+          "right": 229,
+          "top": 1031,
+          "width": 168,
+          "height": 15
+        },
+        {
+          "sel": "config-card>criteria-section>#requiredList>criteria-item",
+          "label": "INPUT",
+          "left": 262,
+          "right": 321,
+          "top": 1027,
+          "width": 59,
+          "height": 22
+        },
+        {
+          "sel": "criteria-section>#requiredList>criteria-item>del-btn",
+          "label": "del-btn",
+          "left": 329,
+          "right": 338,
+          "top": 1031,
+          "width": 9,
+          "height": 15
+        },
+        {
+          "sel": "config-card>criteria-section>criteria-label>btn",
+          "label": "btn btn-sm btn-secondary",
+          "left": 242,
+          "right": 331,
+          "top": 1089,
+          "width": 89,
+          "height": 24
+        },
+        {
+          "sel": "config-card>criteria-section>#preferredList>criteria-item",
+          "label": "INPUT",
+          "left": 59,
+          "right": 227,
+          "top": 1133,
+          "width": 168,
+          "height": 15
+        },
+        {
+          "sel": "config-card>criteria-section>#preferredList>criteria-item",
+          "label": "INPUT",
+          "left": 260,
+          "right": 319,
+          "top": 1129,
+          "width": 59,
+          "height": 22
+        },
+        {
+          "sel": "criteria-section>#preferredList>criteria-item>del-btn",
+          "label": "del-btn",
+          "left": 327,
+          "right": 336,
+          "top": 1133,
+          "width": 9,
+          "height": 15
+        },
+        {
+          "sel": "config-card>filters-row>filter-field",
+          "label": "Мин. опыт (лет)",
+          "left": 29,
+          "right": 135,
+          "top": 1248,
+          "width": 106,
+          "height": 12
+        },
+        {
+          "sel": "config-card>filters-row>filter-field>#fMinExp",
+          "label": "fMinExp",
+          "left": 29,
+          "right": 119,
+          "top": 1265,
+          "width": 90,
+          "height": 31
+        },
+        {
+          "sel": "config-card>filters-row>filter-field",
+          "label": "Макс. зарплата (₽)",
+          "left": 151,
+          "right": 276,
+          "top": 1247,
+          "width": 125,
+          "height": 13
+        },
+        {
+          "sel": "config-card>filters-row>filter-field>#fMaxSalary",
+          "label": "fMaxSalary",
+          "left": 151,
+          "right": 241,
+          "top": 1265,
+          "width": 90,
+          "height": 31
+        },
+        {
+          "sel": "config-card>filters-row>filter-field",
+          "label": "Удалённая работа",
+          "left": 29,
+          "right": 155,
+          "top": 1312,
+          "width": 126,
+          "height": 12
+        },
+        {
+          "sel": "filters-row>filter-field>toggle-wrap>toggle",
+          "label": "toggle",
+          "left": 29,
+          "right": 67,
+          "top": 1333,
+          "width": 38,
+          "height": 20
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 33,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "sync-log",
+      "path": "/hh/sync-log",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 0,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "style",
+      "path": "/hh/style",
+      "vw": 360,
+      "docScrollWidth": 360,
+      "bodyScrollWidth": 360,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 0,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "vacancies",
+      "path": "/hh/vacancies",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "card",
+          "label": "собери портрет вакансии в вебе",
+          "left": 36,
+          "right": 276,
+          "top": 300,
+          "width": 240,
+          "height": 17
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 1,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "vacancy-new",
+      "path": "/hh/vacancy-new",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "card",
+          "label": "Текст вакансии / бриф",
+          "left": 36,
+          "right": 354,
+          "top": 299,
+          "width": 318,
+          "height": 14
+        },
+        {
+          "sel": "card",
+          "label": "Переписка с клиентом (сообщения по вакансии)",
+          "left": 36,
+          "right": 354,
+          "top": 453,
+          "width": 318,
+          "height": 14
+        },
+        {
+          "sel": "card",
+          "label": "Файлы (txt/md/docx/pdf)",
+          "left": 36,
+          "right": 354,
+          "top": 592,
+          "width": 318,
+          "height": 14
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 3,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "review",
+      "path": "/hh/review",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "#hh-hub-nav>hh-nav-row>vacancy-picker",
+          "label": "Вакансия (0)",
+          "left": 20,
+          "right": 100,
+          "top": 26,
+          "width": 80,
+          "height": 17
+        },
+        {
+          "sel": "#no-ats-banner",
+          "label": "Открыть редактор →",
+          "left": 97,
+          "right": 244,
+          "top": 308,
+          "width": 146,
+          "height": 16
+        },
+        {
+          "sel": "vacancy-tabs>vacancy-tab",
+          "label": "vacancy-tab active",
+          "left": 12,
+          "right": 126,
+          "top": 349,
+          "width": 114,
+          "height": 29
+        },
+        {
+          "sel": "vacancy-tabs>vacancy-tab",
+          "label": "vacancy-tab",
+          "left": 130,
+          "right": 268,
+          "top": 349,
+          "width": 138,
+          "height": 29
+        },
+        {
+          "sel": "vacancy-tabs>vacancy-tab",
+          "label": "vacancy-tab",
+          "left": 272,
+          "right": 362,
+          "top": 349,
+          "width": 90,
+          "height": 29
+        },
+        {
+          "sel": "subtitle>#syncBtn",
+          "label": "syncBtn",
+          "left": 194,
+          "right": 372,
+          "top": 395,
+          "width": 178,
+          "height": 15
+        },
+        {
+          "sel": "#card-3>card-header>card-header-left>#cb-3",
+          "label": "cb-3",
+          "left": 30,
+          "right": 48,
+          "top": 687,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "#card-3>card-header>card-header-left>#reject-cb-3",
+          "label": "reject-cb-3",
+          "left": 119,
+          "right": 137,
+          "top": 687,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "card-header>card-header-left>name>hh-link-btn",
+          "label": "hh-link-btn",
+          "left": 205,
+          "right": 297,
+          "top": 706,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "sel": "#card-3>msg-section>msg-label-row>msg-label",
+          "label": "msg-label",
+          "left": 30,
+          "right": 205,
+          "top": 1022,
+          "width": 175,
+          "height": 14
+        },
+        {
+          "sel": "#card-4>card-header>card-header-left>#cb-4",
+          "label": "cb-4",
+          "left": 30,
+          "right": 48,
+          "top": 1360,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "#card-4>card-header>card-header-left>#reject-cb-4",
+          "label": "reject-cb-4",
+          "left": 119,
+          "right": 137,
+          "top": 1360,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "card-header>card-header-left>name>hh-link-btn",
+          "label": "hh-link-btn",
+          "left": 205,
+          "right": 297,
+          "top": 1379,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "sel": "#card-4>msg-section>msg-label-row>msg-label",
+          "label": "msg-label",
+          "left": 30,
+          "right": 205,
+          "top": 1695,
+          "width": 175,
+          "height": 14
+        },
+        {
+          "sel": "#card-5>card-header>card-header-left>#cb-5",
+          "label": "cb-5",
+          "left": 30,
+          "right": 48,
+          "top": 2033,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "#card-5>card-header>card-header-left>#reject-cb-5",
+          "label": "reject-cb-5",
+          "left": 119,
+          "right": 137,
+          "top": 2033,
+          "width": 18,
+          "height": 18
+        },
+        {
+          "sel": "card-header>card-header-left>name>hh-link-btn",
+          "label": "hh-link-btn",
+          "left": 205,
+          "right": 297,
+          "top": 2052,
+          "width": 93,
+          "height": 20
+        },
+        {
+          "sel": "#card-5>msg-section>msg-label-row>msg-label",
+          "label": "msg-label",
+          "left": 30,
+          "right": 205,
+          "top": 2368,
+          "width": 175,
+          "height": 14
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 18,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "candidate-new",
+      "path": "/hh/candidate-new",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "card",
+          "label": "Имя кандидата (необязательно — можно бросить файлы и указать позже)",
+          "left": 36,
+          "right": 354,
+          "top": 273,
+          "width": 318,
+          "height": 28
+        },
+        {
+          "sel": "card>linkrow",
+          "label": "Ссылка на материал (видеоинтервью на Google Drive)",
+          "left": 36,
+          "right": 354,
+          "top": 557,
+          "width": 318,
+          "height": 28
+        },
+        {
+          "sel": "card>linkrow",
+          "label": "Тип",
+          "left": 36,
+          "right": 256,
+          "top": 639,
+          "width": 220,
+          "height": 14
+        },
+        {
+          "sel": "card>linkrow>#link-type",
+          "label": "link-type",
+          "left": 36,
+          "right": 237,
+          "top": 656,
+          "width": 201,
+          "height": 29
+        },
+        {
+          "sel": "card",
+          "label": "Вставить текстом (если резюме — картинка/скан, или просто есть текст)",
+          "left": 36,
+          "right": 354,
+          "top": 739,
+          "width": 318,
+          "height": 28
+        },
+        {
+          "sel": "card>linkrow",
+          "label": "Тип",
+          "left": 36,
+          "right": 256,
+          "top": 870,
+          "width": 220,
+          "height": 14
+        },
+        {
+          "sel": "card>linkrow>#paste-type",
+          "label": "paste-type",
+          "left": 36,
+          "right": 237,
+          "top": 887,
+          "width": 201,
+          "height": 29
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 7,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "proactive",
+      "path": "/hh/proactive",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "#hh-hub-nav>hh-nav-row>vacancy-picker",
+          "label": "Вакансия (0)",
+          "left": 8,
+          "right": 88,
+          "top": 14,
+          "width": 80,
+          "height": 17
+        },
+        {
+          "sel": "header>state-tabs>state-tab",
+          "label": "state-tab active",
+          "left": 24,
+          "right": 145,
+          "top": 195,
+          "width": 121,
+          "height": 29
+        },
+        {
+          "sel": "header>state-tabs>state-tab",
+          "label": "state-tab",
+          "left": 149,
+          "right": 292,
+          "top": 195,
+          "width": 143,
+          "height": 29
+        },
+        {
+          "sel": "header>state-tabs>state-tab",
+          "label": "state-tab",
+          "left": 24,
+          "right": 142,
+          "top": 228,
+          "width": 118,
+          "height": 29
+        },
+        {
+          "sel": "header",
+          "label": "Включить мониторинг",
+          "left": 129,
+          "right": 269,
+          "top": 306,
+          "width": 139,
+          "height": 19
+        },
+        {
+          "sel": "header",
+          "label": "☆ Отметить вакансию",
+          "left": 24,
+          "right": 166,
+          "top": 326,
+          "width": 142,
+          "height": 19
+        },
+        {
+          "sel": "header",
+          "label": "Архивировать вакансию",
+          "left": 171,
+          "right": 325,
+          "top": 326,
+          "width": 154,
+          "height": 19
+        },
+        {
+          "sel": "header>header-top>#searchBtn",
+          "label": "searchBtn",
+          "left": 24,
+          "right": 152,
+          "top": 398,
+          "width": 128,
+          "height": 31
+        },
+        {
+          "sel": "header>import-row>btn-import",
+          "label": "btn-import",
+          "left": 24,
+          "right": 207,
+          "top": 512,
+          "width": 183,
+          "height": 27
+        },
+        {
+          "sel": "header>import-row>btn-import",
+          "label": "btn-import secondary",
+          "left": 30,
+          "right": 246,
+          "top": 539,
+          "width": 216,
+          "height": 27
+        },
+        {
+          "sel": "header>filter-bar>#nameSearch",
+          "label": "nameSearch",
+          "left": 24,
+          "right": 366,
+          "top": 587,
+          "width": 342,
+          "height": 31
+        },
+        {
+          "sel": "header>filter-bar>score-filter>#scoreSlider",
+          "label": "scoreSlider",
+          "left": 81,
+          "right": 221,
+          "top": 628,
+          "width": 140,
+          "height": 16
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset active",
+          "left": 24,
+          "right": 65,
+          "top": 654,
+          "width": 41,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset",
+          "left": 69,
+          "right": 120,
+          "top": 654,
+          "width": 51,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset",
+          "left": 124,
+          "right": 191,
+          "top": 654,
+          "width": 67,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#presetBtns>btn-preset",
+          "label": "btn-preset",
+          "left": 195,
+          "right": 251,
+          "top": 654,
+          "width": 56,
+          "height": 24
+        },
+        {
+          "sel": "header>filter-bar>#sourceFilter",
+          "label": "sourceFilter",
+          "left": 24,
+          "right": 196,
+          "top": 688,
+          "width": 172,
+          "height": 29
+        },
+        {
+          "sel": "main>prompt-panel",
+          "label": "Открыть АТС-воронку ↗",
+          "left": 146,
+          "right": 350,
+          "top": 839,
+          "width": 203,
+          "height": 19
+        },
+        {
+          "sel": "main>#promptPanel",
+          "label": "Поисковые запросы в базу резюме HH (по одному на строку)",
+          "left": 30,
+          "right": 360,
+          "top": 981,
+          "width": 330,
+          "height": 30
+        },
+        {
+          "sel": "main>#promptPanel>prompt-actions>#promptRunBtn",
+          "label": "promptRunBtn",
+          "left": 134,
+          "right": 341,
+          "top": 1205,
+          "width": 207,
+          "height": 31
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 20,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "ats-editor",
+      "path": "/hh/ats-editor",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [
+        {
+          "sel": "#hh-hub-nav>hh-nav-row>vacancy-picker",
+          "label": "Вакансия (0)",
+          "left": 8,
+          "right": 88,
+          "top": 14,
+          "width": 80,
+          "height": 17
+        },
+        {
+          "sel": "",
+          "label": "Шаблон:",
+          "left": 326,
+          "right": 374,
+          "top": 196,
+          "width": 48,
+          "height": 14
+        },
+        {
+          "sel": "#validateBtn",
+          "label": "validateBtn",
+          "left": 26,
+          "right": 114,
+          "top": 270,
+          "width": 87,
+          "height": 24
+        },
+        {
+          "sel": "#exportBtn",
+          "label": "exportBtn",
+          "left": 138,
+          "right": 202,
+          "top": 270,
+          "width": 64,
+          "height": 24
+        },
+        {
+          "sel": "#saveBtn",
+          "label": "saveBtn",
+          "left": 227,
+          "right": 339,
+          "top": 266,
+          "width": 113,
+          "height": 31
+        },
+        {
+          "sel": "config-card>row2>field",
+          "label": "Название вакансии",
+          "left": 29,
+          "right": 361,
+          "top": 416,
+          "width": 332,
+          "height": 12
+        },
+        {
+          "sel": "config-card>row2>thresholds>threshold-field",
+          "label": "Pass ≥",
+          "left": 29,
+          "right": 109,
+          "top": 480,
+          "width": 80,
+          "height": 12
+        },
+        {
+          "sel": "config-card>row2>thresholds>threshold-field",
+          "label": "Review ≥",
+          "left": 129,
+          "right": 209,
+          "top": 480,
+          "width": 80,
+          "height": 12
+        },
+        {
+          "sel": "config-card>field",
+          "label": "Контекст вакансии",
+          "left": 29,
+          "right": 361,
+          "top": 545,
+          "width": 332,
+          "height": 12
+        },
+        {
+          "sel": "config-card>field",
+          "label": "Инструкция для сообщений кандидатам",
+          "left": 29,
+          "right": 361,
+          "top": 638,
+          "width": 332,
+          "height": 12
+        },
+        {
+          "sel": "config-card>field>#resetInstructionBtn",
+          "label": "resetInstructionBtn",
+          "left": 29,
+          "right": 206,
+          "top": 901,
+          "width": 177,
+          "height": 24
+        },
+        {
+          "sel": "config-card>criteria-section>criteria-label>btn",
+          "label": "btn btn-sm btn-secondary",
+          "left": 272,
+          "right": 361,
+          "top": 975,
+          "width": 89,
+          "height": 24
+        },
+        {
+          "sel": "config-card>criteria-section>#requiredList>criteria-item",
+          "label": "INPUT",
+          "left": 61,
+          "right": 240,
+          "top": 1019,
+          "width": 179,
+          "height": 15
+        },
+        {
+          "sel": "config-card>criteria-section>#requiredList>criteria-item",
+          "label": "INPUT",
+          "left": 273,
+          "right": 333,
+          "top": 1015,
+          "width": 60,
+          "height": 22
+        },
+        {
+          "sel": "criteria-section>#requiredList>criteria-item>del-btn",
+          "label": "del-btn",
+          "left": 341,
+          "right": 350,
+          "top": 1019,
+          "width": 9,
+          "height": 15
+        },
+        {
+          "sel": "config-card>criteria-section>criteria-label>btn",
+          "label": "btn btn-sm btn-secondary",
+          "left": 272,
+          "right": 361,
+          "top": 1077,
+          "width": 89,
+          "height": 24
+        },
+        {
+          "sel": "config-card>criteria-section>#preferredList>criteria-item",
+          "label": "INPUT",
+          "left": 59,
+          "right": 240,
+          "top": 1121,
+          "width": 181,
+          "height": 15
+        },
+        {
+          "sel": "config-card>criteria-section>#preferredList>criteria-item",
+          "label": "INPUT",
+          "left": 273,
+          "right": 333,
+          "top": 1117,
+          "width": 60,
+          "height": 22
+        },
+        {
+          "sel": "criteria-section>#preferredList>criteria-item>del-btn",
+          "label": "del-btn",
+          "left": 341,
+          "right": 350,
+          "top": 1121,
+          "width": 9,
+          "height": 15
+        },
+        {
+          "sel": "config-card>filters-row>filter-field",
+          "label": "Мин. опыт (лет)",
+          "left": 29,
+          "right": 135,
+          "top": 1236,
+          "width": 106,
+          "height": 12
+        },
+        {
+          "sel": "config-card>filters-row>filter-field>#fMinExp",
+          "label": "fMinExp",
+          "left": 29,
+          "right": 119,
+          "top": 1253,
+          "width": 90,
+          "height": 31
+        },
+        {
+          "sel": "config-card>filters-row>filter-field",
+          "label": "Макс. зарплата (₽)",
+          "left": 151,
+          "right": 276,
+          "top": 1235,
+          "width": 125,
+          "height": 13
+        },
+        {
+          "sel": "config-card>filters-row>filter-field>#fMaxSalary",
+          "label": "fMaxSalary",
+          "left": 151,
+          "right": 241,
+          "top": 1253,
+          "width": 90,
+          "height": 31
+        },
+        {
+          "sel": "config-card>filters-row>filter-field",
+          "label": "Удалённая работа",
+          "left": 29,
+          "right": 155,
+          "top": 1300,
+          "width": 126,
+          "height": 12
+        },
+        {
+          "sel": "filters-row>filter-field>toggle-wrap>toggle",
+          "label": "toggle",
+          "left": 29,
+          "right": 67,
+          "top": 1321,
+          "width": 38,
+          "height": 20
+        }
+      ],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 33,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "sync-log",
+      "path": "/hh/sync-log",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 0,
+        "offscreenCtl": 0
+      }
+    },
+    {
+      "screen": "style",
+      "path": "/hh/style",
+      "vw": 390,
+      "docScrollWidth": 390,
+      "bodyScrollWidth": 390,
+      "pageOverflow": 0,
+      "escaping": [],
+      "small": [],
+      "offscreenCtl": [],
+      "counts": {
+        "escaping": 0,
+        "small": 0,
+        "offscreenCtl": 0
+      }
+    }
+  ]
+}
