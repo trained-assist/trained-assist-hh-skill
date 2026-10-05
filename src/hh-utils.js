@@ -100,6 +100,31 @@ function readActiveVacancies(workDir) {
 
 const HH_FETCH_TIMEOUT_MS = 15_000;
 
+// HTTP 403 also means insufficient permissions: only explicit OAuth failures
+// require reconnecting. Preserve the provider payload for callers and tests.
+function isHhAuthError(error) {
+  if (error?.status == null) return /HH(?: API)? 40[13].*token[-_ ]?expired/i.test(String(error?.message || ''));
+  if (![401, 403].includes(Number(error.status))) return false;
+  const data = error.provider_error || {};
+  const markers = [data.description, data.error, ...(Array.isArray(data.errors) ? data.errors : []).flatMap(e => [e.type, e.value])].filter(Boolean);
+  return markers.some(value => /^(?:unrecognized authorization|invalid authorization|token[-_ ]?(?:expired|invalid|revoked)|invalid[-_ ]?token|invalid_grant)$/i.test(String(value).trim()));
+}
+function hhApiError(status, apiPath, data = {}, method = 'GET') {
+  const detail = data.description || (Array.isArray(data.errors) ? data.errors.map(e => e.value || e.type).join(', ') : '') || data.error || '';
+  const error = new Error(method === 'GET' ? `HH API ${status}: ${apiPath}${detail ? ` — ${detail}` : ''}` : `HH API ${method} ${status}: ${JSON.stringify(data).slice(0, 200)}`);
+  error.status = status;
+  error.api_path = apiPath;
+  error.method = method;
+  error.provider_error = data;
+  error.code = isHhAuthError(error) ? 'HH_REAUTH_REQUIRED' : 'HH_API_ERROR';
+  return error;
+}
+function hhAuthErrorResponse(error) {
+  return { code: 'HH_REAUTH_REQUIRED', reauth_required: true,
+    error: 'Авторизация HeadHunter истекла или отозвана. Подключите HH заново в чате с ассистентом и повторите действие.' };
+}
+
+
 // HH API via fetch (Node 18+). Respects HH_API_BASE_URL for test mocking.
 async function hhFetch(apiPath, token) {
   const res = await fetch(`${hhApiBase()}${apiPath}`, {
@@ -112,10 +137,22 @@ async function hhFetch(apiPath, token) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const detail = data.description || data.errors?.map(e => e.value || e.type).join(', ') || '';
-    throw new Error(`HH API ${res.status}: ${apiPath}${detail ? ` — ${detail}` : ''}`);
+    throw hhApiError(res.status, apiPath, data);
   }
   return res.json();
+}
+
+// Safe read retry only. Never replay a message POST after an uncertain outcome.
+async function hhFetchWithRefresh(apiPath, token, username, secrets) {
+  try { return await hhFetch(apiPath, token); }
+  catch (error) {
+    if (!isHhAuthError(error)) throw error;
+    const stored = readHhToken(username);
+    const fresh = stored?.access_token && stored.access_token !== token.access_token ? stored.access_token : await refreshHhToken(username, secrets, token.access_token);
+    if (!fresh) throw error;
+    token.access_token = fresh;
+    return hhFetch(apiPath, token);
+  }
 }
 
 async function hhPost(apiPath, token, body) {
@@ -131,7 +168,7 @@ async function hhPost(apiPath, token, body) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`HH API POST ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
+  if (!res.ok) throw hhApiError(res.status, apiPath, data, 'POST');
   return data;
 }
 
@@ -149,23 +186,36 @@ async function hhPut(apiPath, token, body) {
   });
   if (res.status === 204) return { status: 204 };
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`HH API PUT ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
+  if (!res.ok) throw hhApiError(res.status, apiPath, data, 'PUT');
   return data;
 }
 
 // OAuth token refresh. Needs client id/secret from env secrets; rewrites the token
 // file in place with the fresh access/refresh pair. Returns the new access_token or null.
-async function refreshHhToken(userId, secrets) {
+const hhRefreshInFlight = new Map();
+function refreshHhToken(userId, secrets, expectedAccessToken) {
+  const key = String(userId);
+  if (hhRefreshInFlight.has(key)) return hhRefreshInFlight.get(key);
+  const pending = performHhTokenRefresh(userId, secrets, expectedAccessToken).finally(() => hhRefreshInFlight.delete(key));
+  hhRefreshInFlight.set(key, pending);
+  return pending;
+}
+async function performHhTokenRefresh(userId, secrets, expectedAccessToken) {
   if (!secrets?.HH_CLIENT_ID || !secrets?.HH_CLIENT_SECRET) {
     console.warn('[hh-refresh] HH OAuth client credentials are not configured — cannot refresh');
     return null;
   }
   const file = hhTokenPath(userId);
   if (!fs.existsSync(file)) return null;
-  const stored = readHhTokenFile(file);
-  if (!stored || !stored.refresh_token) return null;
-
+  const initial = readHhTokenFile(file);
+  if (!initial || !initial.refresh_token) return null;
+  const expected = expectedAccessToken || initial.access_token;
+  const release = await require('./hh-refresh-lock').acquireHhRefreshLock(file+'.refresh.lock');
   try {
+    // Another process may have rotated this credential while we waited.
+    const stored = readHhTokenFile(file);
+    if (!stored || !stored.refresh_token) return null;
+    if (stored.access_token !== expected) return stored.access_token;
     const res = await fetch('https://hh.ru/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -194,7 +244,7 @@ async function refreshHhToken(userId, secrets) {
   } catch (e) {
     console.error(`[hh-refresh] error for ${userId}: ${e.message}`);
     return null;
-  }
+  } finally { release(); }
 }
 
 // Form-encoded POST — HH messages endpoint requires application/x-www-form-urlencoded, not JSON.
@@ -212,8 +262,8 @@ async function hhPostForm(apiPath, token, fields) {
     body: bodyStr,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`HH API POST ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
+  if (!res.ok) throw hhApiError(res.status, apiPath, data, 'POST');
   return data;
 }
 
-module.exports = { readHhToken, readHhTokenFile, readCredentialFileSafe, readHhContext, writeHhContext, readActiveVacancies, hhFetch, hhPost, hhPut, hhPostForm, hhTokenPath, refreshHhToken };
+module.exports = { hhFetchWithRefresh, isHhAuthError, hhApiError, hhAuthErrorResponse, readHhToken, readHhTokenFile, readCredentialFileSafe, readHhContext, writeHhContext, readActiveVacancies, hhFetch, hhPost, hhPut, hhPostForm, hhTokenPath, refreshHhToken };

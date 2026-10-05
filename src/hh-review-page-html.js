@@ -515,7 +515,10 @@ async function syncNow() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: HH_USER, vacancy_id: HH_VACANCY_ID, token: HH_PAGE_TOKEN }),
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || ('HTTP ' + r.status));
+    }
     location.reload();
   } catch(e) {
     showToast('❌ Ошибка обновления: ' + e.message, true);
