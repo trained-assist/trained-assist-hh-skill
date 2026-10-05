@@ -23,7 +23,7 @@ const pd = require('../src/hh-publish-domain.js');
 let root;
 const saved = {};
 const KEYS = ['AGENT_TOKENS_DIR', 'AGENT_TOKENS_ROOT', 'AGENT_PUBLIC_URL', 'HH_PLATFORM_URL',
-  'HH_COLD_SEARCH_PUBLIC_URL', 'AGENT_SECRET', 'USER_ID', 'PORT'];
+  'HH_COLD_SEARCH_PUBLIC_URL', 'HH_PUBLIC_API_URL', 'AGENT_SECRET', 'USER_ID', 'PORT'];
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'hh-publish-domain-'));
@@ -158,5 +158,35 @@ describe('hh_set_publish_domain tool', () => {
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/пути|только домен/);
     expect(pd.loadPublishDomain('alice')).toBe('https://alice.example');
+  });
+});
+describe('browser API callbacks and deploy gate', () => {
+  it('HH callback override survives host localhost default without using tenant page domain', () => {
+    expect(pd.browserApiBase({HH_PUBLIC_API_URL:'https://infra.example/agent/',AGENT_PUBLIC_URL:'http://localhost:8080'})).toBe('https://infra.example/agent');
+    expect(pd.browserApiBase({AGENT_PUBLIC_URL:'https://host.example/agent'})).toBe('https://host.example/agent');
+    expect(pd.browserApiBase({},8080)).toBe('http://localhost:8080');
+  });
+  it('actual editor and style routes use the pinned browser API override', async () => {
+    const {handleHhPublic}=require('../src/hh-routes');
+    process.env.HH_PUBLIC_API_URL='https://infra.example/agent';
+    process.env.AGENT_PUBLIC_URL='http://localhost:8080';
+    for(const endpoint of ['/hh/ats-editor','/hh/style']) {
+      const req={method:'GET',headers:{},url:endpoint+'?username=alice&vacancy_id=vac'};
+      let html='',status;
+      const res={setHeader(){},writeHead(s){status=s;},end(value){html=String(value);}};
+      await handleHhPublic(req,new URL(req.url,'https://recruiter.example'),res,{BASE_USERS_DIR:join(root,'users'),PORT:8080,getSecretsCache:()=>({}),secrets:{}});
+      expect(status).toBe(200);
+      expect(html).toContain('https://infra.example/agent');
+      expect(html).not.toContain('http://localhost:8080');
+    }
+  });
+  it('post-deploy gate rejects a public editor with localhost callbacks while allowing local development', () => {
+    const {assertBrowserCallback}=require('../scripts/verify-deploy.cjs');
+    const html=base=>'const CALLBACK_BASE = '+JSON.stringify(base)+';';
+    for(const base of ['http://localhost:8080','http://127.0.0.1:8080','http://[::1]:8080'])expect(()=>assertBrowserCallback(html(base),'https://recruiter.example')).toThrow('HH_PUBLIC_API_URL');
+    expect(assertBrowserCallback(html('https://infra.example/agent/'),'https://recruiter.example')).toBe('https://infra.example/agent');
+    for(const base of ['https://user:pass@infra.example','https://infra.example?token=fake','https://infra.example#fragment'])expect(()=>assertBrowserCallback(html(base),'https://recruiter.example')).toThrow();
+    expect(()=>assertBrowserCallback(html('http://localhost:8080'),'http://localhost:8080')).not.toThrow();
+    expect(()=>assertBrowserCallback('<html>error</html>','https://recruiter.example')).toThrow();
   });
 });
