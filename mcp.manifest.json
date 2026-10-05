@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "7d78059e73b5da423ec8e87284c9b1193316870f",
+      "revision": "b228f1fed43970cd26dfa4713cd9a42608ac753b",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "ff1393224bb09f558d3fecf71222e4e2a89d46d579bb81231b28861c68366799",
+      "artifactDigest": "7b1e670982587d4d80c00b2c622c0643ed2eb8db1a8db34df0541ae7e6b970a8",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -947,7 +947,7 @@
             "retrySafety": "idempotent"
           },
           {
-            "name": "hh_vacancy_publish_page",
+            "name": "hh_vacancy_publish_landing",
             "inputSchema": {
               "type": "object",
               "properties": {}

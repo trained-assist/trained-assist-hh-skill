@@ -32,7 +32,7 @@
       "steps": [
         {
           "title": "Опубликовать лендинг вакансии «{vacancy_title}», если его ещё нет",
-          "instructions": "Текущий landing_url: «{landing_url}». Если он пустой — вызови hh_vacancy_publish_page и зафиксируй вернувшийся URL. Если landing_url уже есть — ничего не публикуй заново, просто подтверди его. В ответе обязательно укажи итоговый landing_url.",
+          "instructions": "Текущий landing_url: «{landing_url}». Если он пустой — вызови hh_vacancy_publish_landing и зафиксируй вернувшийся URL. Если landing_url уже есть — ничего не публикуй заново, просто подтверди его. В ответе обязательно укажи итоговый landing_url.",
           "execution_kind": "agent",
           "executor_role": "developer",
           "minimum_model_level": "bachelor",

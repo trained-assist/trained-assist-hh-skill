@@ -135,7 +135,7 @@ const POLICY = {
   hh_invite_resume:        { effect: 'destructive', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
   hh_move_candidate:       { effect: 'destructive', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
   hh_bulk_reject:          { effect: 'destructive', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
-  hh_vacancy_publish_page: { effect: 'destructive', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
+  hh_vacancy_publish_landing: { effect: 'destructive', requiresApproval: true, retrySafety: 'unsafe', allowedTriggers: USER_ONLY },
 
   // ── hh_sync_messages — the PR 2b extraction target ──────────────────────────
   // Writes local candidate-history files only (never posts to hh.ru); dedup by HH
