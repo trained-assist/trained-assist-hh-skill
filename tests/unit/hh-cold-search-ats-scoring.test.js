@@ -246,6 +246,21 @@ describe('web API and page', () => {
   };
   const token = require('crypto').createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
 
+  it('starts queued ATS backlog when the recruiter opens the vacancy page', async () => {
+    fixture('alice');
+    const proactiveDir = path.join(process.env.AGENT_DATA_DIR, 'hh', 'alice', 'proactive');
+    fs.mkdirSync(proactiveDir, { recursive: true });
+    fs.writeFileSync(path.join(proactiveDir, 'search-results-2026-10-05-A.json'), JSON.stringify({
+      vacancy_id: 'A', vacancy_title: CONFIG.vacancy_title, searched_at: '2026-10-05T10:00:00Z',
+      ats_config: CONFIG, candidates: [{ ...PROGRAMMER }],
+    }));
+
+    const page = await call('GET', `/hh/proactive?username=alice&token=${token}&vacancy_id=A`);
+    expect(page.status).toBe(200);
+    expect(page.body).toContain('Переоценка по сохранённой ATS-воронке');
+    await vi.waitFor(() => expect(api.getAtsRefreshProgress('alice', 'A')).toMatchObject({ status: 'complete', pending: 0, total: 1 }), { timeout: 3000 });
+  });
+
   it('saves edited queries only with the profile token; manual queries are used as-is', async () => {
     expect((await call('POST', '/api/hh/proactive/prompt', { username: 'alice', token: 'bad', vacancy_id: 'A', queries: 'x' })).status).toBe(403);
     expect((await call('POST', '/api/hh/proactive/prompt', { username: 'alice', token, vacancy_id: '../x', queries: 'x' })).status).toBe(400);
