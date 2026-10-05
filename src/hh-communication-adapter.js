@@ -49,7 +49,7 @@ async function generateCommunicationDraft(options={}){
  const {atsConfig={},atsResult={},senderProfile={},context={},resumeText='',candidateName='',history=[],communicationStyle='Деловой, вежливый и краткий тон.',language='ru',previousSteps=null,now=Date.now(),call=callCommunication,forceGoal=null}=options;
  if(!atsConfig.communication_plan)throw new CommunicationError('PLAN_REVIEW_REQUIRED','Сохраните проверенный сценарий найма в редакторе вакансии перед генерацией.');
  const events=[];
- const invoke=async(method,input)=>{const started=Date.now();try{const response=await call(method,input);events.push({stage:method,...stageMetrics(response,{elapsedMs:Date.now()-started})});return response;}catch(e){e.communication_metrics=chainMetrics([...events,{stage:method,error_code:e.code||'COMMUNICATION_FAILED',attempts:null,retries:null,latency_ms:Date.now()-started,usage:{},cost_usd:null}]);throw e;}};
+ const invoke=async(method,input)=>{const started=Date.now();try{const response=await call(method,input);events.push({stage:method,...stageMetrics(response,{elapsedMs:Date.now()-started})});return response;}catch(e){e.communication_stage=method;e.communication_metrics=chainMetrics([...events,{stage:method,error_code:e.code||'COMMUNICATION_FAILED',attempts:e.provider_attempts??null,retries:Number.isInteger(e.provider_attempts)?Math.max(0,e.provider_attempts-1):null,latency_ms:Date.now()-started,usage:{},cost_usd:null}]);throw e;}};
  const cached=(method,response)=>{events.push({stage:method,...stageMetrics(response,{cached:true})});return response;};
  const plan=normalizeCommunicationPlan(atsConfig.communication_plan);
  const snapshot=snapshotInput(options), revision=signature(snapshot), thread=snapshot.history;

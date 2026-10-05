@@ -1,5 +1,6 @@
 'use strict';
 const {legacyTestTask} = require('./hh-communication-plan');
+const {communicationFailurePayload}=require('./hh-communication-client');
 // HH HTTP routes — all /hh/* + /api/hh/proactive/* (moved from core src/handlers/hh.js,
 // trained-assist-agent#1470). The host (core server.js) owns the HTTP server and the
 // AGENT_SECRET gate and mounts these via hhLib('hh-routes'):
@@ -1043,7 +1044,10 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       fs.mkdirSync(candDir,{recursive:true});
       fs.writeFileSync(histFile,JSON.stringify(history,null,2),{mode:0o600});
       return json(res,200,{ok:true,message:result.message||'',funnel_action:result.action,funnel_reason:result.reason,communication_steps:result.steps});
-    } catch(e) { return json(res,e.code==='PLAN_REVIEW_REQUIRED'?409:503,{error:e.message,code:e.code||'COMMUNICATION_FAILED'}); }
+    } catch(e) {
+      console.error('[hh/communication] '+JSON.stringify({code:e.code||'COMMUNICATION_FAILED',stage:e.communication_stage||null,request_id:e.request_id||null,provider_status:e.status||null,provider_attempts:e.provider_attempts??null,metrics:e.communication_metrics||null}));
+      return json(res,e.code==='PLAN_REVIEW_REQUIRED'?409:503,communicationFailurePayload(e));
+    }
   }
 
   const recruiterCtx = buildRecruiterIdentity(msgCfg);
