@@ -53,6 +53,9 @@ describe('review page — explicit single-candidate stale draft override', () =>
     expect(page).toContain("e.code === 'STALE_COMMUNICATION_DRAFT'");
     expect(page).toContain("send.dataset.stale = '0'");
     expect(page).toContain('error.code = data.code');
+    expect(page).toContain('error.communication_stage = data.communication_stage');
+    expect(page).toContain('error.request_id = data.request_id');
+    expect(page).toContain('Не хватает подтверждённого контекста:');
     expect(page).not.toContain("c.draft_is_stale ? ' disabled title=");
   });
 

@@ -50,6 +50,7 @@ function communicationFailurePayload(error) {
   code:error.code || 'COMMUNICATION_FAILED',
   ...(error.communication_stage ? {communication_stage:error.communication_stage} : {}),
   ...(error.request_id ? {request_id:error.request_id} : {}),
+  ...(Array.isArray(error.missing_fields)&&error.missing_fields.length ? {missing_fields:error.missing_fields.filter(v=>typeof v==='string'&&v.trim()).slice(0,10).map(v=>v.trim().slice(0,240))} : {}),
   ...(error.communication_metrics ? {communication_metrics:error.communication_metrics} : {})};
 }
 module.exports={CommunicationError,communicationEnabled,communicationToken,callCommunication,communicationFailurePayload,ROUTES};
