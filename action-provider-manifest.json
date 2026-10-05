@@ -398,7 +398,7 @@
       "retrySafety": "idempotent"
     },
     {
-      "name": "hh_generate_message",
+      "name": "hh_generate_message_to_applicant",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -4,7 +4,7 @@
 **Класс:** exploratory (вне детерминированного гейта; на staging может
 оцениваться LLM-судьёй)
 **Тулы:** `hh_extract_ats_config`, `hh_evaluate_candidate`, `hh_batch_evaluate`,
-`hh_generate_message`, `hh_get_messages`, `hh_send_message`
+`hh_generate_message_to_applicant`, `hh_get_messages`, `hh_send_message`
 **Охват:** от текста вакансии до оценки кандидатов и черновика ответа (отправка —
 только после подтверждения).
 
@@ -65,7 +65,7 @@ User: оцени отклики по критериям
 
 ### Шаг 3 — Батч-оценка и сообщение
 
-**Ожидаем:** `hh_batch_evaluate` формирует страницу ревью, `hh_generate_message`
+**Ожидаем:** `hh_batch_evaluate` формирует страницу ревью, `hh_generate_message_to_applicant`
 готовит черновик ответа; отправка — только явным `hh_send_message` (политика
 `external_message`, требует подтверждения).
 
@@ -79,7 +79,7 @@ User: оцени отклики по критериям
    состояние заново.
 
 **Validation:**
-- `hh_generate_message` не отправляет ничего сам;
+- `hh_generate_message_to_applicant` не отправляет ничего сам;
 - `hh_send_message` — approval-gated (см. `provider-manifest.json`);
 - действие `wait` или `reject` **не порождает** письма (второе письмо в пустоту — был
   живой дефект, #66/#70);

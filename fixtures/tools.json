@@ -28,7 +28,7 @@
       },
       "expect": { "negotiation_id": "neg-001" }
     },
-    { "name": "hh_generate_message", "validArgs": { "negotiation_id": "neg-001" } },
+    { "name": "hh_generate_message_to_applicant", "validArgs": { "negotiation_id": "neg-001" } },
     { "name": "hh_set_rejection_template", "validArgs": { "template": "Здравствуйте, {firstName}!" }, "expect": { "saved": true } },
     { "name": "hh_get_messages", "validArgs": { "negotiation_id": "neg-001" } },
     { "name": "hh_send_message", "validArgs": { "negotiation_id": "neg-001", "message": "Здравствуйте!" }, "expect": { "ok": true } },

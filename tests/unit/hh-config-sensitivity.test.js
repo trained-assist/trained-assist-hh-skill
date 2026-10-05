@@ -349,7 +349,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
     const capture = { value: null };
     captureWriter(capture, 'ask_skills', 'Добрый день, Дмитрий! Расскажите о своём опыте с Node.js — как давно работаете с ним в продакшне?');
 
-    await tools().hh_generate_message.handler({
+    await tools().hh_generate_message_to_applicant.handler({
       negotiation_id: 'neg-003',
       message_type: 'initial',
       ats_result: {
@@ -374,7 +374,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
     const capture = { value: null };
     captureWriter(capture, 'invite_call', 'Дмитрий, ваш стек отлично подходит! Хотели бы пообщаться подробнее?');
 
-    await tools().hh_generate_message.handler({
+    await tools().hh_generate_message_to_applicant.handler({
       negotiation_id: 'neg-003',
       message_type: 'initial',
       ats_result: {
@@ -398,7 +398,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
     const captureA = { value: null };
     captureWriter(captureA, 'ask_skills', 'Сообщение А');
 
-    await tools().hh_generate_message.handler({
+    await tools().hh_generate_message_to_applicant.handler({
       negotiation_id: 'neg-003',
       ats_result: { score: 5.0, verdict: 'УТОЧНИТЬ', gaps: ['Node.js'], matched: ['PostgreSQL'] },
     });
@@ -406,7 +406,7 @@ describe('4 — Generated message prompt mentions the gaps from evaluation', () 
     const captureB = { value: null };
     captureWriter(captureB, 'invite_call', 'Сообщение Б');
 
-    await tools().hh_generate_message.handler({
+    await tools().hh_generate_message_to_applicant.handler({
       negotiation_id: 'neg-003',
       ats_result: { score: 8.2, verdict: 'ПРОПУСТИТЬ', gaps: [], matched: ['Go', 'Kubernetes'] },
     });
