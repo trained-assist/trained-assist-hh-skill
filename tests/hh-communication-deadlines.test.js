@@ -1,8 +1,8 @@
 import {it,expect} from 'vitest';import {createRequire} from 'node:module';import fs from 'node:fs';import vm from 'node:vm';
 const require=createRequire(import.meta.url);const {callCommunication}=require('../src/hh-communication-client');const {generateReviewPageHtml}=require('../src/hh-review-page-html');
-it('each Communication method allows fallback within a bounded 90-second transport budget',async()=>{
+it('each Communication method allows the Worker fallback budget plus transport margin',async()=>{
  const timeout=AbortSignal.timeout,deadlines=[];AbortSignal.timeout=ms=>{deadlines.push(ms);return timeout(ms);};
- try{for(const method of ['state','goal','writer']){const key=method==='writer'?'context_revision':'conversation_revision';await callCommunication(method,{[key]:'r1'},{baseUrl:'https://fixture.invalid',token:'fixture',fetchImpl:async(_url,opts)=>{expect(opts.signal).toBeInstanceOf(AbortSignal);return {ok:true,headers:{get:()=> 'v1'},json:async()=>({[key]:'r1'})};}});}expect(deadlines).toEqual([90000,90000,90000]);}finally{AbortSignal.timeout=timeout;}
+ try{for(const method of ['state','goal','writer']){const key=method==='writer'?'context_revision':'conversation_revision';await callCommunication(method,{[key]:'r1'},{baseUrl:'https://fixture.invalid',token:'fixture',fetchImpl:async(_url,opts)=>{expect(opts.signal).toBeInstanceOf(AbortSignal);return {ok:true,headers:{get:()=> 'v1'},json:async()=>({[key]:'r1'})};}});}expect(deadlines).toEqual([150000,150000,150000]);}finally{AbortSignal.timeout=timeout;}
 });
 it('transport timeout produces a typed error instead of continuing indefinitely',async()=>{
  await expect(callCommunication('state',{conversation_revision:'r'},{baseUrl:'https://fixture.invalid',token:'fixture',timeoutMs:5,fetchImpl:(_url,{signal})=>new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason));})})).rejects.toMatchObject({code:'COMMUNICATION_TIMEOUT'});
