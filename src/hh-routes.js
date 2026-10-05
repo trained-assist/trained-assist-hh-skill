@@ -639,14 +639,14 @@ if (req.method === 'GET' && url.pathname === '/hh/sync-log') {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   return res.end(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>История скоринга</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;padding:24px}h1{font-size:20px;font-weight:700;margin-bottom:4px}.sub{font-size:13px;color:#64748b;margin-bottom:20px}h2{font-size:16px;font-weight:600;margin:24px 0 8px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:8px}th{background:#f8fafc;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em;padding:10px 16px;text-align:left;border-bottom:1px solid #e2e8f0}td{padding:10px 16px;font-size:14px;border-bottom:1px solid #f1f5f9}tr:last-child td{border-bottom:none}</style>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;padding:24px}h1{font-size:20px;font-weight:700;margin-bottom:4px}.sub{font-size:13px;color:#64748b;margin-bottom:20px}h2{font-size:16px;font-weight:600;margin:24px 0 8px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:8px}th{background:#f8fafc;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em;padding:10px 16px;text-align:left;border-bottom:1px solid #e2e8f0}td{padding:10px 16px;font-size:14px;border-bottom:1px solid #f1f5f9}tr:last-child td{border-bottom:none}/* Мобильный аудит #174: 6-колоночный лог не влезал в 360 и растягивал всю страницу на 256px. Таблица скроллится внутри своей обёртки, страница — нет. */.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px}.table-scroll table{min-width:560px}.table-scroll.guard table{min-width:480px}@media(max-width:480px){body{padding:12px}}</style>
 </head><body>
 <h1>История скоринга и Guard</h1>
 <p class="sub">Последние запуски · ${username}</p>
 <h2>Фоновый скоринг</h2>
-<table><thead><tr><th>Время (МСК)</th><th>Проверено</th><th>Новых сообщ.</th><th>Скоринг</th><th>С активностью</th><th>API ошибки</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="table-scroll"><table><thead><tr><th>Время (МСК)</th><th>Проверено</th><th>Новых сообщ.</th><th>Скоринг</th><th>С активностью</th><th>API ошибки</th></tr></thead><tbody>${rows}</tbody></table></div>
 <h2>Bullshit Guard — последние блокировки и пропуски проверки</h2>
-<table><thead><tr><th>Время</th><th>neg_id</th><th>Статус</th><th>Причина</th></tr></thead><tbody>${guardRows}</tbody></table>
+<div class="table-scroll guard"><table><thead><tr><th>Время</th><th>neg_id</th><th>Статус</th><th>Причина</th></tr></thead><tbody>${guardRows}</tbody></table></div>
 </body></html>`);
 }
 
@@ -715,6 +715,11 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
   fs.renameSync(temporary, configFile);
   if (Array.isArray(stages) && !normalizedPlan) fs.writeFileSync(path.join(hhContextDir, `ats_stages:${vacancyId}.json`), JSON.stringify({value:stages,updated_at:now},null,2));
   console.log(`[hh/ats-config] saved vacancy="${config.vacancy_title}" vacancy_id=${vacancyId || 'legacy'} stages=${stages?.length || 0} user=${username || 'default'}`);
+  if (username && latestProactiveFile(username, String(vacancyId))) {
+    setImmediate(() => scoreUnscoredProactiveCandidates(username, { vacancyId: String(vacancyId) }).catch(error => {
+      console.error(`[hh/ats-config] cold-search rescore failed for vacancy=${vacancyId}:`, error.message);
+    }));
+  }
   return json(res, 200, { ok: true, revision: now });
 }
 
@@ -887,7 +892,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   res.setHeader('Access-Control-Allow-Origin', '*');
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
-  const { username, negotiation_id, message, force } = body || {};
+  const { username, negotiation_id, message, force, force_stale } = body || {};
   if (!username || !negotiation_id || !message) return json(res, 400, { error: 'missing fields' });
   if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
 
@@ -920,13 +925,20 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   try{const previous=await reconcilePendingSend({history,message,refresh:refreshSendHistory,persist:persistSendHistory});if(previous?.delivered)return json(res,200,{ok:true,reconciled:true,send_event:previous.event});}
   catch(e){return json(res,503,{ok:false,error:e.message,code:e.code||'SEND_OUTCOME_UNKNOWN'});}
   if(communicationEnabledFor(username,effectiveVacancyId)&&contactForbidden(history))return json(res,409,{ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'});
-  if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
+  let staleOverrideReason=null;
+  if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text)){
+    if(!force_stale)return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
+    staleOverrideReason='legacy draft has no saved communication state';
+  }
   if (communicationEnabledFor(username,effectiveVacancyId) && history.communication_steps) {
     let currentResumeHash=null;
     try{const latest=await refreshSendHistory();await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
     const {readAtsConfig}=require('./hh-scoring');
     const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),effectiveVacancyId);
-    if(staleCommunicationDraft(history,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId}))) return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+    if(staleCommunicationDraft(history,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId}))){
+      if(!force_stale)return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+      staleOverrideReason='dialogue or saved scenario changed';
+    }
   }
   // Legacy drafts need the same durable send intent and fresh baseline as planned
   // communication drafts. Also resolve chat_id now so current HH chat API can be
@@ -935,6 +947,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     try { await refreshSendHistory(); }
     catch (e) { return json(res, 503, { ok: false, code: 'HH_FRESHNESS_UNAVAILABLE', error: 'Не удалось проверить переписку HH перед отправкой. Сообщение не отправлено. ' + e.message }); }
   }
+  if(staleOverrideReason)console.warn('[hh/send] stale draft manually approved '+JSON.stringify({user:username,negotiation_id,reason:staleOverrideReason,message_hash:require('crypto').createHash('sha256').update(String(message)).digest('hex')}));
   const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
   const exactPlannedMaterial=communicationEnabledFor(username,effectiveVacancyId)&&history.communication_steps?.material&&message===history.communication_steps.message;
   const guard = exactPlannedMaterial?{ok:true,checks:{}}:await bullshitGuard(message, history.messages, { username, allowSpecificTime });
@@ -971,7 +984,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
       console.warn(`[hh/send] legacy endpoint fallback: no chat_id for neg=${negotiation_id}`);
       return hhPostForm(`/negotiations/${negotiation_id}/messages`,tokenData,{message});
     };
-    const sent=(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:'http',retryUncertain:!!currentNegotiation?.chat_id})).sent;
+    const sent=(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:force_stale?'http_manual_stale_override':'http',retryUncertain:!!currentNegotiation?.chat_id})).sent;
     // Persist the id HH confirmed: without it the next sync re-added the same message
     // as a second copy (every outbound message looked like two sends — and the guard
     // read that inflated history). See src/hh-history.js.
@@ -1558,8 +1571,22 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
     try { searchSettings = require('./hh-proactive-search').searchSettingsView(username, vacancyId); }
     catch (e) { console.error('[hh/proactive] search settings read failed:', e.message); }
   }
+  const searchJob = vacancyId ? require('./hh-proactive-search-job').active(username, vacancyId) : null;
+  let atsProgress = null;
+  if (vacancyId) {
+    try { atsProgress = require('./hh-proactive-search').getAtsRefreshProgress(username, vacancyId); }
+    catch (e) { console.error('[hh/proactive] ATS progress read failed:', e.message); }
+  }
+  // A pre-existing backlog may have been created before this page learned to
+  // trigger rescoring on ATS save. Opening the vacancy page is also a natural
+  // recovery point: start one bounded background pass whenever work is queued.
+  if (atsProgress?.pending > 0 && atsProgress.status === 'queued') {
+    setImmediate(() => scoreUnscoredProactiveCandidates(username, { vacancyId: String(vacancyId) }).catch(error => {
+      console.error(`[hh/proactive] cold-search rescore failed for vacancy=${vacancyId}:`, error.message);
+    }));
+  }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring, searchSettings }));
+  return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring, searchSettings, searchJob, atsProgress }));
 }
 
 // ── Recruiting hub v1 (#1742, UX spec docs/specs/recruiting-web-hub-and-playbook-launch-ux.md) ──
@@ -2165,6 +2192,20 @@ if (req.method === 'GET' && url.pathname === '/api/hh/proactive/candidates') {
   return json(res, 200, { total: all.length, candidates: all });
 }
 
+if (req.method === 'GET' && url.pathname === '/api/hh/proactive/ats-progress') {
+  const username = url.searchParams.get('username') || '';
+  const vacancyId = url.searchParams.get('vacancy_id') || '';
+  const given = url.searchParams.get('token') || '';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(vacancyId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
+  try {
+    const progress = require('./hh-proactive-search').getAtsRefreshProgress(username, vacancyId);
+    return json(res, 200, { progress });
+  } catch (error) {
+    return json(res, 500, { error: 'Не удалось прочитать прогресс ATS: ' + error.message });
+  }
+}
+
 if (req.method === 'POST' && url.pathname === '/api/hh/proactive/ai-score') {
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
@@ -2235,22 +2276,40 @@ ${expLines || '—'}
   }
 }
 
+if (req.method === 'GET' && url.pathname === '/api/hh/proactive/search') {
+  const username = url.searchParams.get('username') || '';
+  const vacancyId = url.searchParams.get('vacancy_id') || '';
+  const givenToken = url.searchParams.get('token') || '';
+  const jobId = url.searchParams.get('job_id') || '';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(vacancyId) || (jobId && !/^[0-9a-f-]{36}$/i.test(jobId))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && givenToken !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
+  const jobs = require('./hh-proactive-search-job');
+  const job = jobs.read(username, vacancyId);
+  if (!job || (jobId && job.id !== jobId)) return json(res, 404, { error: 'Поиск не найден или уже заменён новым запуском.' });
+  return json(res, 200, { job: jobs.publicJob(job) });
+}
+
 if (req.method === 'POST' && url.pathname === '/api/hh/proactive/search') {
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
   const { username = '', token: givenToken = '' } = body || {};
+  const vacancyId = String(body.vacancy_id || '');
+  if (!hhHub.SAFE_ID.test(String(username)) || !hhHub.SAFE_ID.test(vacancyId)) return json(res, 400, { error: 'Invalid scope' });
   if (process.env.AGENT_SECRET && givenToken !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
   const workDir = path.join(BASE_USERS_DIR, username);
   try {
-    const result = await runProactiveSearch(username, workDir, {
-      vacancyId: body.vacancy_id,
-      ...(Object.prototype.hasOwnProperty.call(body, 'area') ? { area: body.area } : {}),
-      refreshAccessToken: (u) => refreshHhToken(u, _secretsCache),
-
+    const started = require('./hh-proactive-search-job').start({
+      username, vacancyId,
+      runSearch: onProgress => runProactiveSearch(username, workDir, {
+        vacancyId,
+        ...(Object.prototype.hasOwnProperty.call(body, 'area') ? { area: body.area } : {}),
+        refreshAccessToken: (u) => refreshHhToken(u, _secretsCache),
+        onProgress,
+      }),
     });
-    return json(res, 200, result);
-  } catch (e) {
-    return json(res, 500, { error: e.message });
+    return json(res, started.existing ? 200 : 202, { ok: true, job: started.job });
+  } catch (error) {
+    return json(res, 500, { error: `Не удалось запустить поиск: ${error.message}` });
   }
 }
 

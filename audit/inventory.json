@@ -1,0 +1,1473 @@
+{
+  "generated_at": "2026-10-05T12:05:17.138Z",
+  "screens": [
+    {
+      "key": "vacancies",
+      "path": "/hh/vacancies",
+      "note": "Обзор/список вакансий",
+      "url": "http://127.0.0.1:44957/hh/vacancies?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 8048,
+      "elements": [
+        {
+          "type": "button",
+          "label": "Отмена",
+          "attrs": {
+            "class": "btn",
+            "value": "cancel"
+          }
+        },
+        {
+          "type": "button",
+          "label": "▶ Запустить",
+          "attrs": {
+            "class": "btn primary",
+            "id": "launch-submit",
+            "value": "run"
+          }
+        },
+        {
+          "type": "input",
+          "label": "goal",
+          "attrs": {
+            "id": "launch-goal",
+            "name": "goal",
+            "style": "width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;margin-bottom:12px",
+            "maxlength": "300",
+            "required": true
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        }
+      ]
+    },
+    {
+      "key": "vacancy-new",
+      "path": "/hh/vacancy-new",
+      "note": "Создание вакансии / ATS-портрет",
+      "url": "http://127.0.0.1:44957/hh/vacancy-new?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 14769,
+      "elements": [
+        {
+          "type": "button",
+          "label": "выбрать файлы",
+          "attrs": {
+            "class": "btn",
+            "type": "button",
+            "id": "btn-files"
+          }
+        },
+        {
+          "type": "button",
+          "label": "🧩 Собрать портрет",
+          "attrs": {
+            "class": "btn primary",
+            "id": "btn-build",
+            "type": "button"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Вставь текст вакансии или бриф от клиента…",
+          "attrs": {
+            "id": "src-vacancy",
+            "rows": "7",
+            "placeholder": "Вставь текст вакансии или бриф от клиента…"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Вставь переписку — можно целиком, несколько сообщений подряд…",
+          "attrs": {
+            "id": "src-corr",
+            "rows": "6",
+            "placeholder": "Вставь переписку — можно целиком, несколько сообщений подряд…"
+          }
+        },
+        {
+          "type": "file",
+          "label": "files",
+          "attrs": {
+            "type": "file",
+            "id": "files",
+            "accept": ".txt,.md,.markdown,.csv,.text,.docx,.pdf",
+            "style": "display:none",
+            "multiple": true
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Текст загруженных файлов появится здесь (можно править)",
+          "attrs": {
+            "id": "src-files",
+            "rows": "4",
+            "placeholder": "Текст загруженных файлов появится здесь (можно править)"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        }
+      ]
+    },
+    {
+      "key": "review",
+      "path": "/hh/review",
+      "note": "Список кандидатов и карточка ревью",
+      "url": "http://127.0.0.1:44957/hh/review?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 50984,
+      "elements": [
+        {
+          "type": "button",
+          "label": "↻ Синхронизировать отклики",
+          "attrs": {
+            "class": "sync-btn",
+            "id": "syncBtn",
+            "onclick": "syncNow()",
+            "title": "Загрузить актуальные отклики и сообщения из HH; черновики не генерируются"
+          }
+        },
+        {
+          "type": "button",
+          "label": "10",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "10",
+            "onclick": "toggleBucket(10)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "9",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "9",
+            "onclick": "toggleBucket(9)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "8",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "8",
+            "onclick": "toggleBucket(8)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "7",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "7",
+            "onclick": "toggleBucket(7)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "6",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "6",
+            "onclick": "toggleBucket(6)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "5",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "5",
+            "onclick": "toggleBucket(5)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "4",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "4",
+            "onclick": "toggleBucket(4)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "3",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "3",
+            "onclick": "toggleBucket(3)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "2",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "2",
+            "onclick": "toggleBucket(2)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "1",
+          "attrs": {
+            "class": "tb-btn score-btn",
+            "data-bucket": "1",
+            "onclick": "toggleBucket(1)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✓ Выбрать все",
+          "attrs": {
+            "class": "tb-btn",
+            "onclick": "selectAll(true)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✗ Снять все",
+          "attrs": {
+            "class": "tb-btn",
+            "onclick": "selectAll(false)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "🔴 Неотвеченные (1)",
+          "attrs": {
+            "class": "tab-btn",
+            "onclick": "switchTab('waiting',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "😴 Молчат (0)",
+          "attrs": {
+            "class": "tab-btn",
+            "onclick": "switchTab('silent',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "📭 Ещё не писали (0)",
+          "attrs": {
+            "class": "tab-btn",
+            "onclick": "switchTab('nocontact',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "💬 Диалог (0)",
+          "attrs": {
+            "class": "tab-btn",
+            "onclick": "switchTab('dialog',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "📨 Все (1)",
+          "attrs": {
+            "class": "tab-btn active",
+            "onclick": "switchTab('all',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "☆ В избранное",
+          "attrs": {
+            "class": "btn",
+            "data-testid": "response-star",
+            "onclick": "setResponseState(this,'5610867713','starred')"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✦ Сгенерировать",
+          "attrs": {
+            "class": "btn btn-gen",
+            "id": "gen-0",
+            "data-idx": "0",
+            "data-negid": "5610867713",
+            "data-name": "Бахтадзе Леван",
+            "data-sent": "1",
+            "onclick": "generateOne(0,'5610867713','Бахтадзе Леван',true)",
+            "title": "Сгенерировать черновик"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✓ Отправить",
+          "attrs": {
+            "class": "btn btn-send",
+            "data-stale": "0",
+            "onclick": "sendOne(this,0,'5610867713',false,false)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "📋 Копировать",
+          "attrs": {
+            "class": "btn-copy",
+            "onclick": "copyMsg(0)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "В архив",
+          "attrs": {
+            "class": "btn btn-skip",
+            "onclick": "setResponseState(this,'5610867713','archived')"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✗ Отправить отказ",
+          "attrs": {
+            "class": "btn btn-send-reject",
+            "onclick": "rejectWithMessage(0,'5610867713')"
+          }
+        },
+        {
+          "type": "button",
+          "label": "☆ В избранное",
+          "attrs": {
+            "class": "btn",
+            "data-testid": "response-star",
+            "onclick": "setResponseState(this,'5610867713','starred')"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✦ Сгенерировать",
+          "attrs": {
+            "class": "btn btn-gen",
+            "id": "gen-1",
+            "data-idx": "1",
+            "data-negid": "5610867713",
+            "data-name": "Бахтадзе Леван",
+            "data-sent": "1",
+            "onclick": "generateOne(1,'5610867713','Бахтадзе Леван',true)",
+            "title": "Сгенерировать черновик"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✓ Отправить",
+          "attrs": {
+            "class": "btn btn-send",
+            "data-stale": "0",
+            "onclick": "sendOne(this,1,'5610867713',false,false)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "📋 Копировать",
+          "attrs": {
+            "class": "btn-copy",
+            "onclick": "copyMsg(1)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "В архив",
+          "attrs": {
+            "class": "btn btn-skip",
+            "onclick": "setResponseState(this,'5610867713','archived')"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✗ Отправить отказ",
+          "attrs": {
+            "class": "btn btn-send-reject",
+            "onclick": "rejectWithMessage(1,'5610867713')"
+          }
+        },
+        {
+          "type": "button",
+          "label": "🔄 Перегенерировать все черновики",
+          "attrs": {
+            "class": "btn-reject-all",
+            "id": "regenAllBtn",
+            "onclick": "regenerateAll()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Отказать (0)",
+          "attrs": {
+            "class": "btn-reject-all",
+            "id": "rejectAllBtn",
+            "onclick": "rejectAll()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Отправить (0)",
+          "attrs": {
+            "class": "btn-send-all",
+            "id": "sendAllBtn",
+            "onclick": "sendAll()"
+          }
+        },
+        {
+          "type": "select",
+          "label": "Вакансия",
+          "attrs": {
+            "aria-label": "Вакансия",
+            "onchange": "if(this.value)location.href=this.value",
+            "style": "flex:1 1 auto;min-width:150px;max-width:340px;padding:6px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff"
+          }
+        },
+        {
+          "type": "checkbox",
+          "label": "cb-0",
+          "attrs": {
+            "type": "checkbox",
+            "class": "card-cb",
+            "id": "cb-0",
+            "data-idx": "0",
+            "data-score": "0.0",
+            "data-stale": "0",
+            "data-auto-select": "0",
+            "onchange": "onCheck()"
+          }
+        },
+        {
+          "type": "checkbox",
+          "label": "reject-cb-0",
+          "attrs": {
+            "type": "checkbox",
+            "class": "reject-cb",
+            "id": "reject-cb-0",
+            "data-idx": "0",
+            "data-score": "0.0",
+            "onchange": "onCheck()"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "msg-0",
+          "attrs": {
+            "class": "msg-area",
+            "id": "msg-0",
+            "rows": "5"
+          }
+        },
+        {
+          "type": "checkbox",
+          "label": "cb-1",
+          "attrs": {
+            "type": "checkbox",
+            "class": "card-cb",
+            "id": "cb-1",
+            "data-idx": "1",
+            "data-score": "0.0",
+            "data-stale": "0",
+            "data-auto-select": "0",
+            "onchange": "onCheck()"
+          }
+        },
+        {
+          "type": "checkbox",
+          "label": "reject-cb-1",
+          "attrs": {
+            "type": "checkbox",
+            "class": "reject-cb",
+            "id": "reject-cb-1",
+            "data-idx": "1",
+            "data-score": "0.0",
+            "onchange": "onCheck()"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "msg-1",
+          "attrs": {
+            "class": "msg-area",
+            "id": "msg-1",
+            "rows": "5"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "+ Добавить вакансию",
+          "attrs": {
+            "class": "vacancy-add",
+            "data-testid": "vacancy-add",
+            "href": "http://127.0.0.1:44561/hh/vacancy-new?username=audit-recruiter&amp;token=073e2e17ceb725d9",
+            "style": "flex:0 0 auto;padding:6px 12px;border:1px solid #c7d2fe;border-radius:8px;font-size:13px;font-weight:600;color:#4338ca;background:#eef2ff;text-decoration:none;white-space:nowrap"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "Активные (1)",
+          "attrs": {
+            "class": "vacancy-tab active",
+            "href": "?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863&list=active"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "★ Избранные (0)",
+          "attrs": {
+            "class": "vacancy-tab",
+            "href": "?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863&list=starred"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "Архив (0)",
+          "attrs": {
+            "class": "vacancy-tab",
+            "href": "?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863&list=archived"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "👤 Профиль",
+          "attrs": {
+            "href": "candidate?neg_id=5610867713&username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+            "target": "_blank",
+            "class": "hh-link-btn",
+            "title": "Открыть профиль кандидата"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "👤 Профиль",
+          "attrs": {
+            "href": "candidate?neg_id=5610867713&username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+            "target": "_blank",
+            "class": "hh-link-btn",
+            "title": "Открыть профиль кандидата"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "📨 История диалога (2 сообщ.)",
+          "attrs": {
+            "class": "hist-details"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "📄 Резюме (текст)",
+          "attrs": {
+            "class": "resume-details"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "📨 История диалога (2 сообщ.)",
+          "attrs": {
+            "class": "hist-details"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "📄 Резюме (текст)",
+          "attrs": {
+            "class": "resume-details"
+          }
+        }
+      ]
+    },
+    {
+      "key": "candidate-new",
+      "path": "/hh/candidate-new",
+      "note": "Добавление кандидата",
+      "url": "http://127.0.0.1:44957/hh/candidate-new?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 20856,
+      "elements": [
+        {
+          "type": "button",
+          "label": "выбрать файлы",
+          "attrs": {
+            "class": "btn",
+            "type": "button",
+            "id": "btn-files"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Добавить ссылку",
+          "attrs": {
+            "class": "btn",
+            "type": "button",
+            "id": "btn-link",
+            "style": "margin-bottom:1px"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Добавить текстом",
+          "attrs": {
+            "class": "btn",
+            "type": "button",
+            "id": "btn-paste",
+            "style": "margin-bottom:1px"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Например: Стогниенко Анна",
+          "attrs": {
+            "type": "text",
+            "id": "cand-name",
+            "value": "",
+            "placeholder": "Например: Стогниенко Анна"
+          }
+        },
+        {
+          "type": "file",
+          "label": "files",
+          "attrs": {
+            "type": "file",
+            "id": "files",
+            "accept": ".txt,.md,.csv,.text,.docx,.pdf,.mp4,.mov,.m4a,.wav,.mp3,.png,.jpg,.jpeg,.webp,.zip",
+            "style": "display:none",
+            "multiple": true
+          }
+        },
+        {
+          "type": "text",
+          "label": "https://drive.google.com/file/d/.../view",
+          "attrs": {
+            "type": "text",
+            "id": "link-url",
+            "placeholder": "https://drive.google.com/file/d/.../view"
+          }
+        },
+        {
+          "type": "select",
+          "label": "link-type",
+          "attrs": {
+            "id": "link-type"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Вставь текст резюме/письма/переписки…",
+          "attrs": {
+            "id": "paste-text",
+            "rows": "4",
+            "placeholder": "Вставь текст резюме/письма/переписки…"
+          }
+        },
+        {
+          "type": "select",
+          "label": "paste-type",
+          "attrs": {
+            "id": "paste-type"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        }
+      ]
+    },
+    {
+      "key": "proactive",
+      "path": "/hh/proactive",
+      "note": "Холодный поиск",
+      "url": "http://127.0.0.1:44957/hh/proactive?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 36075,
+      "elements": [
+        {
+          "type": "button",
+          "label": "Включить мониторинг",
+          "attrs": {
+            "data-testid": "monitor-toggle",
+            "onclick": "vacancyAction('enable',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "☆ Отметить вакансию",
+          "attrs": {
+            "data-testid": "vacancy-star",
+            "onclick": "vacancyAction('star',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Архивировать вакансию",
+          "attrs": {
+            "data-testid": "vacancy-archive",
+            "onclick": "vacancyAction('archive',this)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "🔍 Новый поиск",
+          "attrs": {
+            "class": "btn-search",
+            "id": "searchBtn",
+            "onclick": "runSearch()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "📥 Импорт просмотренных",
+          "attrs": {
+            "class": "btn-import",
+            "onclick": "toggleImport()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "➕ Добавить кандидата вручную",
+          "attrs": {
+            "class": "btn-import secondary",
+            "onclick": "toggleManualAdd()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Добавить в базу просмотренных",
+          "attrs": {
+            "class": "btn-comment",
+            "style": "margin-top:4px",
+            "onclick": "importSeen()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Добавить кандидата",
+          "attrs": {
+            "class": "btn-comment",
+            "onclick": "addManualCandidate()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Все",
+          "attrs": {
+            "class": "btn-preset active",
+            "data-preset": "all"
+          }
+        },
+        {
+          "type": "button",
+          "label": "PASS",
+          "attrs": {
+            "class": "btn-preset",
+            "data-preset": "pass"
+          }
+        },
+        {
+          "type": "button",
+          "label": "REVIEW",
+          "attrs": {
+            "class": "btn-preset",
+            "data-preset": "review"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Топ ≥9",
+          "attrs": {
+            "class": "btn-preset",
+            "data-preset": "top9"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Сохранить",
+          "attrs": {
+            "class": "btn-secondary",
+            "id": "promptSaveBtn",
+            "onclick": "savePrompt(false)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Сохранить и запустить поиск",
+          "attrs": {
+            "class": "btn-search",
+            "id": "promptRunBtn",
+            "onclick": "savePrompt(true)"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✕",
+          "attrs": {
+            "class": "modal-close",
+            "onclick": "closeModal()",
+            "title": "Закрыть"
+          }
+        },
+        {
+          "type": "select",
+          "label": "Вакансия",
+          "attrs": {
+            "aria-label": "Вакансия",
+            "onchange": "if(this.value)location.href=this.value",
+            "style": "flex:1 1 auto;min-width:150px;max-width:340px;padding:6px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Вставьте ссылки HH или ID резюме (по одному на строку)",
+          "attrs": {
+            "id": "importIds",
+            "class": "comment-box",
+            "style": "width:100%;height:60px",
+            "placeholder": "Вставьте ссылки HH или ID резюме (по одному на строку)"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Ссылка на резюме HH или ID резюме",
+          "attrs": {
+            "id": "manualInput",
+            "class": "manual-input",
+            "type": "text",
+            "placeholder": "Ссылка на резюме HH или ID резюме"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Поиск по имени / должности…",
+          "attrs": {
+            "id": "nameSearch",
+            "class": "search-input",
+            "type": "text",
+            "placeholder": "Поиск по имени / должности…"
+          }
+        },
+        {
+          "type": "range",
+          "label": "scoreSlider",
+          "attrs": {
+            "id": "scoreSlider",
+            "type": "range",
+            "min": "0",
+            "max": "10",
+            "step": "0.1",
+            "value": "0"
+          }
+        },
+        {
+          "type": "select",
+          "label": "sourceFilter",
+          "attrs": {
+            "id": "sourceFilter",
+            "class": "source-filter"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "promptQueries",
+          "attrs": {
+            "id": "promptQueries",
+            "rows": "6"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "+ Добавить вакансию",
+          "attrs": {
+            "class": "vacancy-add",
+            "data-testid": "vacancy-add",
+            "href": "https://recruiter-assistant.ru/hh/vacancy-new?username=audit-recruiter&amp;token=073e2e17ceb725d9",
+            "style": "flex:0 0 auto;padding:6px 12px;border:1px solid #c7d2fe;border-radius:8px;font-size:13px;font-weight:600;color:#4338ca;background:#eef2ff;text-decoration:none;white-space:nowrap"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "Найдено (0)",
+          "attrs": {
+            "class": "state-tab active",
+            "href": "https://recruiter-assistant.ru/hh/proactive?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863&list=active"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "⭐ Выбрано (0)",
+          "attrs": {
+            "class": "state-tab",
+            "href": "https://recruiter-assistant.ru/hh/proactive?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863&list=starred"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "🗄 Архив (0)",
+          "attrs": {
+            "class": "state-tab",
+            "href": "https://recruiter-assistant.ru/hh/proactive?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863&list=archived"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "🔍 Поисковые запросы — посмотреть и изменить",
+          "attrs": {
+            "class": "prompt-panel",
+            "id": "promptPanel",
+            "data-testid": "prompt-panel"
+          }
+        }
+      ]
+    },
+    {
+      "key": "ats-editor",
+      "path": "/hh/ats-editor",
+      "note": "Редактор воронки найма",
+      "url": "http://127.0.0.1:44957/hh/ats-editor?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 58627,
+      "elements": [
+        {
+          "type": "button",
+          "label": "Проверить",
+          "attrs": {
+            "class": "btn btn-secondary btn-sm",
+            "id": "validateBtn"
+          }
+        },
+        {
+          "type": "button",
+          "label": "↓ JSON",
+          "attrs": {
+            "class": "btn btn-secondary btn-sm",
+            "id": "exportBtn"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Save Funnel",
+          "attrs": {
+            "class": "btn btn-primary",
+            "id": "saveBtn"
+          }
+        },
+        {
+          "type": "button",
+          "label": "↺ Re-run Funnel",
+          "attrs": {
+            "class": "btn btn-danger",
+            "id": "resetAtsBtn",
+            "title": "Re-run Funnel: сбросить оценки всех кандидатов и переоценить с текущим конфигом"
+          }
+        },
+        {
+          "type": "button",
+          "label": "↩ Вернуть общий шаблон",
+          "attrs": {
+            "type": "button",
+            "class": "btn btn-secondary btn-sm",
+            "id": "resetInstructionBtn",
+            "style": "margin-top:8px;align-self:flex-start"
+          }
+        },
+        {
+          "type": "button",
+          "label": "+ добавить",
+          "attrs": {
+            "class": "btn btn-sm btn-secondary",
+            "onclick": "addRequired()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "+ добавить",
+          "attrs": {
+            "class": "btn btn-sm btn-secondary",
+            "onclick": "addPreferred()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "＋ Добавить этап",
+          "attrs": {
+            "class": "btn btn-secondary",
+            "id": "addStageBtn",
+            "data-testid": "add-stage-btn"
+          }
+        },
+        {
+          "type": "button",
+          "label": "↑ Выше",
+          "attrs": {
+            "type": "button",
+            "class": "btn btn-secondary btn-sm",
+            "data-action": "up",
+            "data-stage-id": "' + id + '"
+          }
+        },
+        {
+          "type": "button",
+          "label": "↓ Ниже",
+          "attrs": {
+            "type": "button",
+            "class": "btn btn-secondary btn-sm",
+            "data-action": "down",
+            "data-stage-id": "' + id + '"
+          }
+        },
+        {
+          "type": "button",
+          "label": "✕ Удалить",
+          "attrs": {
+            "type": "button",
+            "class": "btn btn-danger btn-sm",
+            "data-action": "delete",
+            "data-stage-id": "' + id + '"
+          }
+        },
+        {
+          "type": "button",
+          "label": "×",
+          "attrs": {
+            "class": "del-btn",
+            "data-idx": "${i}"
+          }
+        },
+        {
+          "type": "button",
+          "label": "×",
+          "attrs": {
+            "class": "del-btn",
+            "data-idx": "${i}"
+          }
+        },
+        {
+          "type": "select",
+          "label": "Вакансия",
+          "attrs": {
+            "aria-label": "Вакансия",
+            "onchange": "if(this.value)location.href=this.value",
+            "style": "flex:1 1 auto;min-width:150px;max-width:340px;padding:6px 10px;border:1px solid #c7d2fe;border-radius:8px;font-size:14px;font-weight:600;color:#1e293b;background:#fff"
+          }
+        },
+        {
+          "type": "select",
+          "label": "tplSelect",
+          "attrs": {
+            "id": "tplSelect"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Backend Developer / Маркетолог ...",
+          "attrs": {
+            "type": "text",
+            "id": "fTitle",
+            "placeholder": "Backend Developer / Маркетолог ..."
+          }
+        },
+        {
+          "type": "number",
+          "label": "fPass",
+          "attrs": {
+            "type": "number",
+            "id": "fPass",
+            "step": "0.5",
+            "min": "0",
+            "max": "10",
+            "value": "6.5"
+          }
+        },
+        {
+          "type": "number",
+          "label": "fReview",
+          "attrs": {
+            "type": "number",
+            "id": "fReview",
+            "step": "0.5",
+            "min": "0",
+            "max": "10",
+            "value": "4.0"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Краткое описание: продукт, команда, задачи...",
+          "attrs": {
+            "id": "fContext",
+            "rows": "2",
+            "placeholder": "Краткое описание: продукт, команда, задачи..."
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Порядок работы с кандидатом для этой вакансии. Обязательные требования подставляются автоматически из «★ Обязательные навыки» — перечислять их здесь не нужно.",
+          "attrs": {
+            "id": "fMessageInstructions",
+            "rows": "4",
+            "placeholder": "Порядок работы с кандидатом для этой вакансии. Обязательные требования подставляются автоматически из «★ Обязательные навыки» — перечислять их здесь не нужно."
+          }
+        },
+        {
+          "type": "number",
+          "label": "0",
+          "attrs": {
+            "type": "number",
+            "id": "fMinExp",
+            "min": "0",
+            "max": "20",
+            "value": "2",
+            "placeholder": "0"
+          }
+        },
+        {
+          "type": "number",
+          "label": "не ограничено",
+          "attrs": {
+            "type": "number",
+            "id": "fMaxSalary",
+            "min": "0",
+            "step": "10000",
+            "placeholder": "не ограничено"
+          }
+        },
+        {
+          "type": "checkbox",
+          "label": "fRemote",
+          "attrs": {
+            "type": "checkbox",
+            "id": "fRemote"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Junior / Middle / Senior",
+          "attrs": {
+            "type": "text",
+            "id": "fIcLevel",
+            "placeholder": "Junior / Middle / Senior"
+          }
+        },
+        {
+          "type": "text",
+          "label": "https://calendly.com/...",
+          "attrs": {
+            "type": "text",
+            "id": "fIcBookingUrl",
+            "placeholder": "https://calendly.com/..."
+          }
+        },
+        {
+          "type": "checkbox",
+          "label": "fIcEnabled",
+          "attrs": {
+            "type": "checkbox",
+            "id": "fIcEnabled"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Например: подключение к Zoom, тестовое задание уже готово",
+          "attrs": {
+            "type": "text",
+            "id": "fIcRequirements",
+            "placeholder": "Например: подключение к Zoom, тестовое задание уже готово"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Например: Пн–Пт 10:00–18:00 МСК, слоты по 30 минут",
+          "attrs": {
+            "id": "fIcAvailability",
+            "rows": "2",
+            "placeholder": "Например: Пн–Пт 10:00–18:00 МСК, слоты по 30 минут"
+          }
+        },
+        {
+          "type": "select",
+          "label": "Шаблон этапа",
+          "attrs": {
+            "id": "stageTemplate",
+            "data-testid": "stage-template-select",
+            "aria-label": "Шаблон этапа"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Например: Тестовое задание",
+          "attrs": {
+            "type": "text",
+            "data-field": "title",
+            "data-stage-id": "' + id + '",
+            "value": "' + escHtml(stage.title) + '",
+            "placeholder": "Например: Тестовое задание"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Что спросить или предложить кандидату...",
+          "attrs": {
+            "rows": "3",
+            "data-field": "instruction",
+            "data-stage-id": "' + id + '",
+            "placeholder": "Что спросить или предложить кандидату..."
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Какой факт означает, что этап закрыт",
+          "attrs": {
+            "rows": "2",
+            "data-field": "completion_result",
+            "data-stage-id": "' + id + '",
+            "placeholder": "Какой факт означает, что этап закрыт"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Текст, который уйдёт кандидату дословно, или контекст для сообщения",
+          "attrs": {
+            "rows": "6",
+            "data-field": "material",
+            "data-stage-id": "' + id + '",
+            "placeholder": "Текст, который уйдёт кандидату дословно, или контекст для сообщения"
+          }
+        },
+        {
+          "type": "select",
+          "label": "(unlabeled)",
+          "attrs": {
+            "data-field": "material_mode",
+            "data-stage-id": "' + id + '"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Навык / технология...",
+          "attrs": {
+            "type": "text",
+            "value": "${escHtml(r.name)}",
+            "data-idx": "${i}",
+            "data-field": "name",
+            "placeholder": "Навык / технология..."
+          }
+        },
+        {
+          "type": "number",
+          "label": "(unlabeled)",
+          "attrs": {
+            "type": "number",
+            "value": "${r.weight}",
+            "data-idx": "${i}",
+            "data-field": "weight",
+            "step": "0.5",
+            "min": "0.5",
+            "max": "5",
+            "style": "width:60px"
+          }
+        },
+        {
+          "type": "text",
+          "label": "Желательный навык...",
+          "attrs": {
+            "type": "text",
+            "value": "${escHtml(p.name)}",
+            "data-idx": "${i}",
+            "data-field": "name",
+            "placeholder": "Желательный навык..."
+          }
+        },
+        {
+          "type": "number",
+          "label": "(unlabeled)",
+          "attrs": {
+            "type": "number",
+            "value": "${p.weight}",
+            "data-idx": "${i}",
+            "data-field": "weight",
+            "step": "0.5",
+            "min": "0.5",
+            "max": "5",
+            "style": "width:60px"
+          }
+        },
+        {
+          "type": "link-control",
+          "label": "+ Добавить вакансию",
+          "attrs": {
+            "class": "vacancy-add",
+            "data-testid": "vacancy-add",
+            "href": "http://localhost:3001/hh/vacancy-new?username=audit-recruiter&amp;token=073e2e17ceb725d9",
+            "style": "flex:0 0 auto;padding:6px 12px;border:1px solid #c7d2fe;border-radius:8px;font-size:13px;font-weight:600;color:#4338ca;background:#eef2ff;text-decoration:none;white-space:nowrap"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "JSON (raw config)",
+          "attrs": {}
+        }
+      ]
+    },
+    {
+      "key": "sync-log",
+      "path": "/hh/sync-log",
+      "note": "Синхронизация и журнал",
+      "url": "http://127.0.0.1:44957/hh/sync-log?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 4355,
+      "elements": [
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        }
+      ]
+    },
+    {
+      "key": "style",
+      "path": "/hh/style",
+      "note": "Общие настройки / стиль",
+      "url": "http://127.0.0.1:44957/hh/style?username=audit-recruiter&token=073e2e17ceb725d9&vacancy_id=138004863",
+      "status": 200,
+      "err": null,
+      "bytes": 17074,
+      "elements": [
+        {
+          "type": "button",
+          "label": "Сохранить правила",
+          "attrs": {
+            "class": "btn-primary",
+            "id": "btnSave",
+            "onclick": "saveRules()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Извлечь стиль из примеров",
+          "attrs": {
+            "class": "btn-secondary",
+            "id": "btnExtract",
+            "onclick": "extractStyle()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Сохранить сценарий",
+          "attrs": {
+            "class": "btn-primary",
+            "id": "btnSaveBase",
+            "onclick": "saveBasePrompt()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Сбросить к умолчанию",
+          "attrs": {
+            "class": "btn-secondary",
+            "id": "btnResetBase",
+            "onclick": "resetBasePrompt()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Сохранить шаблон",
+          "attrs": {
+            "class": "btn-primary",
+            "id": "btnSaveInst",
+            "onclick": "saveInstructionsTemplate()"
+          }
+        },
+        {
+          "type": "button",
+          "label": "Сбросить к умолчанию",
+          "attrs": {
+            "class": "btn-secondary",
+            "id": "btnResetInst",
+            "onclick": "resetInstructionsTemplate()"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "- Тон: ...\n- Приветствие: ...\n- Структура: ...",
+          "attrs": {
+            "id": "rules",
+            "rows": "10",
+            "placeholder": "- Тон: ...\n- Приветствие: ...\n- Структура: ..."
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "Рекрутер: Добрый день, Иван! Посмотрела ваше резюме...\nКандидат: Здравствуйте! Да, интересно узнать подробности.\nРекрутер: Отлично! Расскажите, есть ли у вас опыт...",
+          "attrs": {
+            "id": "examples",
+            "rows": "8",
+            "placeholder": "Рекрутер: Добрый день, Иван! Посмотрела ваше резюме...\nКандидат: Здравствуйте! Да, интересно узнать подробности.\nРекрутер: Отлично! Расскажите, есть ли у вас опыт..."
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "basePrompt",
+          "attrs": {
+            "id": "basePrompt",
+            "rows": "14"
+          }
+        },
+        {
+          "type": "textarea",
+          "label": "instTemplate",
+          "attrs": {
+            "id": "instTemplate",
+            "rows": "8"
+          }
+        },
+        {
+          "type": "disclosure",
+          "label": "⚙ Общие настройки",
+          "attrs": {
+            "class": "hh-nav-settings",
+            "data-testid": "nav-settings"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -40,6 +40,29 @@ describe('generateReviewHtml source — callback embedding', () => {
   });
 });
 
+describe('review page — explicit single-candidate stale draft override', () => {
+  const page = readFileSync(
+    pathJoin(fileURLToPath(import.meta.url), '..', '..', '..', 'src', 'hh-review-page-html.js'),
+    'utf8',
+  );
+
+  it('keeps stale drafts individually sendable and confirms the exact manual override', () => {
+    expect(page).toContain("sendOne(this,${i},'${esc(c.negotiation_id)}',false,${!!c.draft_is_stale})");
+    expect(page).toContain('if (forceStale && !window.confirm(');
+    expect(page).toContain('force_stale: !!forceStale');
+    expect(page).toContain("e.code === 'STALE_COMMUNICATION_DRAFT'");
+    expect(page).toContain('error.code = data.code');
+    expect(page).not.toContain("c.draft_is_stale ? ' disabled title=");
+  });
+
+  it('keeps stale drafts score-selectable and requires confirmation before bulk override', () => {
+    expect(page).toContain('data-stale="${c.draft_is_stale ? \'1\' : \'0\'}"');
+    expect(page).toContain("У ' + staleWithMessage.length + ' выбранных кандидатов черновик помечен как устаревший");
+    expect(page).toContain("force_stale: cb.dataset.stale === '1'");
+    expect(page).toContain("if (bucket === n) cb.checked = activeBuckets.has(n)");
+  });
+});
+
 // The re-send guard after a delivered message is a 15-second visible countdown on the
 // send button (recruiter report 01.10: the card used to freeze grey with no way to tell
 // a temporary block from a dead page). Pinned here so a test override in the browser

@@ -83,7 +83,9 @@ function hhNavHtml({ pathname = '', username, token, vacancyId, vacancyPicker = 
     `#${NAV_ID} .vacancy-picker>div{flex:1 1 100%;min-width:0}` +
     `#${NAV_ID} .vacancy-picker select{min-width:0}` +
     `#${NAV_ID} .hh-nav-links{flex-wrap:nowrap;overflow-x:auto}` +
-    `#${NAV_ID} a,#${NAV_ID} summary{padding:6px 8px}}` +
+    // Мобильный аудит #174: на телефоне пункты меню были ниже пальца (~24px).
+    // Один общий размер для всех 8 экранов вместо правки каждой страницы.
+    `#${NAV_ID} a,#${NAV_ID} summary{padding:6px 8px;min-height:40px;display:inline-flex;align-items:center}}` +
     `</style>${inner}</nav>`;
 }
 
