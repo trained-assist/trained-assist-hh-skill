@@ -242,7 +242,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            <div class="funnel-step" style="font-size:11px;color:var(--muted);margin:-4px 0 6px"></div>
            <div class="communication-review">${communicationReviewHtml(c.communication_steps)}</div>
            ${c.draft_is_stale ? '<p class="draft-stale" role="status">Старый черновик: обновите его по сценарию перед отправкой.</p>' : ''}
-           <textarea class="msg-area" id="msg-${i}" rows="5">${hasDraft ? esc(c.draft_message) : ''}</textarea>
+           <textarea class="msg-area" id="msg-${i}" rows="5" oninput="markEdited(${i})">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
              <button class="btn btn-send" data-stale="${c.draft_is_stale ? '1' : '0'}" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}',false,${!!c.draft_is_stale})"${c.draft_is_stale ? ' title="Черновик устарел — отправка потребует ручного подтверждения"' : ''}>✓ Отправить</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
@@ -430,20 +430,22 @@ ${!hasAtsConfig ? `<div id="no-ats-banner" role="alert" style="background:rgba(2
 <p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()" title="Загрузить актуальные отклики и сообщения из HH; черновики не генерируются">↻ Синхронизировать отклики</button></p>
 <p id="responseUpdates" role="status" aria-live="polite"></p>
 <div class="toolbar">
-  <span class="toolbar-label">Балл (округление до целого):</span>
-  <button class="tb-btn score-btn" data-bucket="10" onclick="toggleBucket(10)">10</button>
-  <button class="tb-btn score-btn" data-bucket="9" onclick="toggleBucket(9)">9</button>
-  <button class="tb-btn score-btn" data-bucket="8" onclick="toggleBucket(8)">8</button>
-  <button class="tb-btn score-btn" data-bucket="7" onclick="toggleBucket(7)">7</button>
-  <button class="tb-btn score-btn" data-bucket="6" onclick="toggleBucket(6)">6</button>
-  <button class="tb-btn score-btn" data-bucket="5" onclick="toggleBucket(5)">5</button>
-  <button class="tb-btn score-btn" data-bucket="4" onclick="toggleBucket(4)">4</button>
-  <button class="tb-btn score-btn" data-bucket="3" onclick="toggleBucket(3)">3</button>
-  <button class="tb-btn score-btn" data-bucket="2" onclick="toggleBucket(2)">2</button>
-  <button class="tb-btn score-btn" data-bucket="1" onclick="toggleBucket(1)">1</button>
+  <span class="toolbar-label" id="bucketLabel">Выбрать по баллу (округление до целого):</span>
+  <button class="tb-btn score-btn" data-bucket="10" onclick="toggleBucket(10)" title="Выбрать со скором 10" aria-label="Выбрать со скором 10">10</button>
+  <button class="tb-btn score-btn" data-bucket="9" onclick="toggleBucket(9)" title="Выбрать со скором 9" aria-label="Выбрать со скором 9">9</button>
+  <button class="tb-btn score-btn" data-bucket="8" onclick="toggleBucket(8)" title="Выбрать со скором 8" aria-label="Выбрать со скором 8">8</button>
+  <button class="tb-btn score-btn" data-bucket="7" onclick="toggleBucket(7)" title="Выбрать со скором 7" aria-label="Выбрать со скором 7">7</button>
+  <button class="tb-btn score-btn" data-bucket="6" onclick="toggleBucket(6)" title="Выбрать со скором 6" aria-label="Выбрать со скором 6">6</button>
+  <button class="tb-btn score-btn" data-bucket="5" onclick="toggleBucket(5)" title="Выбрать со скором 5" aria-label="Выбрать со скором 5">5</button>
+  <button class="tb-btn score-btn" data-bucket="4" onclick="toggleBucket(4)" title="Выбрать со скором 4" aria-label="Выбрать со скором 4">4</button>
+  <button class="tb-btn score-btn" data-bucket="3" onclick="toggleBucket(3)" title="Выбрать со скором 3" aria-label="Выбрать со скором 3">3</button>
+  <button class="tb-btn score-btn" data-bucket="2" onclick="toggleBucket(2)" title="Выбрать со скором 2" aria-label="Выбрать со скором 2">2</button>
+  <button class="tb-btn score-btn" data-bucket="1" onclick="toggleBucket(1)" title="Выбрать со скором 1" aria-label="Выбрать со скором 1">1</button>
   <div class="tb-sep"></div>
-  <button class="tb-btn" onclick="selectAll(true)">✓ Выбрать все</button>
+  <button class="tb-btn" onclick="selectAll(true)" title="Отметить всех на этой вкладке к отправке">✓ Выбрать все</button>
   <button class="tb-btn" onclick="selectAll(false)">✗ Снять все</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn tb-danger" id="selectRejectAllBtn" onclick="selectRejectAll()" title="Отметить всех на этой вкладке к отказу">🚫 Отказать все</button>
 </div>
 <div class="tabs">
   <button class="tab-btn" onclick="switchTab('waiting',this)">🔴 Неотвеченные (${waitingCandidates.length})</button>
@@ -472,11 +474,11 @@ ${repliedAfterReject.length ? `<div id="tab-postreject" class="tab-panel">
   ${allCardsHtml.join('')}
 </div>
 <div class="footer">
-  <div class="counter">Отправить: <strong id="selCount">0</strong> · Отказать: <strong id="rejCount">0</strong> · Готово: <strong id="sentCount">0</strong></div>
+  <div class="counter" id="bulkScopeHint">Массовые действия — только на открытой вкладке: Отправить <strong id="selCount">0</strong> · Отказать <strong id="rejCount">0</strong> · Готово (все вкладки): <strong id="sentCount">0</strong></div>
   <div class="bulk-status" id="bulkGenerationStatus" role="status" aria-live="polite" hidden></div>
-  <button class="btn-reject-all" id="regenAllBtn" onclick="regenerateAll()">🔄 Перегенерировать все черновики</button>
-  <button class="btn-reject-all" id="rejectAllBtn" onclick="rejectAll()" disabled>Отказать (0)</button>
-  <button class="btn-send-all" id="sendAllBtn" onclick="sendAll()" disabled>Отправить (0)</button>
+  <button class="btn-reject-all" id="regenAllBtn" onclick="regenerateAll()" title="Перегенерировать черновики на открытой вкладке; отредактированные вручную не трогаются">🔄 Перегенерировать черновики</button>
+  <button class="btn-reject-all" id="rejectAllBtn" onclick="rejectAll()" disabled title="Отказать отмеченным на открытой вкладке">Отказать (0) на вкладке</button>
+  <button class="btn-send-all" id="sendAllBtn" onclick="sendAll()" disabled title="Отправить отмеченным на открытой вкладке">Отправить (0) на вкладке</button>
 </div>
 <script>
 const CALLBACK_BASE = '${callbackBase}';
@@ -544,6 +546,12 @@ async function syncNow() {
   }
 }
 
+function plural(n, forms) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1];
+  return forms[2];
+}
 function showToast(msg, isError) {
   const t = document.createElement('div');
   t.className = 'toast' + (isError ? ' toast-err' : '');
@@ -631,15 +639,27 @@ function startSendCooldown(btn, i) {
   tick();
 }
 
+function activeTabLabel() {
+  const btn = document.querySelector('.tab-btn.active');
+  return btn ? btn.textContent.trim() : 'открытой вкладке';
+}
+function markEdited(i) {
+  const ta = document.getElementById('msg-' + i);
+  if (ta) ta.dataset.edited = '1';
+}
+function isHandEdited(i) {
+  return document.getElementById('msg-' + i)?.dataset?.edited === '1';
+}
+
 function onCheck() {
   const ns = document.querySelectorAll('.tab-panel.active .card-cb:checked').length;
   const nr = document.querySelectorAll('.tab-panel.active .reject-cb:checked').length;
   document.getElementById('selCount').textContent = ns;
   document.getElementById('rejCount').textContent = nr;
   const sb = document.getElementById('sendAllBtn');
-  sb.textContent = 'Отправить (' + ns + ')'; sb.disabled = ns === 0;
+  sb.textContent = 'Отправить (' + ns + ') на вкладке'; sb.disabled = ns === 0;
   const rb = document.getElementById('rejectAllBtn');
-  rb.textContent = 'Отказать (' + nr + ')'; rb.disabled = nr === 0;
+  rb.textContent = 'Отказать (' + nr + ') на вкладке'; rb.disabled = nr === 0;
 }
 
 const activeBuckets = new Set();
@@ -664,6 +684,20 @@ function selectAll(checked) {
   onCheck();
 }
 
+// Symmetric to «Выбрать все», but selecting is already an outward-facing
+// decision (a rejection letter leaves for each checked card), so it asks first
+// and reports the scope. Unchecking stays silent — it withdraws the intent.
+function selectRejectAll() {
+  const cbs = [...document.querySelectorAll('.tab-panel.active .reject-cb')]
+    .filter(cb => !done.has(parseInt(cb.dataset.idx)) && !cb.disabled);
+  if (!cbs.length) { showToast('На «' + activeTabLabel() + '» нет активных кандидатов'); return; }
+  const already = cbs.filter(cb => cb.checked).length;
+  if (already === cbs.length) { cbs.forEach(cb => { cb.checked = false; }); onCheck(); showToast('Отметки к отказу сняты'); return; }
+  if (!window.confirm('Отметить ' + cbs.length + ' кандидатов на вкладке «' + activeTabLabel() + '» к отказу?\\n\\nПисьма об отказе ещё не отправлены — они уйдут только после подтверждения кнопкой «Отказать (N) на вкладке».')) return;
+  cbs.forEach(cb => { cb.checked = true; });
+  onCheck();
+}
+
 function markDone(i) {
   const negId = document.getElementById('card-'+i).dataset.neg;
   document.querySelectorAll('.card').forEach(card => {
@@ -677,9 +711,15 @@ function markDone(i) {
 
 async function regenerateAll() {
   const btn = document.getElementById('regenAllBtn');
-  const targets = Array.from(document.querySelectorAll('.tab-panel.active .btn-gen[data-negid]'))
+  const candidates = Array.from(document.querySelectorAll('.tab-panel.active .btn-gen[data-negid]'))
     .filter(b => !b.disabled && !done.has(parseInt(b.dataset.idx)));
-  if (!targets.length) { showToast('Нечего перегенерировать'); return; }
+  const handEdited = candidates.filter(b => isHandEdited(parseInt(b.dataset.idx)));
+  const targets = candidates.filter(b => !isHandEdited(parseInt(b.dataset.idx)));
+  if (!targets.length) { showToast(handEdited.length ? 'Все черновики на вкладке отредактированы вручную — они не перезаписываются' : 'Нечего перегенерировать'); return; }
+  if (!window.confirm('Перегенерировать ' + targets.length + ' ' + plural(targets.length, ['черновик', 'черновика', 'черновиков'])
+    + ' на вкладке «' + activeTabLabel() + '»? Тексты будут заменены целиком.'
+    + (handEdited.length ? '\\n\\n' + handEdited.length + ' ' + plural(handEdited.length, ['черновик', 'черновика', 'черновиков']) + ' с ручной правкой останутся нетронутыми.' : '')
+    + (bulkGenerationActive ? '\\n\\nПерегенерация уже идёт.' : ''))) return;
   const total = targets.length;
   let finished = 0;
   let succeeded = 0;
@@ -747,7 +787,7 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     }, window.HH_GENERATION_TIMEOUT_MS);
     const card=document.getElementById('card-'+i);
     if(card?.querySelector('.draft-stale')&&!data.communication_steps) throw new Error('Сценарий не подтвердил обновление черновика. Старый текст оставлен без изменений.');
-    if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; }
+    if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; delete ta.dataset?.edited; }
     const step = document.querySelector('#card-'+i+' .funnel-step');
     if (step) { step.style.color='';step.removeAttribute('role');step.textContent = data.funnel_action
       ? 'Шаг воронки: ' + data.funnel_action + (data.funnel_reason ? ' — ' + data.funnel_reason : '')
@@ -1014,7 +1054,18 @@ function skipOne(i) {
 
 async function sendAll() {
   const cbs = [...document.querySelectorAll('.tab-panel.active .card-cb:checked')];
-  const staleWithMessage = cbs.filter(cb => cb.dataset.stale === '1' && document.getElementById('msg-'+parseInt(cb.dataset.idx))?.value);
+  if (!cbs.length) return;
+  // The general confirmation is the guard, not the stale-draft one: a recruiter
+  // who clicked through score buckets must see how many real candidates the
+  // letters go to, and on which tab, before anything leaves for HH.
+  const withText = cbs.filter(cb => (document.getElementById('msg-' + parseInt(cb.dataset.idx))?.value || '').trim());
+  const empty = cbs.length - withText.length;
+  const question = 'Отправить ' + withText.length + ' ' + plural(withText.length, ['письмо', 'письма', 'писем'])
+    + ' на вкладке «' + activeTabLabel() + '»?\\n\\n'
+    + (empty ? 'У ' + empty + ' ' + plural(empty, ['кандидата', 'кандидатов', 'кандидатов']) + ' текста нет — они будут пропущены.\\n\\n' : '')
+    + 'Каждое письмо уйдёт кандидату в HH от вашего имени. Отменить массовую отправку нельзя.';
+  if (!window.confirm(question)) return;
+  const staleWithMessage = withText.filter(cb => cb.dataset.stale === '1');
   if (staleWithMessage.length && !window.confirm('У ' + staleWithMessage.length + ' выбранных кандидатов черновик помечен как устаревший. Отправить эти тексты без обновления? Будут проверены запрет контакта и дубли.')) return;
   const sb = document.getElementById('sendAllBtn');
   sb.disabled = true; sb.textContent = '⏳ Отправляю...';
@@ -1065,7 +1116,7 @@ async function rejectAll() {
     return { i, negId: document.getElementById('card-' + i)?.dataset.neg || '' };
   }).filter(t => t.negId);
   if (!targets.length) return;
-  if (!confirm('Отказать ' + targets.length + ' кандидатам? Каждому уйдёт стандартное сообщение об отказе со статусом «Не подходит».')) return;
+  if (!confirm('Отказать ' + targets.length + ' кандидатам на вкладке «' + activeTabLabel() + '»? Каждому уйдёт стандартное сообщение об отказе со статусом «Не подходит».')) return;
   const rb = document.getElementById('rejectAllBtn');
   rb.disabled = true;
   let ok = 0, fail = 0;
