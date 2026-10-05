@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { createHmac } = require('crypto');
-const { hhFetch, readActiveVacancies, readHhTokenFile } = require('./hh-utils');
+const { hhFetch, isHhAuthError, readHhToken, readActiveVacancies, readHhTokenFile } = require('./hh-utils');
 const { hasRealAvailability } = require('./hh-message-prompts');
 const { hydrateResumes } = require('./hh-resume');
 const { scoreUnscoredCandidates, generateDraftMessages, readAtsConfig } = require('./hh-scoring');
@@ -106,10 +106,11 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
     try {
       negotiations = await fetchAllHhNegotiations(vacancyId, accessToken);
     } catch (e) {
-      // If HH rejected the token (401/403 oauth_error=token-expired), refresh once and retry.
+      // If HH explicitly rejected authentication, refresh once and retry; permissions403 does not rotate tokens.
       // Without this, /hh/review silently goes empty 14 days after every re-auth.
-      if (username && /HH(?: API)? 40[13].*token[-_]?expired/i.test(String(e.message || ''))) {
-        const fresh = await refreshHhToken(username, getSecretsCache());
+      if (username && isHhAuthError(e)) {
+        const stored = readHhToken(username);
+        const fresh = stored?.access_token && stored.access_token !== accessToken ? stored.access_token : await refreshHhToken(username, getSecretsCache(), accessToken);
         if (fresh) negotiations = await fetchAllHhNegotiations(vacancyId, fresh);
         else throw e;
       } else { throw e; }

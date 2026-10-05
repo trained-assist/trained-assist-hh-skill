@@ -16,7 +16,7 @@ const userWorkDir = (username) => path.join(usersRoot(), String(username));
 
 const { sendRejection, REJECT_REASON_ACTION } = require('./hh-rejection');
 const { hydrateResume, buildResumeText, resumeNotice, resumeHash } = require('./hh-resume');
-const { hhFetch, hhPut, hhPostForm, readHhToken, readHhTokenFile, readCredentialFileSafe, refreshHhToken, readActiveVacancies } = require('./hh-utils');
+const { hhFetchWithRefresh, isHhAuthError, hhAuthErrorResponse, hhFetch, hhPut, hhPostForm, readHhToken, readHhTokenFile, readCredentialFileSafe, refreshHhToken, readActiveVacancies } = require('./hh-utils');
 // Credential store (trained-assist-agent#1939): every credential file this
 // module touches (`hh`, `openrouter`, `hh-message-style`, `hh-message-base-prompt`)
 // passes through it — legacy plaintext transparent, a v2 envelope decrypted,
@@ -440,6 +440,9 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
     const result = await getHhNegotiationsWithCache(dataDir, username, vacancy.id, tokenData.access_token);
     negotiations = result.negotiations;
     syncedAt = result.synced_at;
+    // The negotiations fetch may have refreshed the rotating credential.
+    const currentToken = readHhTokenFile(tokenFile);
+    if (currentToken?.access_token) tokenData.access_token = currentToken.access_token;
   } catch (e) {
     console.error('[hh/review] fetch error:', e.message);
     syncError = 'Не удалось обновить отклики из HH. Показаны последние сохранённые данные.';
@@ -980,7 +983,7 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     if (fs.existsSync(hhTokenFile)) hhToken = readHhTokenFile(hhTokenFile);
   } catch { /* ignore */ }
 
-  if(communicationEnabledFor(username,body?.vacancy_id)&&hhToken){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,hhToken));msgs=history.messages||[];}catch(e){return json(res,503,{error:e.message,code:'HH_FRESHNESS_UNAVAILABLE'});}}
+  if(communicationEnabledFor(username,body?.vacancy_id)&&hhToken){try{await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetchWithRefresh(endpoint,hhToken,username,_secretsCache));msgs=history.messages||[];}catch(e){if(isHhAuthError(e))return json(res,401,hhAuthErrorResponse(e));return json(res,503,{error:e.message,code:'HH_FRESHNESS_UNAVAILABLE'});}}
 
   let sourceResumeHash=null;
   let fullResumeText = (resume_text || '').trim();
@@ -1413,7 +1416,8 @@ if (req.method === 'POST' && url.pathname === '/hh/sync-negotiations') {
     return json(res, 200, { ok: true, count: negotiations.length, synced_at });
   } catch (e) {
     console.error('[hh/sync] error:', e.message);
-    return json(res, 500, { error: e.message });
+    if (isHhAuthError(e)) return json(res, 401, hhAuthErrorResponse(e));
+    return json(res, 502, { error: e.message, code: 'HH_SYNC_FAILED' });
   }
 }
 
