@@ -960,8 +960,8 @@
       "retrySafety": "idempotent"
     },
     {
-      "name": "hh_vacancy_publish_page",
-      "description": "Publish the vacancy draft as a public landing page on platform.recruiter-assistant.ru. Returns the URL to share with candidates.",
+      "name": "hh_vacancy_publish_landing",
+      "description": "Publish the vacancy DRAFT as a public landing page on platform.recruiter-assistant.ru. Returns the URL to share with candidates. This is the vacancy landing specifically — for arbitrary content published as a page use publish_page, for the Tilda project page use tilda_publish_page.",
       "inputSchema": {
         "type": "object",
         "properties": {}

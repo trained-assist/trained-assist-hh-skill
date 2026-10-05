@@ -2091,12 +2091,12 @@ module.exports = {
           response_letter_required: false,
         };
         writeVacancyState(profileWorkDir(), { vacancy_id: vacancyId, status: 'draft_ready', draft, landing_url: null });
-        return { ok: true, vacancy_id: vacancyId, message: `Черновик создан: «${args.name}». Используй hh_vacancy_publish_page чтобы опубликовать страницу.` };
+        return { ok: true, vacancy_id: vacancyId, message: `Черновик создан: «${args.name}». Используй hh_vacancy_publish_landing чтобы опубликовать страницу.` };
       },
     },
 
-    hh_vacancy_publish_page: {
-      description: 'Publish the vacancy draft as a public landing page on platform.recruiter-assistant.ru. Returns the URL to share with candidates.',
+    hh_vacancy_publish_landing: {
+      description: 'Publish the vacancy DRAFT as a public landing page on platform.recruiter-assistant.ru. Returns the URL to share with candidates. This is the vacancy landing specifically — for arbitrary content published as a page use publish_page, for the Tilda project page use tilda_publish_page.',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
         const { readVacancyState, publishVacancyPage, getMissingFields } = require('./../../hh-vacancy');

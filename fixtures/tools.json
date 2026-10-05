@@ -48,7 +48,7 @@
     { "name": "hh_vacancy_get_draft", "validArgs": {} },
     { "name": "hh_vacancy_update_draft", "validArgs": { "name": "Инженер Node.js" } },
     { "name": "hh_vacancy_create_draft", "validArgs": { "name": "Инженер Node.js", "description_md": "Ищем backend-разработчика" } },
-    { "name": "hh_vacancy_publish_page", "validArgs": {} },
+    { "name": "hh_vacancy_publish_landing", "validArgs": {} },
     { "name": "hh_portrait_extract", "validArgs": { "sources": [{ "type": "vacancy", "text": "Ищем маркетолога, удалёнка, оклад 100000 ₽" }] }, "expect": { "ok": true } },
     { "name": "hh_portrait_get", "validArgs": {}, "expect": { "ok": true } },
     { "name": "hh_portrait_completeness", "validArgs": {}, "expect": { "ok": true } },

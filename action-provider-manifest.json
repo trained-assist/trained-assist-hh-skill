@@ -933,7 +933,7 @@
       "retrySafety": "idempotent"
     },
     {
-      "name": "hh_vacancy_publish_page",
+      "name": "hh_vacancy_publish_landing",
       "inputSchema": {
         "type": "object",
         "properties": {}
