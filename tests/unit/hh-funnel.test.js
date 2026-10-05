@@ -639,6 +639,99 @@ describe('funnel — «что уточняем»: only missing must-haves, pass 
   // добавлен блок «Факты из резюме» и гейт «не переспрашивай» — старые черновики
   // с дефектом обязаны устареть.
   it('bumps the logic version so drafts written by older logic go stale', () => {
-    expect(FUNNEL_LOGIC_VERSION).toBe('funnel-v3');
+    expect(FUNNEL_LOGIC_VERSION).toBe('funnel-v4');
+  });
+});
+
+// Live defect #182 (05.10.2026, vacancy 138004863, negotiation 5619614258):
+// «Бурданова Ольга» — we proposed the test, she replied «Да, конечно. Присылайте
+// задание.», and the funnel answered null (the promise was read only from the
+// LAST message, which was hers). The planner then asked about readiness a second
+// time. A pending assignment is a state of the thread, not of who spoke last.
+describe('funnel — a pending assignment survives the candidate answering (#182)', () => {
+  const TASK = 'Тестовое задание: сверьте витрину с гайдом, три пункта по 3–5 предложений.';
+  const cfg = { test_task: TASK, pass_threshold: 7.5 };
+  const ats = { score: 7.5, verdict: 'ПРОПУСТИТЬ' };
+  const PROPOSE = 'Ольга, добрый день! На текущем этапе отбора мы предлагаем выполнить короткое тестовое задание, которое занимает 1–2 часа. Пришлём задание.';
+  const AGREE = 'Владимир, здравствуйте! Да, конечно. Присылайте задание.';
+  const live = [
+    { role: 'applicant', text: 'Здравствуйте! Имею опыт работы с Wildberries с оборотом 40+ млн ₽ в месяц.', timestamp: '2026-10-01T16:21:02+0300' },
+    { role: 'employer', text: PROPOSE, timestamp: '2026-10-05T17:30:09+0300' },
+    { role: 'applicant', text: AGREE, timestamp: '2026-10-05T18:29:55+0300' },
+  ];
+
+  it('sends the assignment instead of asking readiness again', () => {
+    const step = deterministicStep({ history: live, atsResult: ats, atsConfig: cfg });
+    expect(step).toBeTruthy();
+    expect(step.action).toBe('send_test');
+    expect(step.by).toBe('rule');
+  });
+
+  it('still sends while WE spoke last with a promise (the original 01.10 fix holds)', () => {
+    const promisedOnly = [live[0], { role: 'employer', text: 'Ольга, добрый день! Смотрю ваш опыт, пришлю тестовое задание.', timestamp: '2026-10-05T17:30:09+0300' }];
+    const step = deterministicStep({ history: promisedOnly, atsResult: ats, atsConfig: cfg });
+    expect(step.action).toBe('send_test');
+  });
+
+  it('forces send_test when the planner proposes a second readiness question', () => {
+    const plan = guardPlannerAction({ action: 'propose_test', reason: 'модель решила спросить снова' },
+      { history: live, atsResult: ats, atsConfig: cfg });
+    expect(plan.action).toBe('send_test');
+    expect(plan.guarded).toBe('propose_test');
+    expect(plan.reason).toContain('согласился');
+  });
+
+  it('does not downgrade a consented send when the model asks skills', () => {
+    const plan = guardPlannerAction({ action: 'ask_skills', reason: 'модель решила уточнить' },
+      { history: live, atsResult: ats, atsConfig: cfg });
+    expect(plan.action).toBe('send_test');
+    expect(plan.guarded).toBe('ask_skills');
+  });
+
+  it('answers the question a candidate asks together with the consent', () => {
+    const withQuestion = [...live];
+    withQuestion[2] = { role: 'applicant', text: 'Да, конечно. Присылайте задание. А зарплата какая?', timestamp: '2026-10-05T18:29:55+0300' };
+    const step = deterministicStep({ history: withQuestion, atsResult: ats, atsConfig: cfg });
+    expect(step.action).toBe('send_test');
+    expect(step.reason).toContain('вопрос');
+    const plan = guardPlannerAction({ action: 'propose_test', reason: 'x' }, { history: withQuestion, atsResult: ats, atsConfig: cfg });
+    // The guard must NOT swallow the question: the planner stays free to answer it.
+    expect(plan.action).toBe('propose_test');
+  });
+
+  it('never sends after a refusal — «не готов» is not consent', () => {
+    const refused = [...live, { role: 'applicant', text: 'Спасибо, но не готова сейчас, совсем нет времени.', timestamp: '2026-10-05T19:00:00+0300' }];
+    const step = deterministicStep({ history: refused, atsResult: ats, atsConfig: cfg });
+    expect(step === null || step.action !== 'send_test').toBe(true);
+    const plan = guardPlannerAction({ action: 'propose_test', reason: 'x' }, { history: refused, atsResult: ats, atsConfig: cfg });
+    expect(plan.action).not.toBe('send_test');
+  });
+
+  it('leaves the thread alone once a recruiter wrote after the agreement', () => {
+    const withFollowUp = [...live, { role: 'employer', text: 'Ольга, добрый вечер! Задание пришлю завтра утром.', timestamp: '2026-10-05T19:30:00+0300' }];
+    const plan = guardPlannerAction({ action: 'propose_test', reason: 'x' }, { history: withFollowUp, atsResult: ats, atsConfig: cfg });
+    expect(plan.action).toBe('propose_test');
+    const step = deterministicStep({ history: withFollowUp, atsResult: ats, atsConfig: cfg });
+    expect(step === null || step.action !== 'send_test').toBe(true);
+  });
+
+  it('does not repeat the task once it is actually in the thread', () => {
+    const delivered = [...live, { role: 'employer', text: TASK, timestamp: '2026-10-06T10:00:00+0300' }];
+    const step = deterministicStep({ history: delivered, atsResult: ats, atsConfig: cfg });
+    expect(step === null || step.action !== 'send_test').toBe(true);
+    const plan = guardPlannerAction({ action: 'propose_test', reason: 'x' }, { history: delivered, atsResult: ats, atsConfig: cfg });
+    expect(plan.action).not.toBe('send_test');
+  });
+
+  it('requires an actual assignment to promise anything', () => {
+    const noTaskCfg = { pass_threshold: 7.5 };
+    const step = deterministicStep({ history: live, atsResult: ats, atsConfig: noTaskCfg });
+    expect(step === null || step.action !== 'send_test').toBe(true);
+  });
+
+  it('the send_test letter is assembled, not written (words-for-words promise)', () => {
+    expect(buildTestTaskMessage(TASK)).toBe(TASK);
+    const plan = guardPlannerAction({ action: 'send_test', reason: 'ok' }, { history: live, atsResult: ats, atsConfig: cfg });
+    expect(plan.action).toBe('send_test');
   });
 });

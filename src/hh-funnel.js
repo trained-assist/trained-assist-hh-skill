@@ -41,7 +41,12 @@ const { hhLlm, ladderToken } = require('./hh-llm');
 // do-not-re-ask rule, and the send guard knows how to block a letter that asks for
 // them anyway (src/hh-known-facts.js). Drafts written by the older prompt keep the
 // defect, so the signature bump retires them on the next background pass.
-const FUNNEL_LOGIC_VERSION = 'funnel-v3';
+// funnel-v4 (05.10.2026, issue #182): the pending-assignment state stopped being
+// visible the moment the candidate replied. A candidate who wrote «Да, конечно.
+// Присылайте задание.» was asked about readiness again, and the assignment never
+// left. The state is now read from the thread (we proposed → they agreed → task
+// still absent), and the planner cannot downgrade that to a second question.
+const FUNNEL_LOGIC_VERSION = 'funnel-v4';
 
 // The fixed step set. `wait` is a first-class outcome on purpose: a candidate who
 // has not answered needs silence, not a second letter.
@@ -115,10 +120,72 @@ function normalizeText(s) {
 // instead, and the assignment is never sent.
 const PROMISED_TASK_RE = /(пришл|отправлю|высылаю|скину|перешл)[^.!?\n]{0,40}(задани|тестов)/i;
 
+// Any letter that put the assignment on the table: «предлагаем выполнить тестовое
+// задание», «пришлём задание», «готовы прислать?». The promise is not only the
+// word «пришлём» — the candidate says «да» to the whole proposal.
+const TASK_ON_TABLE_RE = /(тестов|задани)/i;
+
+// The candidate's side of the same state: they agreed, or simply asked for it.
+// «Да, конечно. Присылайте задание.» / «готов» / «давайте задание».
+// Consent can be refused in the same breath: «не готов», «передумал», «не смогу».
+const TASK_REFUSAL_RE = /(не\s+(готов|смогу|на смогу|успеваю)|передумал|отказ|передума|не\s+актуаль)/i;
+const TASK_CONSENT_RE = /(готов|готов[ао]в|согласн|да,?\s*(конечно|да|хорошо)|присыл|перешл|отправ(ь|и|те|л)|высыл|скинь|давай|хочу\s+(попроб|выполн|сдел)|интерес)/i;
+
+/** Did WE put the assignment on the table (anywhere in the thread, not just last)? */
+function testTaskProposed(messages) {
+  return (messages || [])
+    .filter(m => m && m.role === 'employer' && String(m.text || '').trim())
+    .some(m => TASK_ON_TABLE_RE.test(String(m.text || '')));
+}
+
+/**
+ * Did the candidate agree to (or ask for) the assignment?
+ *
+ * Live defect 05.10.2026, vacancy 138004863, negotiation 5619614258: we wrote
+ * «предлагаем выполнить тестовое задание… пришлём», the candidate answered
+ * «Да, конечно. Присылайте задание.» — and the funnel answered `null`, because
+ * promisedTestTask() looked only at the LAST message and that one was hers. The
+ * planner then chose propose_test and the candidate was asked about readiness a
+ * second time, though she had already agreed. A pending material is a STATE of
+ * the thread, not a property of who spoke last: once we proposed it, the only
+ * thing that clears it is the task itself being in the thread.
+ */
+function candidateAgreedToTestTask(messages) {
+  const list = (messages || []).filter(m => m && String(m.text || '').trim());
+  const proposedAt = list.findIndex(m => m.role === 'employer' && TASK_ON_TABLE_RE.test(String(m.text || '')));
+  if (proposedAt === -1) return false;
+  const tail = list.slice(proposedAt);
+  const agreedAt = tail.findIndex(m => m.role === 'applicant'
+    && TASK_CONSENT_RE.test(String(m.text || '')) && !TASK_REFUSAL_RE.test(String(m.text || '')));
+  if (agreedAt === -1) return false;
+  // Consent the candidate then took back: «ок», then «не, не готова» — sending the
+  // assignment into a refusal is worse than the re-ask this class of bug produced.
+  const withdrawn = tail.slice(agreedAt).some(m => m.role === 'applicant' && TASK_REFUSAL_RE.test(String(m.text || '')));
+  if (withdrawn) return false;
+  // Somebody wrote after the agreement. That letter may already carry the
+  // assignment or re-promise it — forcing our own send on top of a recruiter's
+  // message is how a candidate gets the same task twice. Leave that thread to
+  // the planner, which sees the whole picture.
+  return !tail.slice(agreedAt).some(m => m.role === 'employer');
+}
+
+/**
+ * Did the candidate's last message ask us something? («Да, конечно. А зарплата?»)
+ * A pending assignment must not swallow an open question — the letter that is due
+ * answers the question first, then carries the material.
+ */
+function candidateHasOpenQuestion(messages) {
+  const last = [...(messages || [])].reverse().find(m => m && m.role === 'applicant' && String(m.text || '').trim());
+  return Boolean(last && /[?？]/.test(String(last.text || '')));
+}
+
+// We promised it and have not sent it: the very next letter IS the assignment.
+// Widened 05.10.2026 (issue #182) — the old check only held while WE spoke last,
+// so the moment the candidate answered, the pending assignment became invisible.
 function promisedTestTask(messages) {
   const last = lastMessage(messages);
-  if (!last || last.role !== 'employer') return false;
-  return PROMISED_TASK_RE.test(String(last.text || ''));
+  if (last && last.role === 'employer' && PROMISED_TASK_RE.test(String(last.text || ''))) return true;
+  return testTaskProposed(messages) && candidateAgreedToTestTask(messages);
 }
 
 // The test task is sent verbatim from the config, so "was it sent?" has to be
@@ -150,7 +217,14 @@ function deterministicStep({ history = [], atsResult = null, atsConfig = {}, now
   // Promised but not sent: the letter that is due is the assignment itself, so
   // this must be decided BEFORE the "we spoke last → wait" branch below.
   if (testTask && !testTaskWasSent(history, testTask) && promisedTestTask(history)) {
-    return { action: 'send_test', reason: 'Рекрутер обещал прислать задание, а оно ещё не отправлено — отправляем.', by: 'rule' };
+    const questionFirst = candidateHasOpenQuestion(history);
+    return {
+      action: 'send_test',
+      reason: questionFirst
+        ? 'Кандидат согласился на задание и задал вопрос — письмо отвечает на вопрос и несёт задание.'
+        : 'Рекрутер обещал прислать задание, а оно ещё не отправлено — отправляем.',
+      by: 'rule',
+    };
   }
   if (testTask && testTaskWasSent(history, testTask)) {
     const answered = (history || []).some(m => m && m.role === 'applicant'
@@ -320,6 +394,26 @@ function guardPlannerAction(plan, { history = [], atsResult = null, atsConfig = 
     };
   }
 
+  // Asking a candidate who already agreed is the defect reported 05.10.2026
+  // (issue #182): she wrote «Да, конечно. Присылайте задание.», we asked about
+  // readiness again. Runs BEFORE the ask_skills/ПРОПУСТИТЬ guard so the consent
+  // state wins there too; the model's choice is replaced by the state, never
+  // the other way round.
+  if (plan.action === 'propose_test' || plan.action === 'ask_skills') {
+    const testTaskConsent = String(legacyTestTask(atsConfig)).trim();
+    if (testTaskConsent && !candidateHasOpenQuestion(history)
+      && !testTaskWasSent(history, testTaskConsent) && promisedTestTask(history)) {
+      return {
+        ...plan,
+        action: 'send_test',
+        reason: `Кандидат уже согласился на задание (${plan.reason}) — отправляем его, второй раз про готовность не спрашиваем.`,
+        missing_skills: [],
+        by: 'rule',
+        guarded: plan.action,
+      };
+    }
+  }
+
   // «Что уточняем» (owner's rule, 02.10.2026): a candidate with verdict
   // ПРОПУСТИТЬ already clears the must-haves — new questions are the defect the
   // owner reported («спрашиваем просто так»). deterministicStep covers first
@@ -373,8 +467,9 @@ const ACTION_INSTRUCTION = {
     + 'ни дополнительных уточнений: ровно один шаг — готовность к тестовому. '
     + 'Сам текст задания НЕ приводи — он придёт следующим письмом, после того как кандидат согласится.',
   send_test:
-    'Задача письма: подтвердить, что отправляем задание, и спросить удобный срок. Текст задания приложен ниже — '
-    + 'он отправляется отдельным письмом дословно.',
+    'Это письмо — само задание: текст ниже уходит кандидату дословно, модель его не пишет. '
+    + 'Ничего не переписывай и не пересказывай; добавь только короткую живую вводную, если она ещё не была '
+    + 'и кандидат не задавал вопроса. Готовность второй раз не спрашивай — её уже подтвердили.',
   invite_call:
     'Задача письма: предложить короткий созвон. Одно-два предложения о том, что обсудим, и вопрос об удобном времени. '
     + 'Больше ничего не спрашивай — ни навыков, ни имени, ни условий. '
@@ -438,6 +533,9 @@ module.exports = {
   buildTestTaskMessage,
   testTaskWasSent,
   promisedTestTask,
+  candidateAgreedToTestTask,
+  testTaskProposed,
+  candidateHasOpenQuestion,
   renderThread,
   lastMessage,
 };
