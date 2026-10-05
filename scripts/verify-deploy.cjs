@@ -55,6 +55,18 @@ function resolveTarget(target) {
   return '';
 }
 
+function assertBrowserCallback(html, pageBase) {
+  const match = html.match(/const CALLBACK_BASE = ("(?:\\.|[^"\\])*");/);
+  if (!match) throw new Error('Редактор не подтвердил адрес API для браузера.');
+  const callback = new URL(JSON.parse(match[1]));
+  if (!['http:', 'https:'].includes(callback.protocol) || callback.username || callback.password || callback.search || callback.hash) throw new Error('Некорректный адрес API для браузера.');
+  const local = hostname => /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[?::1\]?)$/i.test(hostname);
+  if (!local(new URL(pageBase).hostname) && local(callback.hostname)) {
+    throw new Error('Редактор отправляет запросы на localhost пользователя. Настройте HH_PUBLIC_API_URL в HH systemd drop-in.');
+  }
+  return (callback.origin + callback.pathname).replace(/\/+$/, '');
+}
+
 async function main() {
   const target = arg('rev', 'DEPLOY_EXPECT_REV');
   const base = (arg('base', 'HH_HUB_BASE') || 'http://localhost:8080').replace(/\/$/, '');
@@ -109,9 +121,11 @@ async function main() {
     process.exit(1);
   }
 
+  const browserCallbackBase = assertBrowserCallback(html, base);
+
   if(editorRevision!==expected){console.error('verify-deploy: ✗ редактор не подтвердил X-HH-Skill-Rev ожидаемого модуля');process.exit(1);}
   for(const route of ['/hh/ats-config','/hh/generate-message']){
-    const response=await fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(20_000)});
+    const response=await fetch(browserCallbackBase+route,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(20_000)});
     const body=await response.json().catch(()=>null);
     const validation=route==='/hh/ats-config'?'config required':'missing fields';
     if(response.status!==400||response.headers.get('x-hh-skill-rev')!==expected||body?.error!==validation){console.error(`verify-deploy: ✗ ${route} не подтвердил текущий маршрут и безопасную валидацию`);process.exit(1);}
@@ -120,4 +134,5 @@ async function main() {
   console.log(`verify-deploy: ✓ прод отдаёт ${short(m[1])} — совпадает с целью ${short(expected)}`);
 }
 
-main().catch(e => { console.error('verify-deploy:', e.message); process.exit(2); });
+module.exports = {assertBrowserCallback};
+if (require.main === module) main().catch(e => { console.error('verify-deploy:', e.message); process.exit(2); });

@@ -11,7 +11,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { dataRoot, tokensRoot, usersRoot } = require('./data-paths.js');
-const { publicPageBase, COLD_SEARCH_ENV } = require('./hh-publish-domain');
+const { browserApiBase, publicPageBase, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 const userWorkDir = (username) => path.join(usersRoot(), String(username));
 
 const { sendRejection, REJECT_REASON_ACTION } = require('./hh-rejection');
@@ -810,7 +810,7 @@ if (req.method === 'GET' && url.pathname === '/hh/ats-editor') {
     if (currentConfig.vacancy_title) prefill.vacancyTitle = '';
     if (currentConfig.vacancy_context) prefill.vacancyContext = '';
   }
-  const callbackBase = (process.env.AGENT_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+  const callbackBase = browserApiBase(process.env, PORT);
   const html = atsEditorHtml(currentConfig, currentStages, {
     callbackBase,
     username,
@@ -1250,7 +1250,7 @@ if (req.method === 'GET' && url.pathname === '/hh/style') {
   const hhTokensBase3 = tokensRoot();
   const styleFile3 = path.join(hhTokensBase3, String(username), 'hh-message-style');
   const existingStyle = readCredentialFileSafe(styleFile3)?.trim() || '';
-  const callbackBase3 = (process.env.AGENT_PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+  const callbackBase3 = browserApiBase(process.env, PORT);
   const hmacToken3 = agentSecret ? require('crypto').createHmac('sha256', agentSecret).update(username).digest('hex').slice(0, 16) : '';
   const defaultStyle = '- Тон: профессиональный, дружелюбный, без официоза. Обращение на «вы».\n- Приветствие: «Добрый день, [Имя]!» или «Здравствуйте, [Имя]!»\n- Структура: приветствие → что понравилось в резюме → описание роли → 1-2 конкретных вопроса → призыв ответить\n- Всегда задаю конкретные вопросы по опыту из требований вакансии, не общие\n- Не использую штампы: «рассмотрели вашу кандидатуру», «вакансия открылась», «мы ищем»\n- Длина: 4-6 предложений\n- Подпись: имя рекрутера';
   const rulesValue = (existingStyle || defaultStyle).replace(/`/g, '\\`');

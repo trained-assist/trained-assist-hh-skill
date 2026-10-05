@@ -36,6 +36,13 @@ function internalApiBase(env = process.env, port) {
   return stripSlash(env.AGENT_PUBLIC_URL || `http://localhost:${p}`);
 }
 
+// Browser callbacks need a reachable API URL independent of host defaults.
+// Keep this in the HH systemd drop-in so a host redeploy cannot replace it with
+// localhost. Per-profile page publishing does not change the API destination.
+function browserApiBase(env = process.env, port) {
+  return stripSlash(env.HH_PUBLIC_API_URL || internalApiBase(env, port));
+}
+
 // Accept only a bare origin we could actually hand to a recruiter: http/https,
 // no credentials, no path/query/fragment, no whitespace. Returns the stripped
 // origin or throws with a message the tool can show verbatim.
@@ -119,6 +126,7 @@ module.exports = {
   COLD_SEARCH_ENV,
   HH_PAGES_ENV,
   internalApiBase,
+  browserApiBase,
   normalizePublicDomain,
   publishDomainFile,
   loadPublishDomain,

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Keep HH_PUBLIC_API_URL in the HH service drop-in set to the externally reachable
+# API base (including /agent when required). This survives host changes to
+# AGENT_PUBLIC_URL; verify-deploy rejects public pages with localhost callbacks.
 # Run on the GCP host after the reviewed HH commit is available in SOURCE_REPO.
 # Builds while the old process serves; switches only the HH sibling, preserving
 # the agent release and the source checkout. Error rollback restores both the
