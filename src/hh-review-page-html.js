@@ -241,7 +241,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            ${c.draft_is_stale ? '<p class="draft-stale" role="status">Старый черновик: обновите его по сценарию перед отправкой.</p>' : ''}
            <textarea class="msg-area" id="msg-${i}" rows="5">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
-             <button class="btn btn-send" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}')"${c.draft_is_stale ? ' disabled title="Сначала обновите черновик по сценарию"' : ''}>✓ Отправить</button>
+             <button class="btn btn-send" data-stale="${c.draft_is_stale ? '1' : '0'}" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}',false,${!!c.draft_is_stale})"${c.draft_is_stale ? ' title="Черновик устарел — отправка потребует ручного подтверждения"' : ''}>✓ Отправить</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
              <button class="btn btn-skip" onclick="setResponseState(this,'${esc(c.negotiation_id)}','archived')">В архив</button>
              <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">✗ Отправить отказ</button>
@@ -341,6 +341,7 @@ h1{font-size:22px;font-weight:700;margin-bottom:4px}
 .btn{padding:8px 18px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
 .btn:hover{opacity:.85}
 .btn-send{background:#16a34a;color:#fff}
+.btn-send[data-stale="1"]{background:#b45309}
 .btn-send.cooldown{opacity:.6;cursor:progress}
 .btn-send-reject{background:#dc2626;color:#fff}
 .btn-skip{background:#e2e8f0;color:#475569}
@@ -560,7 +561,7 @@ async function hhAction(endpoint, payload, timeoutMs) {
       body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, ...payload }),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.statusText);
+    if (!r.ok) { const error = new Error(data.error || r.statusText); error.code = data.code; throw error; }
     return data;
   } catch(e) {
     if (e.name === 'AbortError') {
@@ -954,15 +955,26 @@ function insertSentMessage(i, text) {
 // btn is passed in from the click handler on purpose: the old version read the global
 // window.event, which is undefined on the forced re-send path — the button then stayed
 // disabled with a "⏳..." label for the rest of the session.
-async function sendOne(btn, i, negId, force) {
+async function sendOne(btn, i, negId, force, forceStale) {
   const msg = document.getElementById('msg-'+i)?.value || '';
   if (!msg) { showToast('Сообщение пустое', true); return; }
+  if (forceStale && !window.confirm('Сценарий или диалог изменился после создания черновика. Отправить этот текст вручную только выбранному кандидату?')) return;
   hideGuardBlock(i);
   const stopClock = startSendClock(btn, '⏳ Проверка и отправка');
   if (btn) btn.disabled = true;
   let sent = false;
   try {
-    const data = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force: !!force });
+    let data;
+    try {
+      data = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force: !!force, force_stale: !!forceStale });
+    } catch(e) {
+      // The list view can miss a freshness change that the authoritative send
+      // route catches. Ask for an explicit one-candidate override, then retry.
+      if (!forceStale && e.code === 'STALE_COMMUNICATION_DRAFT' && window.confirm('Сервер обнаружил, что сценарий или диалог изменился. Отправить этот текст вручную только выбранному кандидату?')) {
+        forceStale = true;
+        data = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force: !!force, force_stale: true });
+      } else throw e;
+    }
     if (data.blocked) {
       showGuardBlock(i, negId, data.reason);
       showToast('🚫 Guard остановил отправку — исправьте текст или отправьте принудительно', true);
