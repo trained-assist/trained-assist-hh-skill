@@ -145,6 +145,8 @@ function candidateCard(c, idx, existingComment) {
 function generateProactivePageHtml(results, username, callbackBase, token, existingComments, opts = {}) {
   const { activeVacancies = [], vacancyId = '', listView = 'active', stateCounts = { active: 0, starred: 0, archived: 0 } } = opts;
   const monitoring = opts.monitoring || {};
+  const searchJob = opts.searchJob || null;
+  const atsProgress = opts.atsProgress || null;
   const settings = opts.searchSettings || null;
   const candidates = results.candidates || [];
   const comments = existingComments || {};
@@ -194,6 +196,12 @@ a:hover{text-decoration:underline}
 .btn-search{background:#2563eb;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:.83rem;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .btn-search:hover{background:#1d4ed8}
 .btn-search:disabled{opacity:.6;cursor:not-allowed}
+.search-progress{display:none;margin-top:12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;color:#1e3a8a;font-size:.84rem}
+.search-progress[aria-hidden="false"]{display:block}
+.search-progress-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.search-progress-track{height:8px;background:#dbeafe;border-radius:99px;overflow:hidden;margin-top:8px}
+.search-progress-fill{height:100%;width:0;background:#2563eb;border-radius:99px;transition:width .25s ease}
+.search-progress-error{color:#991b1b;background:#fef2f2;border-color:#fecaca}
 
 /* Main */
 .main{max-width:860px;margin:0 auto;padding:18px 14px}
@@ -378,6 +386,16 @@ ${require('./hh-nav').vacancyPickerHtml(activeVacancies, vacancyId, v => `${call
     </div>
     <button class="btn-search" id="searchBtn" onclick="runSearch()">🔍 Новый поиск</button>
   </div>
+  <div id="searchProgress" class="search-progress" role="status" aria-live="polite" aria-hidden="true">
+    <div class="search-progress-head"><strong id="searchProgressTitle">Подготавливаю поиск…</strong><span id="searchProgressCount"></span></div>
+    <div id="searchProgressTrack" class="search-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="searchProgressFill" class="search-progress-fill"></div></div>
+    <div id="searchProgressMessage" style="margin-top:6px"></div>
+  </div>
+  <div id="atsRefreshProgress" class="search-progress" role="status" aria-live="polite" aria-hidden="true">
+    <div class="search-progress-head"><strong>Переоценка по сохранённой ATS-воронке</strong><span id="atsRefreshCount"></span></div>
+    <div id="atsRefreshTrack" class="search-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="atsRefreshFill" class="search-progress-fill"></div></div>
+    <div id="atsRefreshMessage" style="margin-top:6px"></div>
+  </div>
   <div class="stats">
     <div class="stat">Собрано: <strong>${results.total_collected || 0}</strong></div>
     <div class="stat">После фильтра: <strong>${results.total_after_knockout || 0}</strong></div>
@@ -470,6 +488,8 @@ const TOKEN = ${JSON.stringify(token)};
 const CALLBACK_BASE = ${JSON.stringify(callbackBase)};
 const SLIDER_MAX = ${JSON.stringify(sliderMax)};
 const VACANCY_ID = ${JSON.stringify(vacancyId || '')};
+const INITIAL_SEARCH_JOB = ${JSON.stringify(searchJob)};
+const INITIAL_ATS_PROGRESS = ${JSON.stringify(atsProgress)};
 
 let activePreset = 'all';
 const FILTER_KEY = 'hh-proactive-filters:' + USERNAME + ':' + VACANCY_ID;
@@ -661,30 +681,131 @@ async function savePrompt(andRun) {
   }
 }
 
+function showSearchProgress(job, error = false) {
+  const panel = document.getElementById('searchProgress');
+  const btn = document.getElementById('searchBtn');
+  if (!panel) return;
+  panel.setAttribute('aria-hidden', 'false');
+  panel.classList.toggle('search-progress-error', Boolean(error || job?.state === 'failed'));
+  const titles = { queued: 'Поиск в очереди', preparing: 'Подготовка поиска', queries: 'Подбор запросов', search: 'Поиск резюме на HH', ai_scoring: 'Оценка кандидатов по ATS', saving: 'Сохранение результатов', done: 'Поиск завершён', partial: 'Поиск завершён частично', failed: 'Поиск прерван' };
+  document.getElementById('searchProgressTitle').textContent = titles[job?.phase] || titles[job?.state] || 'Поиск и оценка';
+  const count = Number.isFinite(job?.total) ? (String(job.completed || 0) + ' из ' + job.total) : '';
+  document.getElementById('searchProgressCount').textContent = count;
+  const percent = Math.max(0, Math.min(100, Number(job?.progress) || 0));
+  document.getElementById('searchProgressFill').style.width = String(percent) + '%';
+  document.getElementById('searchProgressTrack').setAttribute('aria-valuenow', String(percent));
+  document.getElementById('searchProgressMessage').textContent = error || job?.state === 'failed'
+    ? 'Ошибка: ' + (error || job?.message || 'неизвестная ошибка')
+    : (job?.message || 'Выполняется…') + (job?.failures ? ' Ошибок ответов модели: ' + job.failures + '; они будут видны в итоговом статусе.' : '');
+  if (btn) {
+    btn.disabled = Boolean(job && ['queued', 'running'].includes(job.state));
+    btn.textContent = btn.disabled ? '⏳ Поиск выполняется…' : '🔍 Новый поиск';
+  }
+}
+
+async function searchJobRequest(url, options) {
+  const res = await fetch(url, options);
+  const raw = await res.text();
+  let data;
+  try { data = JSON.parse(raw); }
+  catch { throw new Error('Сервер вернул не JSON (HTTP ' + res.status + '). Поиск мог уже запуститься; проверяю его статус.'); }
+  if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function pollSearchJob(job) {
+  if (!job?.id) return;
+  showSearchProgress(job);
+  let transientErrors = 0;
+  for (;;) {
+    if (['done', 'partial', 'failed'].includes(job.state)) {
+      if (job.state === 'done' || job.state === 'partial') {
+        showSearchProgress(job);
+        setTimeout(() => location.reload(), 1400);
+      } else showSearchProgress(job, job.message);
+      return;
+    }
+    await wait(1800);
+    try {
+      const qs = new URLSearchParams({ username: USERNAME, token: TOKEN, vacancy_id: VACANCY_ID, job_id: job.id });
+      const data = await searchJobRequest(CALLBACK_BASE + '/api/hh/proactive/search?' + qs.toString());
+      job = data.job;
+      transientErrors = 0;
+      showSearchProgress(job);
+    } catch (e) {
+      transientErrors++;
+      document.getElementById('searchProgressMessage').textContent = transientErrors < 4
+        ? 'Связь с сервером временно прервалась. Повторно проверяю статус…'
+        : 'Не удаётся обновить статус. Поиск может продолжаться в фоне; оставьте страницу открытой или вернитесь позже.';
+    }
+  }
+}
+
 async function runSearch() {
   const btn = document.getElementById('searchBtn');
   btn.disabled = true;
-  btn.textContent = '⏳ Идёт поиск + AI…';
   try {
-    const res = await fetch(CALLBACK_BASE + '/api/hh/proactive/search', {
+    const data = await searchJobRequest(CALLBACK_BASE + '/api/hh/proactive/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: USERNAME, token: TOKEN, vacancy_id: VACANCY_ID }),
     });
-    const data = await res.json();
-    if (data.error) {
-      alert('Ошибка: ' + data.error);
-      btn.disabled = false;
-      btn.textContent = '🔍 Новый поиск';
-    } else {
-      btn.textContent = '✅ Готово! Обновляем…';
-      setTimeout(() => location.reload(), 1200);
-    }
+    await pollSearchJob(data.job);
   } catch (e) {
-    alert('Ошибка: ' + e.message);
+    // The reverse proxy can return HTML after a timeout even though the backend
+    // accepted the request. Check for its durable job before telling the recruiter
+    // to retry and accidentally starting the same search twice.
+    try {
+      const qs = new URLSearchParams({ username: USERNAME, token: TOKEN, vacancy_id: VACANCY_ID });
+      const active = await searchJobRequest(CALLBACK_BASE + '/api/hh/proactive/search?' + qs.toString());
+      if (active.job && ['queued', 'running'].includes(active.job.state)) return await pollSearchJob(active.job);
+    } catch { /* show the original start error below */ }
+    showSearchProgress({ state: 'failed', phase: 'failed', message: e.message }, e.message);
     btn.disabled = false;
     btn.textContent = '🔍 Новый поиск';
   }
+}
+
+if (INITIAL_SEARCH_JOB) pollSearchJob(INITIAL_SEARCH_JOB);
+
+function renderAtsRefreshProgress(progress, completedTransition = false) {
+  const panel = document.getElementById('atsRefreshProgress');
+  if (!panel || !progress) return;
+  const show = progress.pending > 0 || completedTransition;
+  panel.setAttribute('aria-hidden', show ? 'false' : 'true');
+  document.getElementById('atsRefreshCount').textContent = String(progress.completed || 0) + ' из ' + String(progress.total || 0);
+  const percent = Math.max(0, Math.min(100, Number(progress.progress) || 0));
+  document.getElementById('atsRefreshFill').style.width = String(percent) + '%';
+  document.getElementById('atsRefreshTrack').setAttribute('aria-valuenow', String(percent));
+  let message = progress.message || '';
+  if (progress.status === 'queued' && progress.pending) message += ' Осталось ' + progress.pending + '; обработка продолжится автоматически.';
+  if (progress.failures) message += ' Неудачных ответов модели в последней партии: ' + progress.failures + '; они будут повторены.';
+  document.getElementById('atsRefreshMessage').textContent = message;
+}
+
+async function pollAtsRefreshProgress() {
+  if (!VACANCY_ID) return;
+  try {
+    const qs = new URLSearchParams({ username: USERNAME, token: TOKEN, vacancy_id: VACANCY_ID });
+    const data = await searchJobRequest(CALLBACK_BASE + '/api/hh/proactive/ats-progress?' + qs.toString());
+    const progress = data.progress;
+    const wasPending = Number(INITIAL_ATS_PROGRESS?.pending) > 0;
+    const done = progress.status === 'complete' && wasPending;
+    renderAtsRefreshProgress(progress, done);
+    if (done) { setTimeout(() => location.reload(), 1400); return; }
+    if (progress.pending > 0 && progress.status !== 'blocked') setTimeout(pollAtsRefreshProgress, 4000);
+    else if (progress.status === 'blocked') setTimeout(pollAtsRefreshProgress, 20_000);
+  } catch {
+    document.getElementById('atsRefreshMessage').textContent = 'Не удалось обновить статус. Повторяю проверку…';
+    setTimeout(pollAtsRefreshProgress, 10_000);
+  }
+}
+
+if (INITIAL_ATS_PROGRESS && INITIAL_ATS_PROGRESS.pending > 0) {
+  renderAtsRefreshProgress(INITIAL_ATS_PROGRESS);
+  pollAtsRefreshProgress();
 }
 
 async function saveComment(candidateId, btn) {

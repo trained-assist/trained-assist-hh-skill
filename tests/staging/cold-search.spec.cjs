@@ -42,16 +42,19 @@ test('MCP discovery → HH + LLM → durable result → browser → recall and f
     expect(recalled.url).toBe(result.url); expect(recalled.count).toBe(2);
     expect(f.requests.filter(r => r.path === '/resumes').length).toBe(beforeRecall);
     f.setSearchStatus(403);
-    const dialog = page.waitForEvent('dialog');
     await page.locator('#searchBtn').click();
-    const errorDialog = await dialog;
-    expect(errorDialog.message()).toContain('403'); await errorDialog.accept();
+    await expect(page.locator('#searchProgress')).toBeVisible();
+    await expect(page.locator('#searchProgressMessage')).toContainText('403');
     await expect(page.locator('#searchBtn')).toBeEnabled();
     await page.reload(); await expect(page.locator('.card')).toHaveCount(2);
     f.setSearchStatus(200);
+    f.setSearchDelay(2400);
     await page.locator('#searchBtn').click();
+    await expect(page.locator('#searchProgress')).toBeVisible();
+    await expect(page.locator('#searchProgressTitle')).toContainText(/поиск/i);
     await expect(page.locator('#searchBtn')).toHaveText(/Новый поиск/);
     await expect(page.locator('.card')).toHaveCount(2);
+    f.setSearchDelay(0);
     expect((await f.client.call('hh_proactive_search', { vacancy_id: '100' })).new_count).toBe(0);
     expect(pageErrors).toEqual([]); expect(blocked).toEqual([]); expect(f.unexpected).toEqual([]);
   } finally { await f.close(); }

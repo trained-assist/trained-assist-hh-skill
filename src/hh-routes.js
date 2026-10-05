@@ -665,6 +665,11 @@ if (req.method === 'POST' && url.pathname === '/hh/ats-config') {
   fs.renameSync(temporary, configFile);
   if (Array.isArray(stages) && !normalizedPlan) fs.writeFileSync(path.join(hhContextDir, `ats_stages:${vacancyId}.json`), JSON.stringify({value:stages,updated_at:now},null,2));
   console.log(`[hh/ats-config] saved vacancy="${config.vacancy_title}" vacancy_id=${vacancyId || 'legacy'} stages=${stages?.length || 0} user=${username || 'default'}`);
+  if (username && latestProactiveFile(username, String(vacancyId))) {
+    setImmediate(() => scoreUnscoredProactiveCandidates(username, { vacancyId: String(vacancyId) }).catch(error => {
+      console.error(`[hh/ats-config] cold-search rescore failed for vacancy=${vacancyId}:`, error.message);
+    }));
+  }
   return json(res, 200, { ok: true, revision: now });
 }
 
@@ -1488,8 +1493,14 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
     try { searchSettings = require('./hh-proactive-search').searchSettingsView(username, vacancyId); }
     catch (e) { console.error('[hh/proactive] search settings read failed:', e.message); }
   }
+  const searchJob = vacancyId ? require('./hh-proactive-search-job').active(username, vacancyId) : null;
+  let atsProgress = null;
+  if (vacancyId) {
+    try { atsProgress = require('./hh-proactive-search').getAtsRefreshProgress(username, vacancyId); }
+    catch (e) { console.error('[hh/proactive] ATS progress read failed:', e.message); }
+  }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring, searchSettings }));
+  return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring, searchSettings, searchJob, atsProgress }));
 }
 
 // ── Recruiting hub v1 (#1742, UX spec docs/specs/recruiting-web-hub-and-playbook-launch-ux.md) ──
@@ -2095,6 +2106,20 @@ if (req.method === 'GET' && url.pathname === '/api/hh/proactive/candidates') {
   return json(res, 200, { total: all.length, candidates: all });
 }
 
+if (req.method === 'GET' && url.pathname === '/api/hh/proactive/ats-progress') {
+  const username = url.searchParams.get('username') || '';
+  const vacancyId = url.searchParams.get('vacancy_id') || '';
+  const given = url.searchParams.get('token') || '';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(vacancyId)) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && given !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
+  try {
+    const progress = require('./hh-proactive-search').getAtsRefreshProgress(username, vacancyId);
+    return json(res, 200, { progress });
+  } catch (error) {
+    return json(res, 500, { error: 'Не удалось прочитать прогресс ATS: ' + error.message });
+  }
+}
+
 if (req.method === 'POST' && url.pathname === '/api/hh/proactive/ai-score') {
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
@@ -2165,22 +2190,40 @@ ${expLines || '—'}
   }
 }
 
+if (req.method === 'GET' && url.pathname === '/api/hh/proactive/search') {
+  const username = url.searchParams.get('username') || '';
+  const vacancyId = url.searchParams.get('vacancy_id') || '';
+  const givenToken = url.searchParams.get('token') || '';
+  const jobId = url.searchParams.get('job_id') || '';
+  if (!hhHub.SAFE_ID.test(username) || !hhHub.SAFE_ID.test(vacancyId) || (jobId && !/^[0-9a-f-]{36}$/i.test(jobId))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && givenToken !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
+  const jobs = require('./hh-proactive-search-job');
+  const job = jobs.read(username, vacancyId);
+  if (!job || (jobId && job.id !== jobId)) return json(res, 404, { error: 'Поиск не найден или уже заменён новым запуском.' });
+  return json(res, 200, { job: jobs.publicJob(job) });
+}
+
 if (req.method === 'POST' && url.pathname === '/api/hh/proactive/search') {
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
   const { username = '', token: givenToken = '' } = body || {};
+  const vacancyId = String(body.vacancy_id || '');
+  if (!hhHub.SAFE_ID.test(String(username)) || !hhHub.SAFE_ID.test(vacancyId)) return json(res, 400, { error: 'Invalid scope' });
   if (process.env.AGENT_SECRET && givenToken !== proactiveHmac(username)) return json(res, 403, { error: 'invalid token' });
   const workDir = path.join(BASE_USERS_DIR, username);
   try {
-    const result = await runProactiveSearch(username, workDir, {
-      vacancyId: body.vacancy_id,
-      ...(Object.prototype.hasOwnProperty.call(body, 'area') ? { area: body.area } : {}),
-      refreshAccessToken: (u) => refreshHhToken(u, _secretsCache),
-
+    const started = require('./hh-proactive-search-job').start({
+      username, vacancyId,
+      runSearch: onProgress => runProactiveSearch(username, workDir, {
+        vacancyId,
+        ...(Object.prototype.hasOwnProperty.call(body, 'area') ? { area: body.area } : {}),
+        refreshAccessToken: (u) => refreshHhToken(u, _secretsCache),
+        onProgress,
+      }),
     });
-    return json(res, 200, result);
-  } catch (e) {
-    return json(res, 500, { error: e.message });
+    return json(res, started.existing ? 200 : 202, { ok: true, job: started.job });
+  } catch (error) {
+    return json(res, 500, { error: `Не удалось запустить поиск: ${error.message}` });
   }
 }
 

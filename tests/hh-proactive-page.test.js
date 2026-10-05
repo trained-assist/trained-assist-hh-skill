@@ -29,8 +29,8 @@ function baseResults(candidates) {
   };
 }
 
-function render(candidates) {
-  return generateProactivePageHtml(baseResults(candidates), 'testuser', 'http://localhost:3001', 'tok123', {});
+function render(candidates, opts = {}) {
+  return generateProactivePageHtml(baseResults(candidates), 'testuser', 'http://localhost:3001', 'tok123', {}, opts);
 }
 
 describe('discovery date badge (#1)', () => {
@@ -134,6 +134,17 @@ describe('header markup (#3, #4, #5)', () => {
     expect(html).not.toContain('id="prevBtn"');
     expect(html).not.toContain('id="nextBtn"');
     expect(html).not.toContain('Страница');
+  });
+});
+
+describe('long-running search progress', () => {
+  it('renders a live accessible progress region and resumes an active search after reload', () => {
+    const active = { id: '123e4567-e89b-42d3-a456-426614174000', state: 'running', phase: 'ai_scoring', message: 'Оцениваю по ATS… (20 из 40)', progress: 65, completed: 20, total: 40, failures: 1 };
+    const html = render([], { vacancyId: '100', searchJob: active });
+    expect(html).toContain('id="searchProgress" class="search-progress" role="status" aria-live="polite"');
+    expect(html).toContain('Оцениваю по ATS… (20 из 40)');
+    expect(html).toContain('const INITIAL_SEARCH_JOB = ' + JSON.stringify(active));
+    expect(html).toContain("/api/hh/proactive/search?'");
   });
 });
 
