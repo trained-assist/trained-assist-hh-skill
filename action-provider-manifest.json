@@ -273,34 +273,6 @@
       "retrySafety": "read_only"
     },
     {
-      "name": "hh_evaluate_resume",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "resume_id": {
-            "type": "string",
-            "description": "ID резюме из hh_search_resumes."
-          },
-          "ats_config": {
-            "type": "object",
-            "description": "ATS config от hh_extract_ats_config (или свой). Обязательные поля: knockout[], required[], preferred[], pass_threshold, review_threshold."
-          }
-        },
-        "required": [
-          "resume_id",
-          "ats_config"
-        ]
-      },
-      "allowedTriggers": [
-        "user",
-        "cron",
-        "durable_task"
-      ],
-      "effect": "write",
-      "requiresApproval": false,
-      "retrySafety": "idempotent"
-    },
-    {
       "name": "hh_invite_resume",
       "inputSchema": {
         "type": "object",
@@ -390,9 +362,21 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "cold_search",
+              "application"
+            ],
+            "description": "Откуда кандидат: cold_search (резюме из поиска, resume_id) или application (отклик, negotiation_id)."
+          },
+          "resume_id": {
+            "type": "string",
+            "description": "ID резюме из hh_search_resumes (source=cold_search)."
+          },
           "negotiation_id": {
             "type": "string",
-            "description": "Negotiation ID from hh_list_responses"
+            "description": "Negotiation ID from hh_list_responses (source=application)."
           },
           "ats_config": {
             "type": "object",
@@ -400,7 +384,7 @@
           }
         },
         "required": [
-          "negotiation_id",
+          "source",
           "ats_config"
         ]
       },

@@ -871,7 +871,7 @@ module.exports = {
             page: data.page ?? params.page ?? 0,
             items,
             note: items.length
-              ? 'Дальше: hh_evaluate_resume(resume_id, ats_config) для скоринга по критериям вакансии, затем hh_invite_resume для приглашения на вакансию.'
+              ? 'Дальше: hh_evaluate_candidate(source: cold_search, resume_id, ats_config) для скоринга по критериям вакансии, затем hh_invite_resume для приглашения на вакансию.'
               : 'Пусто. Если ожидал результаты — проверь area/professional_role (id из /areas, /professional_roles через hh_discover) или ослабь фильтры.',
           };
         } catch (e) {
@@ -879,54 +879,6 @@ module.exports = {
           // instead of guessing "no paid access" for every 403, which could also mean
           // a bad filter, missing scope, etc.
           return hhAuthAwareError(e, 'Холодный поиск не выполнен: ');
-        }
-      },
-    },
-
-    hh_evaluate_resume: {
-      description:
-        'Оценить резюме из холодного поиска (hh_search_resumes) той же ATS-рубрикой, что и отклики — но БЕЗ отклика/переписки, ' +
-        'по самому резюме. Используй после hh_search_resumes, до приглашения (hh_invite_resume), чтобы не звать вслепую.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          resume_id: { type: 'string', description: 'ID резюме из hh_search_resumes.' },
-          ats_config: {
-            type: 'object',
-            description: 'ATS config от hh_extract_ats_config (или свой). Обязательные поля: knockout[], required[], preferred[], pass_threshold, review_threshold.',
-          },
-        },
-        required: ['resume_id', 'ats_config'],
-      },
-      handler: async ({ resume_id, ats_config }) => {
-        const token = readHhToken(USER_ID);
-        if (!token) return { error: 'HH не подключён.' };
-        const apiKey = llmReady();
-        if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
-
-        try {
-          const fakeNeg = { resume: { id: resume_id } };
-          await hydrateResume(fakeNeg, token);
-          if (fakeNeg._resume_status !== 'full') {
-            return { error: fakeNeg._resume_status === 'restricted' ? 'Резюме не открыто для просмотра (нужен платный контакт-доступ).' : 'Не удалось загрузить резюме.' };
-          }
-          const name = [fakeNeg.resume.last_name, fakeNeg.resume.first_name].filter(Boolean).join(' ') || 'Кандидат';
-          const candidateText = buildResumeText(fakeNeg);
-
-          const result = await evaluateCandidate(candidateText, ats_config, apiKey);
-
-          return {
-            resume_id,
-            name,
-            score: result.score,
-            verdict: result.verdict,
-            reasoning: result.reasoning,
-            matched: result.matched,
-            gaps: result.gaps,
-            knockout_failed: result.knockout_failed || [],
-          };
-        } catch (e) {
-          return hhAuthAwareError(e);
         }
       },
     },
@@ -1160,48 +1112,73 @@ module.exports = {
     },
 
     hh_evaluate_candidate: {
-      description: 'Evaluate a candidate response (resume + cover letter) using LLM-based ATS scoring. Returns score 0-10, verdict (ПРОПУСТИТЬ / УТОЧНИТЬ / ОТКЛОНИТЬ), matched strengths, and gaps.',
+      description: 'ATS-оценка кандидата по рубрике: 0-10, вердикт (ПРОПУСТИТЬ / УТОЧНИТЬ / ОТКЛОНИТЬ), сильные стороны, пробелы. ' +
+        'source=cold_search — резюме из холодного поиска (resume_id, до приглашения); source=application — отклик с сопроводительным (negotiation_id).',
       inputSchema: {
         type: 'object',
         properties: {
-          negotiation_id: { type: 'string', description: 'Negotiation ID from hh_list_responses' },
+          source: {
+            type: 'string',
+            enum: ['cold_search', 'application'],
+            description: 'Откуда кандидат: cold_search (резюме из поиска, resume_id) или application (отклик, negotiation_id).',
+          },
+          resume_id: { type: 'string', description: 'ID резюме из hh_search_resumes (source=cold_search).' },
+          negotiation_id: { type: 'string', description: 'Negotiation ID from hh_list_responses (source=application).' },
           ats_config: {
             type: 'object',
             description: 'ATS config from hh_extract_ats_config (or custom). Must have: knockout[], required[], preferred[], pass_threshold, review_threshold.',
           },
         },
-        required: ['negotiation_id', 'ats_config'],
+        required: ['source', 'ats_config'],
       },
-      handler: async ({ negotiation_id, ats_config }) => {
+      handler: async ({ source, resume_id, negotiation_id, ats_config }) => {
         const token = readHhToken(USER_ID);
         if (!token) return { error: 'HH не подключён.' };
         const apiKey = llmReady();
         if (!ladderToken()) return { error: 'llm-ladder token не найден.' };
 
-        try {
-          const neg = await hhGet(`/negotiations/${negotiation_id}`, token);
-          const { name, text: candidateContext } = await formatCandidateContext(neg);
-
-          const result = await evaluateCandidate(candidateContext, ats_config, apiKey);
-
-          return {
-            negotiation_id,
-            name,
-            score: result.score,
-            verdict: result.verdict,
-            reasoning: result.reasoning,
-            matched: result.matched,
-            gaps: result.gaps,
-            knockout_failed: result.knockout_failed || [],
-            criteria: result.criteria,
-          };
-        } catch (e) {
-          return hhAuthAwareError(e);
+        if (source === 'cold_search') {
+          if (!resume_id) return { error: 'resume_id обязателен при source=cold_search' };
+          try {
+            const fakeNeg = { resume: { id: resume_id } };
+            await hydrateResume(fakeNeg, token);
+            if (fakeNeg._resume_status !== 'full') {
+              return { error: fakeNeg._resume_status === 'restricted' ? 'Резюме не открыто для просмотра (нужен платный контакт-доступ).' : 'Не удалось загрузить резюме.' };
+            }
+            const name = [fakeNeg.resume.last_name, fakeNeg.resume.first_name].filter(Boolean).join(' ') || 'Кандидат';
+            const candidateText = buildResumeText(fakeNeg);
+            const result = await evaluateCandidate(candidateText, ats_config, apiKey);
+            return {
+              source, resume_id, name,
+              score: result.score, verdict: result.verdict, reasoning: result.reasoning,
+              matched: result.matched, gaps: result.gaps,
+              knockout_failed: result.knockout_failed || [],
+            };
+          } catch (e) {
+            return hhAuthAwareError(e);
+          }
         }
+
+        if (source === 'application') {
+          if (!negotiation_id) return { error: 'negotiation_id обязателен при source=application' };
+          try {
+            const neg = await hhGet(`/negotiations/${negotiation_id}`, token);
+            const { name, text: candidateContext } = await formatCandidateContext(neg);
+            const result = await evaluateCandidate(candidateContext, ats_config, apiKey);
+            return {
+              source, negotiation_id, name,
+              score: result.score, verdict: result.verdict, reasoning: result.reasoning,
+              matched: result.matched, gaps: result.gaps,
+              knockout_failed: result.knockout_failed || [], criteria: result.criteria,
+            };
+          } catch (e) {
+            return hhAuthAwareError(e);
+          }
+        }
+
+        return { error: 'source должен быть cold_search или application' };
       },
     },
-
-    // ── Messaging ───────────────────────────────────────────────────────────
 
     hh_generate_message: {
       description: 'Generate a candidate draft from the saved vacancy communication_plan, current full HH conversation history and full candidate profile. The Communication chain chooses a free goal from the editable scenario; generation does not send a message. message_type is retained for legacy compatibility, with rejection requesting an explicit rejection draft.',

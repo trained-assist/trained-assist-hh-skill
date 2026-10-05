@@ -169,7 +169,7 @@ describe('hh_evaluate_candidate', () => {
       reasoning: 'Отличный кандидат с релевантным стеком и сильным опытом.',
     }));
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-001', ats_config: ATS });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-001', ats_config: ATS });
 
     expect(r.verdict).toBe('ПРОПУСТИТЬ');
     expect(r.score).toBeGreaterThanOrEqual(6.5);
@@ -190,7 +190,7 @@ describe('hh_evaluate_candidate', () => {
       reasoning: 'Хороший бэкенд, но стек частично не совпадает.',
     }));
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-003', ats_config: ATS });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-003', ats_config: ATS });
 
     expect(r.verdict).toBe('УТОЧНИТЬ');
     expect(r.score).toBeGreaterThanOrEqual(4.0);
@@ -209,7 +209,7 @@ describe('hh_evaluate_candidate', () => {
       reasoning: 'Нет нужного опыта, не проходит по фильтру лет.',
     }));
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-002', ats_config: ATS });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-002', ats_config: ATS });
 
     expect(r.verdict).toBe('ОТКЛОНИТЬ');
     expect(r.score).toBe(0);
@@ -223,7 +223,7 @@ describe('hh_evaluate_candidate', () => {
       reasoning: 'Нокаут-критерий сработал.',
     }));
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-002', ats_config: ATS });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-002', ats_config: ATS });
 
     expect(r.verdict).toBe('ОТКЛОНИТЬ');
     expect(r.score).toBe(0);
@@ -263,7 +263,7 @@ describe('hh_evaluate_candidate — legacy ats_config shapes get normalized, not
       reasoning: 'Отличный кандидат.',
     }));
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-001', ats_config: legacyConfig });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-001', ats_config: legacyConfig });
 
     expect(r.verdict).toBe('ПРОПУСТИТЬ');
     expect(r.score).toBeGreaterThanOrEqual(6.5);
@@ -291,7 +291,7 @@ describe('hh_evaluate_candidate — legacy ats_config shapes get normalized, not
       reasoning: 'Сильный кандидат.',
     }));
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-001', ats_config: legacyConfig });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-001', ats_config: legacyConfig });
 
     // Before the fix: pass_threshold=50 was unreachable (max score is 10) → always ОТКЛОНИТЬ.
     expect(r.verdict).toBe('ПРОПУСТИТЬ');
@@ -301,7 +301,7 @@ describe('hh_evaluate_candidate — legacy ats_config shapes get normalized, not
   it('config with nothing usable after normalization → explicit error, not a silent score-0 ОТКЛОНИТЬ for every candidate', async () => {
     const emptyConfig = { vacancy_title: 'X', vacancy_context: 'Y' };
 
-    const r = await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-001', ats_config: emptyConfig });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-001', ats_config: emptyConfig });
 
     expect(r.error).toMatch(/ATS-конфиг повреждён или устарел/);
   });

@@ -186,7 +186,7 @@ describe('1 — System prompt sent to LLM changes when ATS config changes', () =
     const capture = { value: null };
     captureOrMock(capture, EVAL_A_POOR);
 
-    await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-003', ats_config: CONFIG_A });
+    await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-003', ats_config: CONFIG_A });
 
     const systemMsg = capture.value?.messages?.find(m => m.role === 'system')?.content;
     expect(systemMsg).toBeTruthy();
@@ -206,7 +206,7 @@ describe('1 — System prompt sent to LLM changes when ATS config changes', () =
     const capture = { value: null };
     captureOrMock(capture, EVAL_B_STRONG);
 
-    await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-003', ats_config: CONFIG_B });
+    await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-003', ats_config: CONFIG_B });
 
     const systemMsg = capture.value?.messages?.find(m => m.role === 'system')?.content;
     expect(systemMsg).toBeTruthy();
@@ -224,11 +224,11 @@ describe('1 — System prompt sent to LLM changes when ATS config changes', () =
   it('the two system prompts are materially different', async () => {
     const captureA = { value: null };
     captureOrMock(captureA, EVAL_A_POOR);
-    await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-003', ats_config: CONFIG_A });
+    await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-003', ats_config: CONFIG_A });
 
     const captureB = { value: null };
     captureOrMock(captureB, EVAL_B_STRONG);
-    await tools().hh_evaluate_candidate.handler({ negotiation_id: 'neg-003', ats_config: CONFIG_B });
+    await tools().hh_evaluate_candidate.handler({ source: 'application', negotiation_id: 'neg-003', ats_config: CONFIG_B });
 
     const promptA = captureA.value?.messages?.find(m => m.role === 'system')?.content;
     const promptB = captureB.value?.messages?.find(m => m.role === 'system')?.content;
@@ -249,6 +249,7 @@ describe('2 — Same candidate gets different verdict when config changes', () =
     captureOrMock({ value: null }, EVAL_A_POOR);
 
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: CONFIG_A,
     });
@@ -265,6 +266,7 @@ describe('2 — Same candidate gets different verdict when config changes', () =
     captureOrMock({ value: null }, EVAL_B_STRONG);
 
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: CONFIG_B,
     });
@@ -279,12 +281,14 @@ describe('2 — Same candidate gets different verdict when config changes', () =
   it('gaps are different between the two configs for the same candidate', async () => {
     captureOrMock({ value: null }, EVAL_A_POOR);
     const rA = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: CONFIG_A,
     });
 
     captureOrMock({ value: null }, EVAL_B_STRONG);
     const rB = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: CONFIG_B,
     });
@@ -305,6 +309,7 @@ describe('3 — Pass/review threshold changes → different verdict, same LLM re
   it('pass_threshold 4.5 → score 5.0 crosses threshold → ПРОПУСТИТЬ', async () => {
     mockOr(EVAL_A_POOR);
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: { ...CONFIG_A, pass_threshold: 4.5, review_threshold: 2.0 },
     });
@@ -315,6 +320,7 @@ describe('3 — Pass/review threshold changes → different verdict, same LLM re
   it('pass_threshold 6.5 → score 5.0 is below → УТОЧНИТЬ', async () => {
     mockOr(EVAL_A_POOR);
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: { ...CONFIG_A, pass_threshold: 6.5, review_threshold: 4.0 },
     });
@@ -324,6 +330,7 @@ describe('3 — Pass/review threshold changes → different verdict, same LLM re
   it('review_threshold 5.5 → score 5.0 falls below → ОТКЛОНИТЬ', async () => {
     mockOr(EVAL_A_POOR);
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: { ...CONFIG_A, pass_threshold: 7.0, review_threshold: 5.5 },
     });
@@ -427,6 +434,7 @@ describe('5 — Knockout criteria change → different candidates are instantly 
     captureOrMock({ value: null }, knockoutResponseA);
 
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: CONFIG_A,
     });
@@ -441,6 +449,7 @@ describe('5 — Knockout criteria change → different candidates are instantly 
     captureOrMock({ value: null }, EVAL_B_STRONG);
 
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-003',
       ats_config: CONFIG_B,
     });
@@ -459,6 +468,7 @@ describe('5 — Knockout criteria change → different candidates are instantly 
     captureOrMock({ value: null }, knockoutResponseB);
 
     const r = await tools().hh_evaluate_candidate.handler({
+      source: 'application',
       negotiation_id: 'neg-001',  // Алексей Иванов — Node.js expert, no Go
       ats_config: CONFIG_B,
     });

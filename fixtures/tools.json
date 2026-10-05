@@ -8,28 +8,13 @@
     { "name": "hh_set_active_vacancy", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "ok": true } },
     { "name": "hh_list_responses", "validArgs": { "vacancy_id": "vac-001" }, "expect": { "total": 3 } },
     { "name": "hh_search_resumes", "validArgs": {}, "expect": { "total": 4 } },
-    {
-      "name": "hh_evaluate_resume",
-      "validArgs": {
-        "resume_id": "res-001",
-        "ats_config": {
-          "vacancy_title": "Инженер Node.js",
-          "vacancy_context": "fixture",
-          "knockout": [],
-          "required": [{ "name": "Node.js", "weight": 2 }],
-          "preferred": [],
-          "pass_threshold": 6.5,
-          "review_threshold": 4
-        }
-      },
-      "expect": { "resume_id": "res-001" }
-    },
     { "name": "hh_invite_resume", "validArgs": { "resume_id": "res-100", "vacancy_id": "vac-001" }, "expect": { "ok": true } },
     { "name": "hh_funnel_stats", "validArgs": {}, "expect": { "ok": true } },
     { "name": "hh_extract_ats_config", "validArgs": { "vacancy_text": "Ищем Node.js разработчика" }, "expect": { "ok": true } },
     {
       "name": "hh_evaluate_candidate",
       "validArgs": {
+        "source": "application",
         "negotiation_id": "neg-001",
         "ats_config": {
           "vacancy_title": "Инженер Node.js",

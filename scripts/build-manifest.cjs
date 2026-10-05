@@ -103,7 +103,6 @@ const POLICY = {
   hh_proactive_view:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
 
   // ── Drafting/evaluation — local write (scores/drafts saved), no outbound HH effect ──
-  hh_evaluate_resume:       { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_evaluate_candidate:    { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_extract_ats_config:    { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
   hh_generate_message:      { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: READ_ONLY },
