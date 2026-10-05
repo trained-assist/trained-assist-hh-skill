@@ -86,7 +86,6 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
         // only stores messages HH confirmed (each carries its hh_id), so it is the
         // exact source for the last sender.
         if (neg.counters?.unread_messages > 0) return true;
-        if (neg.has_updates) return true;
         const msgs = history.messages || [];
         const hhMessages = neg.counters?.messages || 0;
         if (msgs.length > 0) {
@@ -95,6 +94,10 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
           if (hhMessages > msgs.length) return true;
           return msgs[msgs.length - 1].role !== 'employer';
         }
+        // has_updates is a coarse HH negotiation flag. When we do have a complete
+        // message history, the last sender above is more precise: a status/update flag
+        // must not put a candidate back in «Неотвеченные» after our reply.
+        if (neg.has_updates) return true;
         // No local history at all. counters.messages counts real chat messages only —
         // the candidate's cover letter is NOT counted (verified against the HH API:
         // a response with our single message reports messages=1). 0 → nobody wrote in
