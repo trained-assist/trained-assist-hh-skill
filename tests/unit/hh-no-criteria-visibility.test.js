@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 import { createRequire } from 'node:module';
 
 // USERS_DIR must point at a temp root BEFORE the page module is loaded: it resolves the
@@ -34,6 +35,7 @@ function writeAtsConfig(value) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `ats_config:${VACANCY}.json`), JSON.stringify({ value, updated_at: new Date().toISOString() }));
 }
+function writeHistory(root, value) { const dir=path.join(root,'hh',USERNAME,'candidates');fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,`${neg().id}.json`),JSON.stringify(value)); }
 function dropAtsConfig() {
   const f = path.join(usersRootForTest, USERNAME, 'contexts', 'hh', `ats_config:${VACANCY}.json`);
   if (fs.existsSync(f)) fs.rmSync(f);
@@ -73,5 +75,49 @@ describe('review page stops swallowing generation failures (issue #126, slice 3)
     expect(catchBlock).toMatch(/catch\(e\)/);
     expect(catchBlock).toMatch(/showToast\('❌ Ошибка генерации: '/);
     expect(catchBlock).toMatch(/no_ats_config/);
+  });
+});
+
+
+describe('review page marks legacy drafts as stale', () => {
+  it('prevents sending and bulk selection until a current scenario draft exists', () => {
+    const root=dataRoot();writeAtsConfig({vacancy_title:'Vac'});writeHistory(root,{ats_result:{draft_message:'Old draft',verdict:'ПРОПУСТИТЬ',score:9.5}});
+    const html=generateReviewPageHtml([neg()],'Vac',USERNAME,'',root,{vacancyId:VACANCY,communicationEnabled:true});
+    expect(html).toContain('Старый черновик: обновите его по сценарию перед отправкой.');
+    expect(html).toMatch(/class="btn btn-send"[^>]* disabled/);
+    expect(html).toMatch(/class="card-cb"[^>]* disabled/);
+    dropAtsConfig();
+  });
+});
+
+describe('review page selects score buckets and reports regeneration failures honestly', () => {
+  it('rounds displayed fractional scores to the nearest score button', () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('function toggleBucket(n) {'), end=source.indexOf('\nfunction selectAll',start);
+    const selected=[];let checks=0;
+    const button={classList:{add(){},remove(){}}};
+    const checkboxes=[{dataset:{idx:'1',score:'9.5'},checked:false},{dataset:{idx:'2',score:'9.4'},checked:false}];
+    const context={Set,parseInt,parseFloat,Math,activeBuckets:new Set(),done:new Set(),document:{querySelector:()=>button,querySelectorAll:()=>checkboxes},onCheck:()=>checks++};
+    vm.runInNewContext(source.slice(start,end)+';this.toggleBucket=toggleBucket;',context);
+    context.toggleBucket(10);
+    expect(checkboxes.map(cb=>cb.checked)).toEqual([true,false]);expect(checks).toBe(1);
+  });
+
+  it('does not report failed bulk generation as a green success', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function regenerateAll() {'), end=source.indexOf('\nasync function generateOne',start);
+    const button={disabled:false,textContent:''},target={disabled:false,dataset:{idx:'0',negid:'neg',name:'Candidate',sent:'0'}};let toast='';
+    const context={document:{getElementById:()=>button,querySelectorAll:()=>[target]},done:new Set(),parseInt,Array,Math,Promise,generateOne:async()=>false,showToast:(message)=>{toast=message}};
+    vm.runInNewContext(source.slice(start,end)+';this.regenerateAll=regenerateAll;',context);
+    await context.regenerateAll();expect(toast).toContain('Не удалось: 1');expect(toast).not.toContain('✅');expect(button.disabled).toBe(false);
+  });
+
+  it('returns failure when a single generation request fails', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function generateOne('), end=source.indexOf('\nfunction generateRejection',start);
+    const button={disabled:false,textContent:''},textarea={classList:{add(){},remove(){}},placeholder:''};let toast='';
+    const context={document:{getElementById:(id)=>id.startsWith('gen-')?button:textarea,querySelector:()=>null},window:{HH_GENERATION_TIMEOUT_MS:1},HH_VACANCY_ID:'vac',setInterval:()=>1,clearInterval(){},hhAction:async()=>{throw new Error('fixture failure')},showToast:(message)=>{toast=message},Date,Math};
+    vm.runInNewContext(source.slice(start,end)+';this.generateOne=generateOne;',context);
+    expect(await context.generateOne(0,'neg','Candidate',false)).toBe(false);expect(toast).toContain('fixture failure');expect(button.disabled).toBe(false);
   });
 });
