@@ -187,7 +187,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
     const isActionable = c.verdict && c.verdict !== 'ОТКЛОНИТЬ';
     const isReject = c.verdict === 'ОТКЛОНИТЬ' && !c.is_discarded;
 
-    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" ${c.draft_is_stale ? 'disabled title="Сначала обновите черновик по сценарию"' : ''} ${isActionable && c.response_status !== 'archived' && !c.draft_is_stale ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
+    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" data-auto-select="${isActionable && c.response_status !== 'archived' ? '1' : '0'}" ${c.draft_is_stale ? 'disabled title="Сначала обновите черновик по сценарию"' : ''} ${isActionable && c.response_status !== 'archived' && !c.draft_is_stale ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
       + `<label><input type="checkbox" class="reject-cb" id="reject-cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" onchange="onCheck()"> Отказать</label>`;
 
     const scoreHtml = hasScore
@@ -719,6 +719,8 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       : '';
     card?.querySelector('.draft-stale')?.remove();
     const sendBtn=card?.querySelector('.btn-send');if(sendBtn)sendBtn.disabled=false;
+    const sendSelection=card?.querySelector('.card-cb');
+    if(sendSelection){const bucket=Math.round(parseFloat(sendSelection.dataset.score||'0'));sendSelection.disabled=false;sendSelection.checked=activeBuckets.has(bucket)||(!activeBuckets.size&&sendSelection.dataset.autoSelect==='1');onCheck();}
     if(data.communication_steps){
       const panel=document.querySelector('#card-'+i+' .communication-review');
       if(panel){
