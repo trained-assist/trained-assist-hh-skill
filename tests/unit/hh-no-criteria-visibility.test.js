@@ -112,6 +112,19 @@ describe('review page selects score buckets and reports regeneration failures ho
     await context.regenerateAll();expect(toast).toContain('Не удалось: 1');expect(toast).not.toContain('✅');expect(button.disabled).toBe(false);
   });
 
+  it('restores a regenerated legacy card to bulk selection', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function generateOne('), end=source.indexOf('\nfunction generateRejection',start);
+    const button={disabled:false,textContent:''},textarea={value:'',classList:{add(){},remove(){}},placeholder:''};
+    const stale={remove(){}};const sendBtn={disabled:true};const selection={disabled:true,checked:false,dataset:{score:'9.5',autoSelect:'1'}};let checks=0;
+    const card={querySelector:(selector)=>selector==='.draft-stale'?stale:selector==='.btn-send'?sendBtn:selector==='.card-cb'?selection:null};
+    const panel={replaceChildren(){},append(){}};
+    const context={document:{getElementById:(id)=>id.startsWith('gen-')?button:id.startsWith('msg-')?textarea:card,querySelector:()=>null,createElement:()=>({append(){},textContent:''})},window:{HH_GENERATION_TIMEOUT_MS:1},HH_VACANCY_ID:'vac',activeBuckets:new Set([10]),onCheck:()=>checks++,setInterval:()=>1,clearInterval(){},hhAction:async()=>({message:'new draft',communication_steps:{}}),showToast(){},Date,Math};
+    context.document.querySelector=()=>panel;
+    vm.runInNewContext(source.slice(start,end)+';this.generateOne=generateOne;',context);
+    expect(await context.generateOne(0,'neg','Candidate',false)).toBe(true);expect(sendBtn.disabled).toBe(false);expect(selection.disabled).toBe(false);expect(selection.checked).toBe(true);expect(checks).toBe(1);
+  });
+
   it('returns failure when a single generation request fails', async () => {
     const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
     const source=scriptOf(html), start=source.indexOf('async function generateOne('), end=source.indexOf('\nfunction generateRejection',start);
