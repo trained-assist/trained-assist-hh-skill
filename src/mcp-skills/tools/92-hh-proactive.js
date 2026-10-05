@@ -42,7 +42,7 @@ module.exports = {
   setupTools: [],
   tools: {
     hh_proactive_search: {
-      description: 'ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_resume — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).',
+      description: 'ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_candidate(source: cold_search) — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).',
       inputSchema: { type: 'object', properties: { vacancy_id: { type: 'string', description: 'ID вакансии; не меняет текущую выбранную вакансию' }, area: { type: ['string', 'array', 'null'], items: { type: 'string' }, description: 'ID регионов HH; null — явно без ограничения' } } },
       handler: async (args = {}) => {
         const userId = process.env.USER_ID || process.env.AGENT_USER_ID || '';

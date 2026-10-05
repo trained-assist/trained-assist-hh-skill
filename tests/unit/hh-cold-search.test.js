@@ -1,4 +1,4 @@
-// Unit tests for the cold-search tools (hh_search_resumes, hh_evaluate_resume,
+// Unit tests for the cold-search tools (hh_search_resumes, hh_evaluate_candidate(source: cold_search),
 // hh_invite_resume) added to 90-hh.js. These are the tools an agent should reach
 // for on "холодный поиск" instead of hand-rolling HH API calls via hh_api_call —
 // see PR description for the incident that prompted this.
@@ -63,7 +63,7 @@ beforeAll(async () => {
   process.env.AGENT_DATA_DIR = tokensDir;
   process.env.HH_API_BASE_URL = mockHh.baseUrl;
   process.env.OPENROUTER_API_KEY = 'test-or-key';
-  process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // hh_evaluate_resume rides the free ladder
+  process.env.LLM_LADDER_TOKEN = 'test-ladder-token'; // hh_evaluate_candidate rides the free ladder
 
   nock.disableNetConnect();
   nock.enableNetConnect('127.0.0.1');
@@ -118,7 +118,7 @@ describe('hh_search_resumes', () => {
   });
 });
 
-describe('hh_evaluate_resume', () => {
+describe('hh_evaluate_candidate(source: cold_search)', () => {
   it('scores a cold-search resume without any negotiation/application', async () => {
     mockOr(JSON.stringify({
       knockout_failed: [],
@@ -130,7 +130,7 @@ describe('hh_evaluate_resume', () => {
       reasoning: 'Подходит по опыту холодных продаж.',
     }));
 
-    const r = await tools().hh_evaluate_resume.handler({ resume_id: DEFAULT_COLD_RESUME.id, ats_config: ATS });
+    const r = await tools().hh_evaluate_candidate.handler({ source: 'cold_search', resume_id: DEFAULT_COLD_RESUME.id, ats_config: ATS });
     expect(r.error).toBeUndefined();
     expect(r.name).toBe('Кузнецова Ольга');
     expect(r.verdict).toBe('ПРОПУСТИТЬ');

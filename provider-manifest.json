@@ -281,35 +281,6 @@
       "retrySafety": "read_only"
     },
     {
-      "name": "hh_evaluate_resume",
-      "description": "Оценить резюме из холодного поиска (hh_search_resumes) той же ATS-рубрикой, что и отклики — но БЕЗ отклика/переписки, по самому резюме. Используй после hh_search_resumes, до приглашения (hh_invite_resume), чтобы не звать вслепую.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "resume_id": {
-            "type": "string",
-            "description": "ID резюме из hh_search_resumes."
-          },
-          "ats_config": {
-            "type": "object",
-            "description": "ATS config от hh_extract_ats_config (или свой). Обязательные поля: knockout[], required[], preferred[], pass_threshold, review_threshold."
-          }
-        },
-        "required": [
-          "resume_id",
-          "ats_config"
-        ]
-      },
-      "allowedTriggers": [
-        "user",
-        "cron",
-        "durable_task"
-      ],
-      "effect": "write",
-      "requiresApproval": false,
-      "retrySafety": "idempotent"
-    },
-    {
       "name": "hh_invite_resume",
       "description": "Пригласить кандидата из холодного поиска на вакансию (POST /negotiations/phone_interview на hh.ru) — превращает найденное резюме в полноценный отклик/переписку, дальше работает как с обычным откликом (hh_get_messages, hh_send_message). Списывает контакт кандидата с баланса услуги базы резюме — сначала покажи текст сообщения рекрутёру и дождись подтверждения.",
       "inputSchema": {
@@ -399,13 +370,25 @@
     },
     {
       "name": "hh_evaluate_candidate",
-      "description": "Evaluate a candidate response (resume + cover letter) using LLM-based ATS scoring. Returns score 0-10, verdict (ПРОПУСТИТЬ / УТОЧНИТЬ / ОТКЛОНИТЬ), matched strengths, and gaps.",
+      "description": "ATS-оценка кандидата по рубрике: 0-10, вердикт (ПРОПУСТИТЬ / УТОЧНИТЬ / ОТКЛОНИТЬ), сильные стороны, пробелы. source=cold_search — резюме из холодного поиска (resume_id, до приглашения); source=application — отклик с сопроводительным (negotiation_id).",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "cold_search",
+              "application"
+            ],
+            "description": "Откуда кандидат: cold_search (резюме из поиска, resume_id) или application (отклик, negotiation_id)."
+          },
+          "resume_id": {
+            "type": "string",
+            "description": "ID резюме из hh_search_resumes (source=cold_search)."
+          },
           "negotiation_id": {
             "type": "string",
-            "description": "Negotiation ID from hh_list_responses"
+            "description": "Negotiation ID from hh_list_responses (source=application)."
           },
           "ats_config": {
             "type": "object",
@@ -413,7 +396,7 @@
           }
         },
         "required": [
-          "negotiation_id",
+          "source",
           "ats_config"
         ]
       },
@@ -1352,7 +1335,7 @@
     },
     {
       "name": "hh_proactive_search",
-      "description": "ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_resume — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).",
+      "description": "ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для «холодный поиск» / «найди кандидатов» / «прогрей базу»: без аргументов запускает поиск+скоринг+публикацию результатов по активной вакансии за один вызов (~30 сек). Использует сохранённые критерии ATS. Предпочитай его перед hh_search_resumes+hh_evaluate_candidate(source: cold_search) — тот путь медленнее и не нужен, кроме случаев кастомного запроса (свои text/area/skill фильтры вне критериев вакансии).",
       "inputSchema": {
         "type": "object",
         "properties": {
