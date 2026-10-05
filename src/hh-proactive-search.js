@@ -1213,7 +1213,10 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
     if (error.code === 'SEARCH_BUSY') {
       if (options.vacancyId) {
         const progress = getAtsRefreshProgress(username, options.vacancyId);
-        if (progress.pending) writeAtsRefreshProgress(username, options.vacancyId, { config_hash: atsScoringHash(require('./hh-cold-search-context').resolveSearchContext(path.join(usersRoot(), String(username)), options.vacancyId).config), status: 'queued', completed: progress.completed, total: progress.total, failures: 0 });
+        const saved = readAtsRefreshProgress(username, options.vacancyId);
+        const savedAge = saved?.updated_at ? Date.now() - Date.parse(saved.updated_at) : Infinity;
+        const anotherRefreshIsLive = saved?.status === 'running' && savedAge < 120_000;
+        if (progress.pending && !anotherRefreshIsLive) writeAtsRefreshProgress(username, options.vacancyId, { config_hash: atsScoringHash(require('./hh-cold-search-context').resolveSearchContext(path.join(usersRoot(), String(username)), options.vacancyId).config), status: 'queued', completed: progress.completed, total: progress.total, failures: 0 });
       }
       return 0;
     }
@@ -1286,12 +1289,19 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       }
       remaining -= needScore.length;
       let failures = 0;
-      const enriched = await enrichCandidates(needScore, atsConfig, async batch => {
-        failures += batch.failed;
-        writeAtsRefreshProgress(username, results.vacancy_id, {
-          config_hash: hash, status: 'running', completed: currentCompleted(), total: candidates.length, failures,
+      const heartbeat = setInterval(() => writeAtsRefreshProgress(username, results.vacancy_id, {
+        config_hash: hash, status: 'running', completed: currentCompleted(), total: candidates.length, failures,
+      }), 30_000);
+      heartbeat.unref?.();
+      let enriched;
+      try {
+        enriched = await enrichCandidates(needScore, atsConfig, async batch => {
+          failures += batch.failed;
+          writeAtsRefreshProgress(username, results.vacancy_id, {
+            config_hash: hash, status: 'running', completed: currentCompleted(), total: candidates.length, failures,
+          });
         });
-      });
+      } finally { clearInterval(heartbeat); }
       for (const candidate of enriched) {
         const idx = candidates.findIndex(c => c.id === candidate.id);
         if (idx >= 0) Object.assign(candidates[idx], candidate);

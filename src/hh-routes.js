@@ -1499,6 +1499,14 @@ if (req.method === 'GET' && url.pathname === '/hh/proactive') {
     try { atsProgress = require('./hh-proactive-search').getAtsRefreshProgress(username, vacancyId); }
     catch (e) { console.error('[hh/proactive] ATS progress read failed:', e.message); }
   }
+  // A pre-existing backlog may have been created before this page learned to
+  // trigger rescoring on ATS save. Opening the vacancy page is also a natural
+  // recovery point: start one bounded background pass whenever work is queued.
+  if (atsProgress?.pending > 0 && atsProgress.status === 'queued') {
+    setImmediate(() => scoreUnscoredProactiveCandidates(username, { vacancyId: String(vacancyId) }).catch(error => {
+      console.error(`[hh/proactive] cold-search rescore failed for vacancy=${vacancyId}:`, error.message);
+    }));
+  }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   return res.end(generateProactivePageHtml(results, username, callbackBase, given, pageComments, { activeVacancies, vacancyId, listView, stateCounts, monitoring, searchSettings, searchJob, atsProgress }));
 }
