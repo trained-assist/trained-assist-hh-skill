@@ -307,13 +307,13 @@ describe('hh_evaluate_candidate — legacy ats_config shapes get normalized, not
   });
 });
 
-// ── hh_generate_message ──────────────────────────────────────────────────────
+// ── hh_generate_message_to_applicant ──────────────────────────────────────────────────────
 
-describe('hh_generate_message', () => {
+describe('hh_generate_message_to_applicant', () => {
   it('returns a draft message for a candidate', async () => {
     mockOr('Добрый день, Алексей! Нашли ваше резюме очень интересным. Расскажите подробнее о вашем опыте с Node.js в Яндексе.');
 
-    const r = await tools().hh_generate_message.handler({
+    const r = await tools().hh_generate_message_to_applicant.handler({
       negotiation_id: 'neg-001',
       vacancy_context: 'Senior Node.js Backend, нагруженная система',
     });

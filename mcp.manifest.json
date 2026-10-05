@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "a488b0b644f48c4799ee9086693b3d0ff3d96de5",
+      "revision": "7d78059e73b5da423ec8e87284c9b1193316870f",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "8fc5333b9f7451040ca32e086fbfd4c3993923c1e668d4105063046d1e50827e",
+      "artifactDigest": "ff1393224bb09f558d3fecf71222e4e2a89d46d579bb81231b28861c68366799",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -412,7 +412,7 @@
             "retrySafety": "idempotent"
           },
           {
-            "name": "hh_generate_message",
+            "name": "hh_generate_message_to_applicant",
             "inputSchema": {
               "type": "object",
               "properties": {

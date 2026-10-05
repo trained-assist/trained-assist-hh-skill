@@ -1180,7 +1180,9 @@ module.exports = {
       },
     },
 
-    hh_generate_message: {
+    // ── Messaging ───────────────────────────────────────────────────────────
+
+    hh_generate_message_to_applicant: {
       description: 'Generate a candidate draft from the saved vacancy communication_plan, current full HH conversation history and full candidate profile. The Communication chain chooses a free goal from the editable scenario; generation does not send a message. message_type is retained for legacy compatibility, with rejection requesting an explicit rejection draft.',
       inputSchema: {
         type: 'object',
