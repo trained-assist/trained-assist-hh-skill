@@ -85,6 +85,25 @@ describe('review page: candidate we already answered is «Молчат», not «
     }
   });
 
+  it('a stale HH update flag cannot override a complete history whose last message is ours', () => {
+    const root = mkTmp();
+    const username = 'needs-reply-has-updates';
+    seedHistory(root, username, '5616135821', [
+      { hh_id: '15678813198', role: 'applicant', text: 'Отклик и сообщение кандидата', timestamp: '2026-09-30T14:09:32+03:00' },
+      { hh_id: '15678814000', role: 'employer', text: 'Наш ответ', timestamp: '2026-09-30T14:30:53+03:00' },
+    ]);
+    try {
+      const html = render(root, username, [neg({
+        has_updates: true,
+        counters: { unread_messages: 0, messages: 2 },
+      })]);
+      expect(cardCount(html, 'waiting')).toBe(0);
+      expect(cardCount(html, 'dialog')).toBe(1);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('a fresh response with no chat at all still needs an answer', () => {
     const root = mkTmp();
     const username = 'needs-reply-u3';
