@@ -13,7 +13,7 @@ test('real MCP generate/regenerate uses explicit B plan, full paginated HH threa
    if(url.pathname.endsWith('/state/extract'))out={status:'extracted',conversation_revision:input.conversation_revision,state:{summary:'Уточнение условий',contact_allowed:true,stages:[{stage_id:'custom',status:'in_progress',evidence:[]}],requirements:[],open_questions:[],uncertainties:[],next_check_at:null}};
    else if(url.pathname.endsWith('/next-goal'))out={status:'goal_ready',conversation_revision:input.conversation_revision,requires_message:true,execution:{type:'write_message'},goal:{instruction:'Уточнить удобный формат',required_points:[],forbidden_points:[]},reason:'Сохранённый сценарий'};
    else out={status:'generated',context_revision:input.context_revision,message_text:'Подскажите удобный формат работы?'};
-  }else if(req.method==='POST'&&url.pathname==='/negotiations/n1/messages'){let raw='';for await(const c of req)raw+=c;deliveredText=JSON.parse(raw).message;out={};}
+  }else if(req.method==='POST'&&url.pathname==='/common/chats/chat/messages'){let raw='';for await(const c of req)raw+=c;const payload=JSON.parse(raw);assert.match(payload.idempotency_key,/^[0-9a-f-]{36}$/);deliveredText=payload.text;out={id:'delivered'};res.statusCode=201;}
   else if(url.pathname==='/negotiations/n1')out=neg;
   else if(url.pathname==='/resumes/resume')out=fullResume;
   else if(url.pathname==='/common/chats/chat/messages')out=url.searchParams.has('start_message_id')?{has_more:false,items:[{id:'old',payload:{text:late},sender_display_info:{role:'APPLICANT'},creation_time:'2026-01-01T00:00:00Z'}]}:{has_more:true,items:[{id:'new',payload:{text:'Какой формат работы?'},sender_display_info:{role:'APPLICANT'},creation_time:'2026-01-02T00:00:00Z'},...(deliveredText?[{id:'delivered',payload:{text:deliveredText},sender_display_info:{role:'EMPLOYER'},creation_time:'2026-01-03T00:00:00Z'}]:[])]};
@@ -46,7 +46,7 @@ test('real MCP generate/regenerate uses explicit B plan, full paginated HH threa
   assert.equal(sent.ok,true,JSON.stringify(sent));assert.equal(sent.send_event.provider_message_id,'delivered');assert.equal(sent.send_event.verification,'provider_history');
   const retry=parse(await mcp.call('tools/call',{name:'hh_send_message',arguments:{negotiation_id:'n1',message}}));
   assert.equal(retry.ok,true,JSON.stringify(retry));assert.equal(retry.reconciled,true);
-  assert.equal(requests.filter(r=>r.method==='POST'&&r.path==='/negotiations/n1/messages').length,1,'retry must not duplicate actual HH POST');
+  assert.equal(requests.filter(r=>r.method==='POST'&&r.path==='/common/chats/chat/messages').length,1,'retry must not duplicate actual HH POST');
   assert.equal(JSON.parse(fs.readFileSync(historyFile)).communication_send_events[0].provider_message_id,'delivered');
 
  }finally{await mcp.stop();await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});}

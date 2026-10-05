@@ -98,7 +98,7 @@ template_garbage = текст явно является незаполненны
  * @returns {Promise<{ ok: boolean, reason?: string, checks: object }>}
  */
 async function bullshitGuard(messageText, conversationHistory = [], options = {}) {
-  const checks = { empty: false, placeholder: false, invented_time: false, known_fact: false, repeated_question: false, repeated_intro: false, template_garbage: false };
+  const checks = { empty: false, placeholder: false, exact_duplicate: false, invented_time: false, known_fact: false, repeated_question: false, repeated_intro: false, template_garbage: false };
 
   if (!messageText || messageText.trim().length === 0) {
     checks.empty = true;
@@ -108,6 +108,17 @@ async function bullshitGuard(messageText, conversationHistory = [], options = {}
   if (hasPlaceholder(messageText)) {
     checks.placeholder = true;
     return { ok: false, reason: 'незаполненный placeholder в тексте', checks };
+  }
+
+  // Exact repeats are deterministic and must not depend on the semantic LLM
+  // guard being available or noticing that an entire prior message was copied.
+  // The single-message UI still offers an explicit force-send path when a recruiter
+  // intentionally wants to resend it.
+  const normalizeForDuplicate = value => String(value || '').toLocaleLowerCase('ru').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalizedMessage = normalizeForDuplicate(messageText);
+  if (normalizedMessage && conversationHistory.some(m => m?.role === 'employer' && normalizeForDuplicate(m.text) === normalizedMessage)) {
+    checks.exact_duplicate = true;
+    return { ok: false, reason: 'это сообщение уже отправляли кандидату', checks };
   }
 
   // «Не переспрашивай то, что уже есть в резюме» (живой дефект 02.10.2026: письмо

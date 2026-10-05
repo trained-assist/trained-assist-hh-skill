@@ -1296,12 +1296,14 @@ module.exports = {
         if (!token) return { error: 'HH не подключён.' };
 
         try {
-          const data = await hhGet(`/negotiations/${negotiation_id}/messages`, token);
-          const items = (data.items || []).map(m => ({
-            id: m.id,
+          const history = readCandidateHistory(USER_ID, negotiation_id);
+          await refreshCommunicationHistory(history, negotiation_id, endpoint => hhGet(endpoint, token));
+          saveCandidateHistory(USER_ID, negotiation_id, history);
+          const items = (history.messages || []).map(m => ({
+            id: m.hh_id || m.id,
             text: m.text,
-            created_at: m.created_at,
-            author_type: m.author?.participant_type || 'unknown',
+            created_at: m.timestamp,
+            author_type: m.role === 'employer' ? 'employer' : m.role === 'applicant' ? 'applicant' : 'unknown',
           }));
           return { negotiation_id, total: items.length, messages: items };
         } catch (e) {
@@ -1329,21 +1331,27 @@ module.exports = {
         try {
           const stored=readCandidateHistory(USER_ID,negotiation_id);
           const communicationSend=communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&!!stored.communication_steps;
-          const refresh=()=>refreshCommunicationHistory(stored,negotiation_id,endpoint=>hhGet(endpoint,token));
+          let currentNegotiation=null;
+          const refresh=async()=>{currentNegotiation=await refreshCommunicationHistory(stored,negotiation_id,endpoint=>hhGet(endpoint,token));return currentNegotiation;};
           const persist=()=>saveCandidateHistory(USER_ID,negotiation_id,stored);
-          if(communicationSend){const prior=await reconcilePendingSend({history:stored,message,refresh,persist});if(prior)return {ok:true,negotiation_id,reconciled:true,send_event:prior.event};}
+          try{const prior=await reconcilePendingSend({history:stored,message,refresh,persist});if(prior?.delivered)return {ok:true,negotiation_id,reconciled:true,send_event:prior.event};}
+          catch(e){if(e.code==='SEND_OUTCOME_UNKNOWN')return {ok:false,code:e.code,error:e.message};throw e;}
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&contactForbidden(stored))return {ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id)&&!stored.communication_steps&&(message===stored.ats_result?.draft_message||message===stored.message_draft?.text))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&stored.communication_steps){
-            const latest=await refreshCommunicationHistory(stored,negotiation_id,endpoint=>hhGet(endpoint,token));
+            const latest=await refresh();
             await formatCandidateContext(latest);
             const currentResumeHash=resumeHash(latest);
             const vid=stored.communication_snapshot?.context?.vacancy_id||readContext('hh','active_vacancy')?.value?.id;
             const config=vid?readAtsConfigForVacancy(profileWorkDir(),vid):null;
             if(staleCommunicationDraft(stored,config||{},currentResumeHash,readCommunicationGenerationInputs({username:USER_ID,workDir:profileWorkDir(),vacancyId:vid})))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик.'};
           }
-          const delivery=communicationSend?await performCommunicationSend({history:stored,message,refresh,persist,source:'mcp',send:()=>hhPost(`/negotiations/${negotiation_id}/messages`, token, { message })}):null;
-          const sent = delivery?delivery.sent:await hhPost(`/negotiations/${negotiation_id}/messages`, token, { message });
+          if(!currentNegotiation)await refresh();
+          const send=event=>currentNegotiation?.chat_id
+            ?hhPost(`/common/chats/${encodeURIComponent(currentNegotiation.chat_id)}/messages`,token,{text:message,idempotency_key:event.id})
+            :hhPostForm(`/negotiations/${negotiation_id}/messages`,token,{message});
+          const delivery=await performCommunicationSend({history:stored,message,refresh,persist,source:'mcp',send,retryUncertain:!!currentNegotiation?.chat_id});
+          const sent=delivery.sent;
 
           // hh-history dedupes against the HH mirror on the next sync — without the
           // confirmed id (and with the dedupe below) this message reappeared twice.
@@ -1354,7 +1362,7 @@ module.exports = {
           });
           saveCandidateHistory(USER_ID, negotiation_id, history);
 
-          return { ok: true, negotiation_id, ...(delivery?{send_event:delivery.event,reconciled:delivery.reconciled}:{}), message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };
+          return { ok: true, negotiation_id, send_event:delivery.event,reconciled:delivery.reconciled, message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };
         } catch (e) {
           if(e.code==='SEND_OUTCOME_UNKNOWN')return {ok:false,code:e.code,error:e.message};
           return hhAuthAwareError(e);

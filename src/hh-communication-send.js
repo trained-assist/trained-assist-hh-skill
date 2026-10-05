@@ -27,18 +27,28 @@ async function reconcilePendingSend({history,message,refresh,persist}){
  // A crash between POST and response leaves a persisted pending operation. Its
  // outcome must be reconciled before freshness checks or another POST.
  const pending=[...events].reverse().find(e=>e.message_hash===identity.message_hash&&['pending','uncertain'].includes(e.status));
- if(pending)return {...await confirm(history,message,pending,{refresh,persist}),delivered:true};
+ if(pending){
+  try{return {...await confirm(history,message,pending,{refresh,persist}),delivered:true};}
+  catch(error){
+   // A current HH chat API retry can safely reuse this operation's idempotency key.
+   // Return the still-uncertain event to the caller; legacy callers remain blocked.
+   if(pending.status==='uncertain'&&pending.verification==='not_found_in_provider_history')return {uncertain:true,event:pending};
+   throw error;
+  }
+ }
  const delivered=[...events].reverse().find(e=>e.status==='delivered'&&(e.operation_key===identity.operation_key||(identity.material_hash&&e.stage_id===identity.stage_id&&e.material_hash===identity.material_hash&&!identity.resend_requested)));
  return delivered?{...deliveredResult(delivered,true),delivered:true}:null;
 }
-async function performCommunicationSend({history,message,send,refresh,persist,source='manual'}){
- const prior=await reconcilePendingSend({history,message,refresh,persist});if(prior)return prior;
+async function performCommunicationSend({history,message,send,refresh,persist,source='manual',retryUncertain=false}){
+ const prior=await reconcilePendingSend({history,message,refresh,persist});if(prior?.delivered)return prior;
  const identity=sendIdentity(history,message);
- const event={version:1,id:randomUUID(),...identity,source,status:'pending',created_at:new Date().toISOString(),baseline_provider_ids:(history.messages||[]).filter(m=>m.role==='employer'&&m.hh_id!=null).map(m=>String(m.hh_id))};
+ const event=prior?.uncertain?prior.event:{version:1,id:randomUUID(),...identity,source,status:'pending',created_at:new Date().toISOString(),baseline_provider_ids:(history.messages||[]).filter(m=>m.role==='employer'&&m.hh_id!=null).map(m=>String(m.hh_id))};
+ if(prior?.uncertain&&!retryUncertain)throw new SendOutcomeError('HH не подтвердил исход предыдущей отправки. Повтор пока заблокирован.');
  history.communication_send_events=Array.isArray(history.communication_send_events)?history.communication_send_events:[];
- history.communication_send_events.push(event);await persist(); // Must precede POST.
+ if(!history.communication_send_events.includes(event))history.communication_send_events.push(event);
+ event.status='pending';event.attempts=(event.attempts||0)+1;event.last_attempt_at=new Date().toISOString();await persist(); // Must precede POST; retries retain HH's idempotency key.
  let sent;
- try{sent=await send();}
+ try{sent=await send(event);}
  catch(error){event.status='uncertain';event.verification='transport_error';event.last_error_code=error.code||'HH_SEND_FAILED';await persist();return confirm(history,message,event,{refresh,persist});}
  const providerId=sent?.id??sent?.message?.id;
  if(providerId==null||!String(providerId).trim())return confirm(history,message,event,{refresh,persist});

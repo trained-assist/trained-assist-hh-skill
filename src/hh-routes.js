@@ -17,7 +17,7 @@ const userWorkDir = (username) => path.join(usersRoot(), String(username));
 
 const { sendRejection, REJECT_REASON_ACTION } = require('./hh-rejection');
 const { hydrateResume, buildResumeText, resumeNotice, resumeHash } = require('./hh-resume');
-const { hhFetchWithRefresh, isHhAuthError, hhAuthErrorResponse, hhFetch, hhPut, hhPostForm, readHhToken, readHhTokenFile, readCredentialFileSafe, refreshHhToken, readActiveVacancies } = require('./hh-utils');
+const { hhFetchWithRefresh, isHhAuthError, hhAuthErrorResponse, hhFetch, hhPut, hhPost, hhPostForm, readHhToken, readHhTokenFile, readCredentialFileSafe, refreshHhToken, readActiveVacancies } = require('./hh-utils');
 // Credential store (trained-assist-agent#1939): every credential file this
 // module touches (`hh`, `openrouter`, `hh-message-style`, `hh-message-base-prompt`)
 // passes through it — legacy plaintext transparent, a v2 envelope decrypted,
@@ -75,6 +75,31 @@ const { TYPES: CANDIDATE_DOC_TYPES } = require('./hh-doc-classify');
 const evalDocs = require('./hh-candidate-eval-docs');
 const reportPdf = require('./hh-report-pdf');
 const evalJob = require('./hh-eval-job');
+const hhReviewRefreshJobs = new Map();
+
+function hhReviewRefreshKey(username, vacancyId) { return `${username}:${vacancyId}`; }
+
+function startHhReviewRefresh(username, vacancyId, work) {
+  const key = hhReviewRefreshKey(username, vacancyId);
+  const existing = hhReviewRefreshJobs.get(key);
+  if (existing?.status === 'running') return existing;
+  const job = { id: require('node:crypto').randomUUID(), status: 'running', started_at: Date.now(), count: null, error: null };
+  hhReviewRefreshJobs.set(key, job);
+  Promise.resolve().then(work).then(result => {
+    job.status = 'succeeded';
+    job.count = result?.count ?? null;
+    job.finished_at = Date.now();
+  }).catch(error => {
+    job.status = 'failed';
+    job.error = String(error?.message || 'refresh failed').slice(0, 300);
+    job.finished_at = Date.now();
+    console.error(`[hh/review-refresh] ${username}/${vacancyId}:`, job.error);
+  }).finally(() => {
+    const timer = setTimeout(() => { if (hhReviewRefreshJobs.get(key) === job) hhReviewRefreshJobs.delete(key); }, 5 * 60 * 1000);
+    timer.unref?.();
+  });
+  return job;
+}
 
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -357,7 +382,16 @@ async function handleHhPublic(req, url, res, ctx) {
           getHhNegotiationsWithCache, syncHhMessagesToHistory, fetchAllHhNegotiations, getHhDiscardedWithCache, hhCacheFile } = ctx;
   const _secretsCache = getSecretsCache();
 
-  function proactiveErrPage(msg) {
+if (req.method === 'GET' && url.pathname === '/hh/review-refresh-status') {
+  const username = url.searchParams.get('username') || '';
+  const vacancyId = url.searchParams.get('vacancy_id') || '';
+  if (![username, vacancyId].every(x => /^[a-zA-Z0-9_-]+$/.test(x))) return json(res, 400, { error: 'Invalid scope' });
+  if (process.env.AGENT_SECRET && url.searchParams.get('token') !== proactiveHmac(username)) return json(res, 403, { error: 'Invalid token' });
+  const job = hhReviewRefreshJobs.get(hhReviewRefreshKey(username, vacancyId));
+  return json(res, 200, job ? { status: job.status, count: job.count, error: job.status === 'failed' ? 'Не удалось обновить список. Показаны сохранённые данные.' : null } : { status: 'idle' });
+}
+
+function proactiveErrPage(msg) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Проактивный поиск</title>
 <style>body{font-family:system-ui;padding:48px;text-align:center;background:#f1f5f9;color:#1e293b}</style>
@@ -436,14 +470,35 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
   const vacancy = requestedVacancyId ? activeVacancies.find(v => String(v.id) === requestedVacancyId) : activeVacancies[0];
   if (!vacancy?.id) return errPage('Вакансия не выбрана. Скажи боту «мои вакансии» и выбери вакансию.');
 
-  let negotiations = [], syncedAt = null, syncError = null;
+  let negotiations = [], syncedAt = null, syncError = null, refreshPending = false;
+  const enqueueReviewRefresh = () => startHhReviewRefresh(username, vacancy.id, async () => {
+    const refreshed = await getHhNegotiationsWithCache(dataDir, username, vacancy.id, tokenData.access_token, { force: true });
+    const latestToken = readHhTokenFile(tokenFile);
+    const accessToken = latestToken?.access_token || tokenData.access_token;
+    await syncHhMessagesToHistory(dataDir, username, refreshed.negotiations, accessToken, { incremental: true, maxConcurrent: 4 });
+    try {
+      const discardedFresh = await getHhDiscardedWithCache(dataDir, username, vacancy.id, accessToken, { force: true });
+      await syncHhMessagesToHistory(dataDir, username, discardedFresh, accessToken, { incremental: true, maxConcurrent: 4 });
+    } catch (error) { console.warn('[hh/review-refresh] discard sync:', error.message); }
+    return { count: refreshed.negotiations.length };
+  });
   try {
-    const result = await getHhNegotiationsWithCache(dataDir, username, vacancy.id, tokenData.access_token);
+    const result = await getHhNegotiationsWithCache(dataDir, username, vacancy.id, tokenData.access_token, { allowStale: true });
     negotiations = result.negotiations;
     syncedAt = result.synced_at;
     // The negotiations fetch may have refreshed the rotating credential.
     const currentToken = readHhTokenFile(tokenFile);
     if (currentToken?.access_token) tokenData.access_token = currentToken.access_token;
+    if (result.stale) {
+      const job = enqueueReviewRefresh();
+      refreshPending = job.status === 'running';
+    } else {
+      // Keep the page request bounded. The background sync catches up the rest;
+      // the four freshest/unread threads are enough to reflect recent replies now.
+      await syncHhMessagesToHistory(dataDir, username, negotiations, tokenData.access_token, {
+        incremental: true, maxCandidates: 4, maxConcurrent: 4,
+      }).catch(e => console.error('[hh/review] message sync error:', e.message));
+    }
   } catch (e) {
     console.error('[hh/review] fetch error:', e.message);
     syncError = 'Не удалось обновить отклики из HH. Показаны последние сохранённые данные.';
@@ -453,19 +508,15 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
     } catch { syncError = 'Не удалось загрузить отклики из HH. Нажмите «Обновить» для повтора.'; }
   }
 
-  // Sync HH thread messages into local history before rendering
-  // (capped at 15 negs, ~2-3s max; errors are non-fatal)
-  await syncHhMessagesToHistory(dataDir, username, negotiations, tokenData.access_token).catch(e => {
-    console.error('[hh/review] message sync error:', e.message);
-  });
-
   // Rejected candidates are not part of the review list, but a candidate can reply
   // after being rejected. Fetch discard-stage negotiations and sync their threads so
   // such replies surface as "ответил после отказа" instead of silently going unread.
   let discarded = [];
   try {
-    discarded = await getHhDiscardedWithCache(dataDir, username, vacancy.id, tokenData.access_token);
-    await syncHhMessagesToHistory(dataDir, username, discarded, tokenData.access_token, { incremental: true, cap: 30 }).catch(e => {
+    const discardResult = await getHhDiscardedWithCache(dataDir, username, vacancy.id, tokenData.access_token, { allowStale: true, withMeta: true });
+    discarded = discardResult.negotiations;
+    if (discardResult.stale && !refreshPending) refreshPending = enqueueReviewRefresh().status === 'running';
+    if (!refreshPending) await syncHhMessagesToHistory(dataDir, username, discarded, tokenData.access_token, { incremental: true, maxCandidates: 4, maxConcurrent: 4 }).catch(e => {
       console.error('[hh/review] discard sync error:', e.message);
     });
   } catch (e) {
@@ -484,11 +535,15 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
     vacancyId: vacancy.id,
     communicationEnabled: communicationEnabledFor(username, vacancy.id),
     lastScoredAt,
+    refreshPending,
     vacancies: activeVacancies,
     discarded,
   });
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end(html);
+  if (!refreshPending) return res.end(html);
+  const refreshContext = JSON.stringify({ username, vacancyId: String(vacancy.id), token: agentSecret ? proactiveHmac(username) : '' }).replace(/</g, '\\u003c');
+  const refreshClient = `<div id="hh-refreshing" role="status" style="position:fixed;right:16px;bottom:16px;z-index:10000;background:#fffbeb;border:1px solid #f59e0b;color:#713f12;padding:12px 16px;border-radius:10px;box-shadow:0 4px 16px #0002">Показываем сохранённые отклики. Обновляем список и переписки в фоне…</div><script>(function(){const c=${refreshContext};let tries=0;const timer=setInterval(async()=>{if(++tries>120){clearInterval(timer);return}try{const q=new URLSearchParams({username:c.username,vacancy_id:c.vacancyId,token:c.token});const r=await fetch('/hh/review-refresh-status?'+q);if(!r.ok)return;const d=await r.json();if(d.status==='succeeded'||d.status==='idle'){clearInterval(timer);location.reload()}else if(d.status==='failed'){clearInterval(timer);const n=document.getElementById('hh-refreshing');if(n)n.textContent=d.error||'Не удалось обновить данные. Показаны сохранённые отклики.'}}catch(_){}} ,5000)})();</script>`;
+  return res.end(html.replace('</body>', `${refreshClient}</body>`));
   return;
 }
 
@@ -859,21 +914,26 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     const vcFile = path.join(BASE_USERS_DIR, String(username), 'contexts', 'hh', 'active_vacancy.json');
     try { effectiveVacancyId = JSON.parse(fs.readFileSync(vcFile, 'utf8'))?.value?.id || null; } catch { /* no active vacancy */ }
   }
-  const communicationSend=communicationEnabledFor(username,effectiveVacancyId)&&!!history.communication_steps;
-  const refreshSendHistory=()=>refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));
+  let currentNegotiation=null;
+  const refreshSendHistory=async()=>{currentNegotiation=await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));return currentNegotiation;};
   const persistSendHistory=()=>fs.writeFileSync(histFile,JSON.stringify(history,null,2),{mode:0o600});
-  if(communicationSend){
-    try{const previous=await reconcilePendingSend({history,message,refresh:refreshSendHistory,persist:persistSendHistory});if(previous?.delivered)return json(res,200,{ok:true,reconciled:true,send_event:previous.event});}
-    catch(e){return json(res,503,{ok:false,error:e.message,code:e.code||'SEND_OUTCOME_UNKNOWN'});}
-  }
+  try{const previous=await reconcilePendingSend({history,message,refresh:refreshSendHistory,persist:persistSendHistory});if(previous?.delivered)return json(res,200,{ok:true,reconciled:true,send_event:previous.event});}
+  catch(e){return json(res,503,{ok:false,error:e.message,code:e.code||'SEND_OUTCOME_UNKNOWN'});}
   if(communicationEnabledFor(username,effectiveVacancyId)&&contactForbidden(history))return json(res,409,{ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'});
   if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
   if (communicationEnabledFor(username,effectiveVacancyId) && history.communication_steps) {
     let currentResumeHash=null;
-    try{const latest=await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
+    try{const latest=await refreshSendHistory();await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
     const {readAtsConfig}=require('./hh-scoring');
     const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),effectiveVacancyId);
     if(staleCommunicationDraft(history,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId}))) return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+  }
+  // Legacy drafts need the same durable send intent and fresh baseline as planned
+  // communication drafts. Also resolve chat_id now so current HH chat API can be
+  // used for the actual write.
+  if (!currentNegotiation) {
+    try { await refreshSendHistory(); }
+    catch (e) { return json(res, 503, { ok: false, code: 'HH_FRESHNESS_UNAVAILABLE', error: 'Не удалось проверить переписку HH перед отправкой. Сообщение не отправлено. ' + e.message }); }
   }
   const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
   const exactPlannedMaterial=communicationEnabledFor(username,effectiveVacancyId)&&history.communication_steps?.material&&message===history.communication_steps.message;
@@ -901,8 +961,17 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   const firstContact = !history.messages.some(m => m.role === 'employer');
   try {
     let delivery=null;
-    const send=()=>hhPostForm(`/negotiations/${negotiation_id}/messages`,tokenData,{message});
-    const sent=communicationSend?(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:'http'})).sent:await send();
+    const send=event=>{
+      if(currentNegotiation?.chat_id){
+        return hhPost(`/common/chats/${encodeURIComponent(currentNegotiation.chat_id)}/messages`,tokenData,{text:message,idempotency_key:event.id});
+      }
+      // Older HH negotiations can lack chat_id. Keep the documented legacy path as
+      // a compatibility fallback, but its persisted local intent still prevents an
+      // automatic second POST after an uncertain outcome.
+      console.warn(`[hh/send] legacy endpoint fallback: no chat_id for neg=${negotiation_id}`);
+      return hhPostForm(`/negotiations/${negotiation_id}/messages`,tokenData,{message});
+    };
+    const sent=(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:'http',retryUncertain:!!currentNegotiation?.chat_id})).sent;
     // Persist the id HH confirmed: without it the next sync re-added the same message
     // as a second copy (every outbound message looked like two sends — and the guard
     // read that inflated history). See src/hh-history.js.
@@ -1203,6 +1272,16 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
     const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),vid);
     if(staleCommunicationDraft(history2,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:vid})))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
   }
+  let rejectionChatId=null;
+  if(!resumeOnly||['sending','unknown'].includes(history2.rejection_operation?.status)){
+    try{rejectionChatId=(await hhFetch(`/negotiations/${negotiation_id}`,tokenData)).chat_id||null;}
+    catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:'Не удалось проверить переписку HH перед отправкой отказа. '+e.message});}
+  }
+  const refreshRejectionHistory=async()=>{
+    await refreshCommunicationHistory(history2,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));
+    fs.writeFileSync(histFile2,JSON.stringify(history2,null,2),{mode:0o600});
+    return history2.messages;
+  };
   const guard2 = resumeOnly ? { ok: true, checks: {} } : await bullshitGuard(message, history2.messages, { username });
   if (!guard2.ok) {
     if (!force) {
@@ -1225,7 +1304,11 @@ if (req.method === 'POST' && url.pathname === '/hh/send-and-reject') {
     const result = await sendRejection({
       historyFile: histFile2,
       message,
-      send: text => hhPostForm(`/negotiations/${negotiation_id}/messages`, tokenData, { message: text }),
+      refresh: refreshRejectionHistory,
+      retryUncertain: !!rejectionChatId && (!communicationEnabledFor(username,body?.vacancy_id||history2.vacancy_id||history2.communication_snapshot?.context?.vacancy_id) || !contactForbidden(history2)),
+      send: (text, idempotencyKey) => rejectionChatId
+        ? hhPost(`/common/chats/${encodeURIComponent(rejectionChatId)}/messages`, tokenData, { text, idempotency_key: idempotencyKey })
+        : hhPostForm(`/negotiations/${negotiation_id}/messages`, tokenData, { message: text }),
       discard: () => hhPut(`/negotiations/${REJECT_REASON_ACTION}/${negotiation_id}`, tokenData),
     });
     console.log(`[hh/send-and-reject] user=${username} neg=${negotiation_id} ok=${result.ok}`);

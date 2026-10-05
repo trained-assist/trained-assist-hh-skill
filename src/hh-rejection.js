@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { randomUUID } = require('node:crypto');
 
 // Employer-side rejection reason. `discard_vacancy_closed` is reserved for a
 // vacancy that is actually being closed (hh_bulk_reject). Rejecting a candidate
@@ -19,7 +20,7 @@ function standardRejectionText(firstName) {
 }
 
 // Persist each external step: a retry must never resend a delivered message.
-async function sendRejection({ historyFile, message, send, discard }) {
+async function sendRejection({ historyFile, message, send, discard, refresh, retryUncertain = false }) {
   const read = () => fs.existsSync(historyFile) ? JSON.parse(fs.readFileSync(historyFile, 'utf8')) : { messages: [] };
   const save = (operation, sentMessage, sent) => {
     const history = read();
@@ -41,25 +42,71 @@ async function sendRejection({ historyFile, message, send, discard }) {
   };
   const previous = read().rejection_operation;
   if (previous?.status === 'done') return { ok: true };
-  if (['sending', 'unknown', 'discarding'].includes(previous?.status)) {
+  if (previous?.status === 'discarding') {
     return { ok: false, error: 'Результат предыдущего запроса ещё не подтверждён. Проверьте переписку и статус на HH; повторное сообщение не отправлено.' };
   }
-  const operation = { message: previous?.status === 'message_sent' ? previous.message : message, status: 'sending' };
-  if (previous?.status !== 'message_sent') {
-    save(operation);
-    let sent = null;
+  let operation = {
+    message: previous?.status === 'message_sent' ? previous.message : message,
+    idempotency_key: ['message_sent', 'sending', 'unknown'].includes(previous?.status) ? previous.idempotency_key : randomUUID(),
+    created_at: previous?.created_at || new Date().toISOString(),
+    status: previous?.status === 'sending' || previous?.status === 'unknown' ? previous.status : 'sending',
+  };
+  const findDelivered = async () => {
+    if (typeof refresh !== 'function') return null;
     try {
-      sent = await send(operation.message);
-    } catch (e) {
-      // A transport error may occur after HH accepted the message.
-      operation.status = /^HH 4\d\d:/.test(e.message) ? 'failed' : 'unknown';
-      save(operation);
-      return { ok: false, error: operation.status === 'unknown'
-        ? 'Доставка сообщения не подтверждена. Проверьте переписку на HH перед повтором.'
-        : 'Сообщение не отправлено: ' + e.message };
+      const result = await refresh();
+      const messages = Array.isArray(result) ? result : result?.messages || [];
+      const created = Date.parse(operation.created_at || '') || 0;
+      return [...messages].reverse().find(item => item.role === 'employer' && item.text === operation.message
+        && (Date.parse(item.timestamp || '') || 0) >= created && item.hh_id != null) || null;
+    } catch { return null; }
+  };
+  let alreadyDelivered = previous?.status === 'message_sent';
+  if (['sending', 'unknown'].includes(previous?.status)) {
+    const remote = await findDelivered();
+    if (remote) {
+      operation.status = 'message_sent';
+      operation.provider_message_id = String(remote.hh_id);
+      save(operation, operation.message, { id: remote.hh_id, created_at: remote.timestamp });
+      alreadyDelivered = true;
+    } else if (!retryUncertain) {
+      return { ok: false, error: 'Результат предыдущего запроса ещё не подтверждён. Проверьте переписку HH; автоматический повтор заблокирован.' };
     }
-    operation.status = 'message_sent';
-    save(operation, operation.message, sent);
+  }
+  if (!alreadyDelivered && previous?.status !== 'message_sent') {
+    operation.status = 'sending';
+    save(operation); // Persist the stable HH idempotency key before POST.
+    let sent = null;
+    try { sent = await send(operation.message, operation.idempotency_key); }
+    catch (e) {
+      // A duplicate idempotency UUID or transport failure can mean HH already sent.
+      const remote = retryUncertain || Number(e.status) === 409 ? await findDelivered() : null;
+      if (remote) {
+        operation.status = 'message_sent';
+        operation.provider_message_id = String(remote.hh_id);
+        save(operation, operation.message, { id: remote.hh_id, created_at: remote.timestamp });
+        alreadyDelivered = true;
+      } else {
+        const definiteClientError = (Number(e.status) >= 400 && Number(e.status) < 500 && Number(e.status) !== 409) || /^HH 4\d\d:/.test(String(e.message || ''));
+        operation.status = definiteClientError ? 'failed' : 'unknown';
+        save(operation);
+        return { ok: false, error: operation.status === 'unknown'
+          ? 'Доставка сообщения не подтверждена. Проверьте переписку HH; повтор безопасно использует прежний ключ.'
+          : 'Сообщение не отправлено: ' + e.message };
+      }
+    }
+    if (!alreadyDelivered) {
+      const providerId = sent?.id ?? sent?.message?.id;
+      const remote = providerId == null ? await findDelivered() : null;
+      if (providerId == null && typeof refresh === 'function' && !remote) {
+        operation.status = 'unknown';
+        save(operation);
+        return { ok: false, error: 'HH не подтвердил сообщение в актуальной переписке. Перевод в отказ не выполнен.' };
+      }
+      operation.status = 'message_sent';
+      operation.provider_message_id = providerId == null ? (remote ? String(remote.hh_id) : null) : String(providerId);
+      save(operation, operation.message, sent || (remote ? { id: remote.hh_id, created_at: remote.timestamp } : null));
+    }
   }
   operation.status = 'discarding';
   save(operation);

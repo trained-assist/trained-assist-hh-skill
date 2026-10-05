@@ -99,7 +99,13 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
       const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
       const ageMs = Date.now() - (cached.synced_at || 0);
       if (!options.force && cached.resume_version === 1 && ageMs < CACHE_TTL_MS && String(cached.vacancy_id) === String(vacancyId)) {
-        return { negotiations: cached.negotiations, synced_at: cached.synced_at };
+        return { negotiations: cached.negotiations, synced_at: cached.synced_at, stale: false };
+      }
+      // The review page can render the last known list while a refresh runs in the
+      // background. Other callers (especially explicit sync and scoring) keep the
+      // previous blocking/fresh semantics unless they opt in.
+      if (!options.force && options.allowStale && Array.isArray(cached.negotiations) && String(cached.vacancy_id) === String(vacancyId)) {
+        return { negotiations: cached.negotiations, synced_at: cached.synced_at, stale: true };
       }
     } catch {}
     let negotiations;
@@ -122,7 +128,7 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
       fs.writeFileSync(tmp, JSON.stringify({ resume_version: 1, synced_at, vacancy_id: String(vacancyId), negotiations }), { mode: 0o600 });
       fs.renameSync(tmp, cacheFile);
     } catch (e) { console.error('[hh-cache] write error:', e.message); }
-    return { negotiations, synced_at };
+    return { negotiations, synced_at, stale: false };
   }
 
   function hhDiscardCacheFile(dataDir, username, vacancyId) {
@@ -138,7 +144,10 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
       const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
       const ageMs = Date.now() - (cached.synced_at || 0);
       if (!options.force && String(cached.vacancy_id) === String(vacancyId) && ageMs < CACHE_TTL_MS) {
-        return cached.negotiations;
+        return options.withMeta ? { negotiations: cached.negotiations, stale: false, synced_at: cached.synced_at } : cached.negotiations;
+      }
+      if (!options.force && options.allowStale && Array.isArray(cached.negotiations) && String(cached.vacancy_id) === String(vacancyId)) {
+        return options.withMeta ? { negotiations: cached.negotiations, stale: true, synced_at: cached.synced_at } : cached.negotiations;
       }
     } catch {}
     const negotiations = await fetchDiscardedNegotiations(vacancyId, accessToken);
@@ -148,20 +157,20 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
       fs.writeFileSync(tmp, JSON.stringify({ synced_at: Date.now(), vacancy_id: String(vacancyId), negotiations }), { mode: 0o600 });
       fs.renameSync(tmp, cacheFile);
     } catch (e) { console.error('[hh-discard-cache] write error:', e.message); }
-    return negotiations;
+    return options.withMeta ? { negotiations, stale: false, synced_at: Date.now() } : negotiations;
   }
 
   // Sync HH thread messages to local candidate history.
   // Fetches messages from HH API for negotiations where HH has more messages than we've stored,
   // merges them into local history (deduplicates by HH message ID), stores applicant replies.
-  // Capped at 15 negotiations per call to avoid long page loads.
   // options.incremental=true  → only sync candidates where neg.updated_at > last_hh_message_at
   //                              (used in background loop — avoids redundant API calls)
+  //                              optional maxCandidates bounds interactive callers.
   // options.incremental=false → sync all candidates with messages, capped at options.cap (default 15)
-  //                              (used on page load — ensures fresh data, bounded latency)
+  //                              (used for explicit partial imports)
   // Returns { synced: N, newMessages: M } for sync-log stats.
   async function syncHhMessagesToHistory(dataDir, username, negotiations, accessToken, options = {}) {
-    const { incremental = false, cap = 15, maxConcurrent = 4 } = options;
+    const { incremental = false, cap = 15, maxCandidates = Infinity, maxConcurrent = 4 } = options;
     const candDir = path.join(dataDir, 'hh', String(username), 'candidates');
     try { fs.mkdirSync(candDir, { recursive: true }); } catch {}
 
@@ -180,6 +189,12 @@ async function fetchDiscardedNegotiations(vacancyId, accessToken) {
           return true; // no file yet → sync
         }
       });
+      // Interactive page loads use a small budget. Prioritize unread and recently
+      // active threads so repeated visits make progress without holding the request
+      // open for every conversation in a large vacancy.
+      candidates.sort((a, b) => (Number(b.counters?.unread_messages || 0) > 0) - (Number(a.counters?.unread_messages || 0) > 0)
+        || (Date.parse(b.updated_at || '') || 0) - (Date.parse(a.updated_at || '') || 0));
+      if (Number.isFinite(maxCandidates)) candidates = candidates.slice(0, Math.max(0, maxCandidates));
     } else {
       candidates = candidates.slice(0, cap);
     }

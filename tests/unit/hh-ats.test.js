@@ -335,14 +335,15 @@ describe('hh_send_message', () => {
     expect(r.ok).toBe(true);
     expect(r.negotiation_id).toBe('neg-001');
     // Verify the mock server received the message
-    expect(mockHh.state.messages['neg-001']).toContain(msg);
+    expect(mockHh.state.chatMessages['chat-neg-001'].some(item => item.payload.text === msg)).toBe(true);
   });
 
   it('multiple messages accumulate in mock state', async () => {
+    const before = mockHh.state.chatMessages['chat-neg-001']?.length || 0;
     await tools().hh_send_message.handler({ negotiation_id: 'neg-001', message: 'Первое сообщение' });
     await tools().hh_send_message.handler({ negotiation_id: 'neg-001', message: 'Второе сообщение' });
 
-    expect(mockHh.state.messages['neg-001']).toHaveLength(2);
+    expect(mockHh.state.chatMessages['chat-neg-001']).toHaveLength(before + 2);
   });
 });
 

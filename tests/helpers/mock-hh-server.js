@@ -76,6 +76,7 @@ const DEFAULT_NEGOTIATIONS = [
       ],
       education: { primary: [{ name: 'МГТУ им. Баумана', organization: 'Факультет ИУ', year: 2019 }] },
     },
+    chat_id: 'chat-neg-001',
   },
   {
     id: 'neg-002',
@@ -174,6 +175,8 @@ function createMockHhServer(options = {}) {
   // Mutable per-test state
   const state = {
     messages: {},      // negId → string[] | {text, role}[]
+    chatMessages: {},   // chatId → canonical common-chat messages
+    idempotencyKeys: new Set(),
     moves: {},         // negId → string (action id)
     discarded: new Set(),
     rejectActions: {}, // negId → discard action path suffix used
@@ -326,6 +329,24 @@ function createMockHhServer(options = {}) {
           send(201, { ok: true });
         });
       }
+    }
+
+    // Current HH common chat API. Its UUID key is deliberately unique in this mock,
+    // matching the official API's 409 behavior for a replayed key.
+    const commonChat = p.match(/^\/common\/chats\/([^/]+)\/messages$/);
+    if (commonChat) {
+      const chatId = commonChat[1];
+      const negotiation = negotiations.find(n => String(n.chat_id || '') === chatId);
+      if (!negotiation) return send(404, { error: 'Chat not found' });
+      if (req.method === 'GET') return send(200, { messages: state.chatMessages[chatId] || [], has_more: false });
+      if (req.method === 'POST') return readBody(({ text, idempotency_key }) => {
+        if (state.idempotencyKeys.has(idempotency_key)) return send(409, { error: 'duplicate idempotency_key' });
+        state.idempotencyKeys.add(idempotency_key);
+        const id = `chat-msg-${state.idempotencyKeys.size}`;
+        if (!state.chatMessages[chatId]) state.chatMessages[chatId] = [];
+        state.chatMessages[chatId].push({ id, creation_time: new Date().toISOString(), payload: { text }, sender_display_info: { role: 'EMPLOYER' } });
+        return send(201, { id });
+      });
     }
 
     const consider = p.match(/^\/negotiations\/consider\/([^/]+)$/);
