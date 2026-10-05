@@ -114,6 +114,31 @@ describe('syncMessagesAction — parity with the background scoring loop', () =>
   });
 });
 
+describe('review-page incremental history sync', () => {
+  it('does not starve a changed conversation after the first 15 negotiations', async () => {
+    const root = join(DATA_DIR, 'hh-sync-incremental-test');
+    const candidates = Array.from({ length: 20 }, (_, i) => ({
+      id: i === 19 ? 'neg-001' : `review-extra-${i}`,
+      updated_at: new Date(Date.now() - 60_000).toISOString(),
+      counters: { messages: 1 },
+    }));
+    const bg = createHhNegotiations({ refreshHhToken: async () => null, readChatId: () => null, getSecretsCache: () => ({}) });
+
+    try {
+      const result = await bg.syncHhMessagesToHistory(root, TEST_USER, candidates, 'test-token-fake', {
+        incremental: true,
+        maxConcurrent: 4,
+      });
+
+      expect(result.synced).toBe(20);
+      const history = JSON.parse(readFileSync(join(root, 'hh', TEST_USER, 'candidates', 'neg-001.json'), 'utf8'));
+      expect(history.messages.some(m => m.text === 'Здравствуйте, Алексей!' && m.role === 'employer')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('action-manifest — hh_sync_messages classification', () => {
   it('declares hh_sync_messages as write/idempotent and cron+durable_task eligible', () => {
     expect(POLICY.hh_sync_messages).toEqual({

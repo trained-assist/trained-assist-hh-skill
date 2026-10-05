@@ -453,9 +453,14 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
     } catch { syncError = 'Не удалось загрузить отклики из HH. Нажмите «Обновить» для повтора.'; }
   }
 
-  // Sync HH thread messages into local history before rendering
-  // (capped at 15 negs, ~2-3s max; errors are non-fatal)
-  await syncHhMessagesToHistory(dataDir, username, negotiations, tokenData.access_token).catch(e => {
+  // Sync changed HH threads into local history before rendering. A fixed slice of
+  // the first 15 negotiations starved conversations later in the list forever;
+  // the incremental selector checks every negotiation's updated_at against its
+  // last local sync and fetches only conversations that actually changed.
+  await syncHhMessagesToHistory(dataDir, username, negotiations, tokenData.access_token, {
+    incremental: true,
+    maxConcurrent: 4,
+  }).catch(e => {
     console.error('[hh/review] message sync error:', e.message);
   });
 
