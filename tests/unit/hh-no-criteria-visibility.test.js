@@ -80,11 +80,12 @@ describe('review page stops swallowing generation failures (issue #126, slice 3)
 
 
 describe('review page marks legacy drafts as stale', () => {
-  it('prevents sending and bulk selection until a current scenario draft exists', () => {
+  it('requires explicit per-candidate confirmation while keeping stale drafts out of bulk send', () => {
     const root=dataRoot();writeAtsConfig({vacancy_title:'Vac'});writeHistory(root,{ats_result:{draft_message:'Old draft',verdict:'ПРОПУСТИТЬ',score:9.5}});
     const html=generateReviewPageHtml([neg()],'Vac',USERNAME,'',root,{vacancyId:VACANCY,communicationEnabled:true});
     expect(html).toContain('Старый черновик: обновите его по сценарию перед отправкой.');
-    expect(html).toMatch(/class="btn btn-send"[^>]* disabled/);
+    expect(html).toMatch(/class="btn btn-send" data-stale="1" onclick="sendOne/);
+    expect(html).not.toMatch(/class="btn btn-send"[^>]* disabled/);
     expect(html).toMatch(/class="card-cb"[^>]* disabled/);
     dropAtsConfig();
   });

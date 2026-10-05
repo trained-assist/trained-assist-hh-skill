@@ -832,7 +832,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   res.setHeader('Access-Control-Allow-Origin', '*');
   let body;
   try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: 'bad json' }); }
-  const { username, negotiation_id, message, force } = body || {};
+  const { username, negotiation_id, message, force, force_stale } = body || {};
   if (!username || !negotiation_id || !message) return json(res, 400, { error: 'missing fields' });
   if (!pageAuthOk(req, username, body?.token)) return json(res, 403, { error: 'invalid token' });
 
@@ -867,14 +867,22 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
     catch(e){return json(res,503,{ok:false,error:e.message,code:e.code||'SEND_OUTCOME_UNKNOWN'});}
   }
   if(communicationEnabledFor(username,effectiveVacancyId)&&contactForbidden(history))return json(res,409,{ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'});
-  if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text))return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
+  let staleOverrideReason=null;
+  if(communicationEnabledFor(username,effectiveVacancyId)&&!history.communication_steps&&(message===history.ats_result?.draft_message||message===history.message_draft?.text)){
+    if(!force_stale)return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию перед отправкой.'});
+    staleOverrideReason='legacy draft has no saved communication state';
+  }
   if (communicationEnabledFor(username,effectiveVacancyId) && history.communication_steps) {
     let currentResumeHash=null;
     try{const latest=await refreshCommunicationHistory(history,negotiation_id,endpoint=>hhFetch(endpoint,tokenData));await hydrateResume(latest,tokenData);if(latest._resume_status!=='full')throw new Error('Полное резюме HH недоступно для проверки актуальности.');currentResumeHash=resumeHash(latest);}catch(e){return json(res,503,{ok:false,code:'HH_FRESHNESS_UNAVAILABLE',error:e.message});}
     const {readAtsConfig}=require('./hh-scoring');
     const config=readAtsConfig(path.join(BASE_USERS_DIR,String(username)),effectiveVacancyId);
-    if(staleCommunicationDraft(history,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId}))) return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+    if(staleCommunicationDraft(history,config||{},currentResumeHash,readCommunicationGenerationInputs({username,workDir:path.join(BASE_USERS_DIR,String(username)),vacancyId:effectiveVacancyId}))){
+      if(!force_stale)return json(res,409,{ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Диалог или сценарий изменился. Обновите черновик перед отправкой.'});
+      staleOverrideReason='dialogue or saved scenario changed';
+    }
   }
+  if(staleOverrideReason)console.warn('[hh/send] stale draft manually approved '+JSON.stringify({user:username,negotiation_id,reason:staleOverrideReason,message_hash:require('crypto').createHash('sha256').update(String(message)).digest('hex')}));
   const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
   const exactPlannedMaterial=communicationEnabledFor(username,effectiveVacancyId)&&history.communication_steps?.material&&message===history.communication_steps.message;
   const guard = exactPlannedMaterial?{ok:true,checks:{}}:await bullshitGuard(message, history.messages, { username, allowSpecificTime });
@@ -902,7 +910,7 @@ if (req.method === 'POST' && url.pathname === '/hh/send') {
   try {
     let delivery=null;
     const send=()=>hhPostForm(`/negotiations/${negotiation_id}/messages`,tokenData,{message});
-    const sent=communicationSend?(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:'http'})).sent:await send();
+    const sent=communicationSend?(delivery=await performCommunicationSend({history,message,send,refresh:refreshSendHistory,persist:persistSendHistory,source:force_stale?'http_manual_stale_override':'http'})).sent:await send();
     // Persist the id HH confirmed: without it the next sync re-added the same message
     // as a second copy (every outbound message looked like two sends — and the guard
     // read that inflated history). See src/hh-history.js.
