@@ -6,12 +6,12 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "dd3790a304465665e06c140c4ad9b94ef0ba2aa7",
+      "revision": "d2eb3d1f72a1129345cc04019a7d9e3e9fdb7a8b",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
       "manifest": "action-provider-manifest.json",
-      "artifactDigest": "50c5acc48c7339caf2c4cf1b00a447a7a0eda24849ce381f65845fce8fcacecf",
+      "artifactDigest": "592ecd5a45b7f67385893d26a0012d716f63f3bdb31f4635142887e501934199",
       "approvedManifest": {
         "version": 1,
         "providerId": "hh",
@@ -731,7 +731,7 @@
             "retrySafety": "unsafe"
           },
           {
-            "name": "hh_candidate_profile",
+            "name": "candidate_report_markdown",
             "inputSchema": {
               "type": "object",
               "properties": {
@@ -1876,7 +1876,7 @@
             "retrySafety": "idempotent"
           },
           {
-            "name": "candidate_report_render",
+            "name": "candidate_report_html",
             "inputSchema": {
               "type": "object",
               "required": [

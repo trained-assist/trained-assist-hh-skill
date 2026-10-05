@@ -717,7 +717,7 @@
       "retrySafety": "unsafe"
     },
     {
-      "name": "hh_candidate_profile",
+      "name": "candidate_report_markdown",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1862,7 +1862,7 @@
       "retrySafety": "idempotent"
     },
     {
-      "name": "candidate_report_render",
+      "name": "candidate_report_html",
       "inputSchema": {
         "type": "object",
         "required": [
