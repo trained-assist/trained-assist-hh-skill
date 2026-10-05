@@ -6,7 +6,7 @@
 // Those edits live in <candidate>-report-notes.md and are applied automatically on every run:
 //   candidate_report_context → read notes + last data   (ALWAYS first, on every generate/regenerate)
 //   candidate_report_add_note → «добавь в требования: …»
-//   candidate_report_render  → fixed HTML template (A4 print CSS), rejects banned phrases, publishes
+//   candidate_report_html  → fixed HTML template (A4 print CSS), rejects banned phrases, publishes
 // Deterministic — no LLM call here: the wording is written by the session model, the template
 // and the notes enforcement are code.
 
@@ -74,7 +74,7 @@ module.exports = {
           banned_phrases: report.forbiddenPhrases(notes),
           previous_data: report.loadReportData(workDir(), pick.slug),
           template_schema: TEMPLATE_HELP,
-          how_to: 'Собери data по template_schema с учётом ВСЕХ требований выше → candidate_report_render. ' +
+          how_to: 'Собери data по template_schema с учётом ВСЕХ требований выше → candidate_report_html. ' +
             'Если рекрутер в этом сообщении дал новую правку — сначала candidate_report_add_note.',
         };
       },
@@ -104,13 +104,14 @@ module.exports = {
       },
     },
 
-    candidate_report_render: {
+    candidate_report_html: {
       description:
         'Собрать HTML-профиль кандидата для клиента по фиксированному шаблону (шапка + бейджи, кратко о себе, ' +
         'матрица соответствия ✓/~/✗, опыт, вывод рекрутера, видео; печать A4 без колонтитулов). ' +
         'Сверяет текст с запретными фразами из report-notes.md — если нашёл, НЕ публикует и возвращает violations: ' +
         'перепиши эти места и вызови снова. С publish=true публикует через publish_page и возвращает ссылку. ' +
-        'Профиль содержит персональные данные — по умолчанию передавай password.',
+        'Профиль содержит персональные данные — по умолчанию передавай password. ' +
+        'Это именно HTML-версия для клиента; для markdown используй candidate_report_markdown, для структурного JSON — candidate_report_json.',
       inputSchema: {
         type: 'object',
         required: ['candidate', 'data'],

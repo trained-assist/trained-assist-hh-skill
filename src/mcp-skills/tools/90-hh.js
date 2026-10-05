@@ -1987,8 +1987,8 @@ module.exports = {
 
     // ── Candidate profile ────────────────────────────────────────────────────
 
-    hh_candidate_profile: {
-      description: 'Generate a clean markdown candidate profile for showing to a client/hiring manager. Takes negotiation_id and optional vacancy context.',
+    candidate_report_markdown: {
+      description: 'Generate a clean MARKDOWN candidate profile for showing to a client/hiring manager. Takes negotiation_id and optional vacancy context. This is the markdown version — for the client-facing HTML report use candidate_report_html, for structured JSON use candidate_report_json.',
       inputSchema: {
         type: 'object',
         properties: {

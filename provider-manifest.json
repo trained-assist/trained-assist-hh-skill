@@ -741,8 +741,8 @@
       "retrySafety": "unsafe"
     },
     {
-      "name": "hh_candidate_profile",
-      "description": "Generate a clean markdown candidate profile for showing to a client/hiring manager. Takes negotiation_id and optional vacancy context.",
+      "name": "candidate_report_markdown",
+      "description": "Generate a clean MARKDOWN candidate profile for showing to a client/hiring manager. Takes negotiation_id and optional vacancy context. This is the markdown version — for the client-facing HTML report use candidate_report_html, for structured JSON use candidate_report_json.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1919,8 +1919,8 @@
       "retrySafety": "idempotent"
     },
     {
-      "name": "candidate_report_render",
-      "description": "Собрать HTML-профиль кандидата для клиента по фиксированному шаблону (шапка + бейджи, кратко о себе, матрица соответствия ✓/~/✗, опыт, вывод рекрутера, видео; печать A4 без колонтитулов). Сверяет текст с запретными фразами из report-notes.md — если нашёл, НЕ публикует и возвращает violations: перепиши эти места и вызови снова. С publish=true публикует через publish_page и возвращает ссылку. Профиль содержит персональные данные — по умолчанию передавай password.",
+      "name": "candidate_report_html",
+      "description": "Собрать HTML-профиль кандидата для клиента по фиксированному шаблону (шапка + бейджи, кратко о себе, матрица соответствия ✓/~/✗, опыт, вывод рекрутера, видео; печать A4 без колонтитулов). Сверяет текст с запретными фразами из report-notes.md — если нашёл, НЕ публикует и возвращает violations: перепиши эти места и вызови снова. С publish=true публикует через publish_page и возвращает ссылку. Профиль содержит персональные данные — по умолчанию передавай password. Это именно HTML-версия для клиента; для markdown используй candidate_report_markdown, для структурного JSON — candidate_report_json.",
       "inputSchema": {
         "type": "object",
         "required": [

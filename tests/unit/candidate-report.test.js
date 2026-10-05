@@ -205,12 +205,12 @@ describe('MCP tools share the notes file', () => {
     expect(ctx.slug).toBe('чайка');
     expect(ctx.banned_phrases).toEqual(['рассматривает удалённый формат']);
 
-    const bad = await tools.candidate_report_render.handler({ candidate: 'Чайка', data: DATA, publish: false });
+    const bad = await tools.candidate_report_html.handler({ candidate: 'Чайка', data: DATA, publish: false });
     expect(bad.ok).toBe(false);
     expect(bad.violations).toEqual([{ phrase: 'рассматривает удалённый формат' }]);
     expect(existsSync(report.htmlPath(wd, 'чайка'))).toBe(false);
 
-    const ok = await tools.candidate_report_render.handler({
+    const ok = await tools.candidate_report_html.handler({
       candidate: 'Чайка', publish: false,
       data: { ...DATA, summary: 'Готов работать в офисе в Москве.' },
     });
@@ -234,7 +234,7 @@ describe('MCP tools share the notes file', () => {
     };
     let r;
     try {
-      r = await tools.candidate_report_render.handler({
+      r = await tools.candidate_report_html.handler({
       candidate: 'Дмитрий Чайка', data: { ...DATA, summary: 'Ок.' }, password: 's3cret',
     });
     } finally {

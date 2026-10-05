@@ -76,7 +76,7 @@ const POLICY = {
   // state; render writes the profile HTML and publishes via core's /internal/publish.
   candidate_report_context:  { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: USER_ONLY },
   candidate_report_add_note: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
-  candidate_report_render:   { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
+  candidate_report_html:   { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
   // Interview analysis (moved from core 99, agent#1470): criteria are local profile
   // state; analyze reads a transcript and writes the analysis files (LLM, no HH effect).
   interview_set_criteria: { effect: 'write', requiresApproval: false, retrySafety: 'idempotent', allowedTriggers: USER_ONLY },
@@ -98,7 +98,7 @@ const POLICY = {
   hh_search_resumes:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_funnel_stats:        { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_get_messages:        { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
-  hh_candidate_profile:   { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
+  candidate_report_markdown:   { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_vacancy_get_draft:   { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
   hh_proactive_view:      { effect: 'read', requiresApproval: false, retrySafety: 'read_only', allowedTriggers: READ_ONLY },
 
