@@ -187,7 +187,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
     const isActionable = c.verdict && c.verdict !== 'ОТКЛОНИТЬ';
     const isReject = c.verdict === 'ОТКЛОНИТЬ' && !c.is_discarded;
 
-    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" data-auto-select="${isActionable && c.response_status !== 'archived' ? '1' : '0'}" ${c.draft_is_stale ? 'disabled title="Сначала обновите черновик по сценарию"' : ''} ${isActionable && c.response_status !== 'archived' && !c.draft_is_stale ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
+    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" data-stale="${c.draft_is_stale ? '1' : '0'}" data-auto-select="${isActionable && c.response_status !== 'archived' ? '1' : '0'}" ${isActionable && c.response_status !== 'archived' && !c.draft_is_stale ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
       + `<label><input type="checkbox" class="reject-cb" id="reject-cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" onchange="onCheck()"> Отказать</label>`;
 
     const scoreHtml = hasScore
@@ -641,7 +641,7 @@ function toggleBucket(n) {
   document.querySelectorAll('.tab-panel.active .card-cb').forEach(cb => {
     if (done.has(parseInt(cb.dataset.idx)) || cb.disabled) return;
     const bucket = Math.round(parseFloat(cb.dataset.score || 0));
-    cb.checked = activeBuckets.has(bucket);
+    if (bucket === n) cb.checked = activeBuckets.has(n);
   });
   onCheck();
 }
@@ -746,7 +746,7 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     card?.querySelector('.draft-stale')?.remove();
     const sendBtn=card?.querySelector('.btn-send');if(sendBtn)sendBtn.disabled=false;
     const sendSelection=card?.querySelector('.card-cb');
-    if(sendSelection){const bucket=Math.round(parseFloat(sendSelection.dataset.score||'0'));sendSelection.disabled=false;sendSelection.checked=activeBuckets.has(bucket)||(!activeBuckets.size&&sendSelection.dataset.autoSelect==='1');onCheck();}
+    if(sendSelection){const bucket=Math.round(parseFloat(sendSelection.dataset.score||'0'));sendSelection.dataset.stale='0';sendSelection.disabled=false;sendSelection.checked=activeBuckets.has(bucket)||(!activeBuckets.size&&sendSelection.dataset.autoSelect==='1');onCheck();}
     if(data.communication_steps){
       const panel=document.querySelector('#card-'+i+' .communication-review');
       if(panel){
@@ -1005,22 +1005,34 @@ function skipOne(i) {
 
 async function sendAll() {
   const cbs = [...document.querySelectorAll('.tab-panel.active .card-cb:checked')];
+  const staleWithMessage = cbs.filter(cb => cb.dataset.stale === '1' && document.getElementById('msg-'+parseInt(cb.dataset.idx))?.value);
+  if (staleWithMessage.length && !window.confirm('У ' + staleWithMessage.length + ' выбранных кандидатов черновик помечен как устаревший. Отправить эти тексты без обновления? Будут проверены запрет контакта и дубли.')) return;
   const sb = document.getElementById('sendAllBtn');
   sb.disabled = true; sb.textContent = '⏳ Отправляю...';
   let ok = 0;
-  for (const cb of cbs) {
+  let failed = 0;
+  for (let position = 0; position < cbs.length; position++) {
+    const cb = cbs[position];
     const i = parseInt(cb.dataset.idx);
     const negId = document.getElementById('card-'+i)?.dataset.neg || '';
     const msg = document.getElementById('msg-'+i)?.value || '';
     if (!msg) continue;
+    sb.textContent = '⏳ Отправляю ' + (position + 1) + '/' + cbs.length + '...';
     try {
-      const d = await hhAction('/hh/send', { negotiation_id: negId, message: msg });
+      let d;
+      try {
+        d = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force_stale: cb.dataset.stale === '1' });
+      } catch (e) {
+        if (cb.dataset.stale !== '1' && e.code === 'STALE_COMMUNICATION_DRAFT' && window.confirm('Сервер обнаружил устаревший черновик у выбранного кандидата. Отправить этот текст без обновления?')) {
+          d = await hhAction('/hh/send', { negotiation_id: negId, message: msg, force_stale: true });
+        } else throw e;
+      }
       if (d.blocked) { showToast('🚫 Guard: ' + (d.reason || 'заблокировано'), true); continue; }
       markDone(i); ok++;
-    } catch(e) { showToast('❌ ' + e.message, true); }
+    } catch(e) { failed++; showToast('❌ ' + e.message, true); }
   }
   onCheck();
-  if (ok > 0) showToast('✅ Отправлено ' + ok + ' сообщений');
+  if (ok > 0 || failed > 0) showToast('Отправлено: ' + ok + (failed ? ' · ошибок: ' + failed : ''));
 }
 
 function standardRejection(i) {

@@ -54,6 +54,13 @@ describe('review page — explicit single-candidate stale draft override', () =>
     expect(page).toContain('error.code = data.code');
     expect(page).not.toContain("c.draft_is_stale ? ' disabled title=");
   });
+
+  it('keeps stale drafts score-selectable and requires confirmation before bulk override', () => {
+    expect(page).toContain('data-stale="${c.draft_is_stale ? \'1\' : \'0\'}"');
+    expect(page).toContain("У ' + staleWithMessage.length + ' выбранных кандидатов черновик помечен как устаревший");
+    expect(page).toContain("force_stale: cb.dataset.stale === '1'");
+    expect(page).toContain("if (bucket === n) cb.checked = activeBuckets.has(n)");
+  });
 });
 
 // The re-send guard after a delivered message is a 15-second visible countdown on the
