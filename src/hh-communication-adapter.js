@@ -55,14 +55,22 @@ async function generateCommunicationDraft(options={}){
  const snapshot=snapshotInput(options), revision=signature(snapshot), thread=snapshot.history;
  const profile=snapshot.profile, ctx={...context,factual_context:context,vacancy_context:atsConfig.vacancy_context,interview_config:atsConfig.interview_config,required:atsConfig.required,preferred:atsConfig.preferred,ats_result:atsResult,saved_recruiter_instructions:atsConfig.message_instructions || ''};
  const schema=stateSchema(plan,thread);
- const stateInput={conversation_revision:revision,conversation_history:{format:'messages',messages:thread},partner_profile:profile,sender_profile:senderProfile,context:ctx,communication_plan:plan,state_schema:schema,options:{language},extraction_instructions:'Определи результаты каждого переданного этапа по его инструкции и completion_result. Верни все stage_id ровно по одному. Учитывай результаты, достигнутые вне обычного порядка, и последующие отмены/исправления. Статус completed требует дословной цитаты и реального source_id: message ID, profile или context. Для source_id=context допустимы только фактические данные context.factual_context: остальные поля context (ATS, инструкции, требования, условия вакансии) описывают критерии и намерения, не доказанные события. План описывает намерения, не доказанные события. Не путай получение задания с выполнением, отправленное приглашение с договорённостью о времени; не считаешь недоступный материал прочитанным. Наличие ссылки не подтверждает доступность или просмотр её содержимого: такие результаты требуют отдельного фактического свидетельства. contact_allowed=false только при явном запрете контакта, «пишите завтра» сохраняет контакт. next_check_at — известный срок следующего действия, иначе null.'};
+ const stateInput={evidence_source_refs:{profile:'/partner_profile',context:'/context/factual_context'},conversation_revision:revision,conversation_history:{format:'messages',messages:thread},partner_profile:profile,sender_profile:senderProfile,context:ctx,communication_plan:plan,state_schema:schema,options:{language},extraction_instructions:'Определи результаты каждого переданного этапа по его инструкции и completion_result. Верни все stage_id ровно по одному. Учитывай результаты, достигнутые вне обычного порядка, и последующие отмены/исправления. Статус completed требует дословной цитаты и реального source_id: message ID, profile или context. Для source_id=context допустимы только фактические данные context.factual_context: остальные поля context (ATS, инструкции, требования, условия вакансии) описывают критерии и намерения, не доказанные события. План описывает намерения, не доказанные события. Не путай получение задания с выполнением, отправленное приглашение с договорённостью о времени; не считаешь недоступный материал прочитанным. Наличие ссылки не подтверждает доступность или просмотр её содержимого: такие результаты требуют отдельного фактического свидетельства. contact_allowed=false только при явном запрете контакта, «пишите завтра» сохраняет контакт. next_check_at — известный срок следующего действия, иначе null.'};
  const stateSig=signature({version:VERSION,input:stateInput});
  const validPrevious=previousSteps?.version===VERSION;
  let stateResponse;
  if(validPrevious&&previousSteps.state_sig===stateSig)stateResponse=cached('state',previousSteps.state);
  else stateResponse=await invoke('state',stateInput);
- if(stateResponse.conversation_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Извлечённое состояние относится к другому снимку');
- const state=stateResponse.state;assertState(state,plan,thread,profile,context);
+ const state=stateResponse.state;
+ try {
+  if(stateResponse.conversation_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Извлечённое состояние относится к другому снимку');
+  assertState(state,plan,thread,profile,context);
+ } catch(error) {
+  error.communication_stage='state';
+  if(typeof stateResponse.request_id==='string' && /^[a-zA-Z0-9_-]{1,128}$/.test(stateResponse.request_id))error.request_id=stateResponse.request_id;
+  error.communication_metrics=chainMetrics(events);
+  throw error;
+ }
  const bindings=plan.stages.filter(s=>s.material_mode==='verbatim'&&s.material.trim()).map(s=>({stage_id:s.id}));
  const sourceSpeakers=Object.fromEntries([...thread.map(m=>[m.id,m.speaker]),['profile','partner'],['context','other']]);
  const goalState={...state,source_speakers:sourceSpeakers};

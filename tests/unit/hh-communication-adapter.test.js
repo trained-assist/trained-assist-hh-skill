@@ -165,3 +165,17 @@ describe('Communication failure diagnostics without provider text disclosure',()
   const body=communicationFailurePayload(error);expect(body).toMatchObject({code:'LLM_UNAVAILABLE',communication_stage:failedStage,request_id:'diagnostic-request'});expect(body.communication_metrics.stages.at(-1)).toMatchObject({stage:failedStage,attempts:1,retries:0,error_code:'LLM_UNAVAILABLE'});
  });
 });
+
+describe('opt-in Worker evidence validation and HH guard diagnostics',()=>{
+ it('binds evidence IDs to original profile and factual context without duplicating them',async()=>{
+  const f=fixture({extra:{context:{verified:{note:'Фактический ответ'}},atsConfig:{...config,message_instructions:'Инструкция — это не факт'}}});await generateCommunicationDraft(f.options);
+  const input=f.calls[0].input;expect(input.evidence_source_refs).toEqual({profile:'/partner_profile',context:'/context/factual_context'});expect(input.context.factual_context).toEqual({verified:{note:'Фактический ответ'}});expect(Object.values(input.evidence_source_refs)).not.toContain(f.options.resumeText);expect(input.context.saved_recruiter_instructions).toBe('Инструкция — это не факт');
+ });
+ it('keeps strict quote rejection and retains successful state-call correlation and numeric metrics',async()=>{
+  const {communicationFailurePayload}=require('../../src/hh-communication-client');const f=fixture();const original=f.options.call;
+  f.options.call=async(method,input)=>{const out=await original(method,input);if(method==='state'){out.request_id='state-validation-request';out.generation={attempts:1,model:'shared-model'};out.state.stages=[{stage_id:'portfolio',status:'completed',evidence:[{source_id:'profile',quote:'Invented private profile quote'}]}];}return out;};
+  let error;try{await generateCommunicationDraft(f.options);}catch(e){error=e;}
+  expect(error).toMatchObject({code:'STATE_REJECTED',communication_stage:'state',request_id:'state-validation-request'});expect(f.calls.map(c=>c.method)).toEqual(['state']);
+  const body=communicationFailurePayload(error);expect(body.communication_metrics.stages).toHaveLength(1);expect(body.communication_metrics.stages[0]).toMatchObject({stage:'state',attempts:1,retries:0});expect(JSON.stringify(body)).not.toContain('Invented private profile quote');
+ });
+});
