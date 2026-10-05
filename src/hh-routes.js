@@ -482,6 +482,7 @@ if (req.method === 'GET' && url.pathname === '/hh/review') {
   const html = generateReviewPageHtml(negotiations, vacancy.title || 'Вакансия', username, callbackBase, dataDir, {
     syncedAt, syncError, list: url.searchParams.get('list') || 'active',
     vacancyId: vacancy.id,
+    communicationEnabled: communicationEnabledFor(username, vacancy.id),
     lastScoredAt,
     vacancies: activeVacancies,
     discarded,

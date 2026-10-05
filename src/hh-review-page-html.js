@@ -69,6 +69,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
       matched: ats?.matched || [],
       gaps: ats?.gaps || [],
       communication_steps:history.communication_steps||null,
+      draft_is_stale:!!(opts.communicationEnabled&&(history.message_draft?.text||ats?.draft_message)&&!history.communication_steps),
       draft_message: (() => {
         const md = history.message_draft;
         if (md?.text && (!atsConfigVersion || md.config_version === atsConfigVersion)) return md.text;
@@ -186,7 +187,7 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
     const isActionable = c.verdict && c.verdict !== 'ОТКЛОНИТЬ';
     const isReject = c.verdict === 'ОТКЛОНИТЬ' && !c.is_discarded;
 
-    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" ${isActionable && c.response_status !== 'archived' ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
+    const checkboxHtml = (isReject ? '' : `<label><input type="checkbox" class="card-cb" id="cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" ${c.draft_is_stale ? 'disabled title="Сначала обновите черновик по сценарию"' : ''} ${isActionable && c.response_status !== 'archived' && !c.draft_is_stale ? 'checked' : ''} onchange="onCheck()"> Отправить</label>`)
       + `<label><input type="checkbox" class="reject-cb" id="reject-cb-${i}" data-idx="${i}" data-score="${(c.score || 0).toFixed(1)}" onchange="onCheck()"> Отказать</label>`;
 
     const scoreHtml = hasScore
@@ -237,9 +238,10 @@ function generateReviewPageHtml(negotiations, vacancyTitle, username, callbackBa
            </div>
            <div class="funnel-step" style="font-size:11px;color:var(--muted);margin:-4px 0 6px"></div>
            <div class="communication-review">${communicationReviewHtml(c.communication_steps)}</div>
+           ${c.draft_is_stale ? '<p class="draft-stale" role="status">Старый черновик: обновите его по сценарию перед отправкой.</p>' : ''}
            <textarea class="msg-area" id="msg-${i}" rows="5">${hasDraft ? esc(c.draft_message) : ''}</textarea>
            <div class="btns">
-             <button class="btn btn-send" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}')">✓ Отправить</button>
+             <button class="btn btn-send" onclick="sendOne(this,${i},'${esc(c.negotiation_id)}')"${c.draft_is_stale ? ' disabled title="Сначала обновите черновик по сценарию"' : ''}>✓ Отправить</button>
              <button class="btn-copy" onclick="copyMsg(${i})">📋 Копировать</button>
              <button class="btn btn-skip" onclick="setResponseState(this,'${esc(c.negotiation_id)}','archived')">В архив</button>
              <button class="btn btn-send-reject" onclick="rejectWithMessage(${i},'${esc(c.negotiation_id)}')">✗ Отправить отказ</button>
@@ -399,6 +401,7 @@ h1{font-size:18px}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
 .msg-meta{font-size:12px;color:#94a3b8;margin-bottom:6px}
+.draft-stale{font-size:12px;color:#9a6700;background:#fff7d6;border:1px solid #f2d675;border-radius:6px;padding:7px 9px;margin:4px 0}
 .btn-copy{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-weight:500;padding:6px 12px;cursor:pointer}
 .btn-copy:hover{background:#e2e8f0}
 </style>
@@ -413,10 +416,10 @@ ${!hasAtsConfig ? `<div id="no-ats-banner" role="alert" style="background:rgba(2
   <a href="${callbackBase}/hh/ats-editor?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}" style="color:#8a5a00;font-weight:600">Открыть редактор →</a>
 </div>` : ''}
 <nav class="vacancy-tabs" aria-label="Статус отклика">${[['active','Активные'],['starred','★ Избранные'],['archived','Архив']].map(([status,label]) => `<a class="vacancy-tab${status === listView ? ' active' : ''}" href="?username=${encodeURIComponent(username)}&token=${pageToken}&vacancy_id=${encodeURIComponent(vacancyId || '')}&list=${status}">${label} (${counts[status]})</a>`).join('')}</nav>
-<p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()">↻ Обновить</button></p>
+<p class="subtitle">${sorted.length} откликов · ${waitingCandidates.length} ждут ответа${ageText ? ` · обновлено ${ageText}` : ''}${scoredText ? ` · ${scoredText}` : ''} · <button class="sync-btn" id="syncBtn" onclick="syncNow()" title="Загрузить актуальные отклики и сообщения из HH; черновики не генерируются">↻ Синхронизировать отклики</button></p>
 <p id="responseUpdates" role="status" aria-live="polite"></p>
 <div class="toolbar">
-  <span class="toolbar-label">Балл:</span>
+  <span class="toolbar-label">Балл (округление до целого):</span>
   <button class="tb-btn score-btn" data-bucket="10" onclick="toggleBucket(10)">10</button>
   <button class="tb-btn score-btn" data-bucket="9" onclick="toggleBucket(9)">9</button>
   <button class="tb-btn score-btn" data-bucket="8" onclick="toggleBucket(8)">8</button>
@@ -477,8 +480,8 @@ async function checkResponseUpdates() {
     const r = await fetch(CALLBACK_BASE + '/hh/response-updates?' + q);
     if (!r.ok) throw new Error('sync status unavailable');
     const data = await r.json();
-    if (data.synced_at > ${Number(syncedAt) || 0}) document.getElementById('responseUpdates').textContent = 'Данные HH обновились. Нажмите «Обновить», чтобы загрузить их; текущий текст сообщения сохранён на экране.';
-  } catch { document.getElementById('responseUpdates').textContent = 'Не удалось проверить обновления HH. Нажмите «Обновить» для повтора.'; }
+    if (data.synced_at > ${Number(syncedAt) || 0}) document.getElementById('responseUpdates').textContent = 'В HH появились изменения. Синхронизируйте отклики; черновики обновляются отдельно кнопкой «Перегенерировать все черновики».';
+  } catch { document.getElementById('responseUpdates').textContent = 'Не удалось проверить обновления HH. Синхронизируйте отклики для повтора.'; }
 }
 setInterval(checkResponseUpdates, 60000);
 async function setResponseState(btn, negId, status) {
@@ -522,7 +525,7 @@ async function syncNow() {
     location.reload();
   } catch(e) {
     showToast('❌ Ошибка обновления: ' + e.message, true);
-    btn.disabled = false; btn.textContent = '↻ Обновить';
+    btn.disabled = false; btn.textContent = '↻ Синхронизировать отклики';
   }
 }
 
@@ -630,8 +633,8 @@ function toggleBucket(n) {
   if (activeBuckets.has(n)) { activeBuckets.delete(n); btn.classList.remove('active'); }
   else { activeBuckets.add(n); btn.classList.add('active'); }
   document.querySelectorAll('.tab-panel.active .card-cb').forEach(cb => {
-    if (done.has(parseInt(cb.dataset.idx))) return;
-    const bucket = Math.floor(parseFloat(cb.dataset.score || 0));
+    if (done.has(parseInt(cb.dataset.idx)) || cb.disabled) return;
+    const bucket = Math.round(parseFloat(cb.dataset.score || 0));
     cb.checked = activeBuckets.has(bucket);
   });
   onCheck();
@@ -639,7 +642,7 @@ function toggleBucket(n) {
 
 function selectAll(checked) {
   document.querySelectorAll('.tab-panel.active .card-cb').forEach(cb => {
-    if (!done.has(parseInt(cb.dataset.idx))) cb.checked = checked;
+    if (!done.has(parseInt(cb.dataset.idx)) && !cb.disabled) cb.checked = checked;
   });
   activeBuckets.clear();
   document.querySelectorAll('.score-btn').forEach(b => b.classList.remove('active'));
@@ -664,6 +667,8 @@ async function regenerateAll() {
   if (!targets.length) { showToast('Нечего перегенерировать'); return; }
   const total = targets.length;
   let finished = 0;
+  let succeeded = 0;
+  let failed = 0;
   btn.disabled = true;
   btn.textContent = '⏳ 0/' + total + '…';
   const CONCURRENCY = 3;
@@ -672,8 +677,9 @@ async function regenerateAll() {
     while (cursor < targets.length) {
       const b = targets[cursor++];
       try {
-        await generateOne(parseInt(b.dataset.idx), b.dataset.negid, b.dataset.name, b.dataset.sent === '1');
-      } catch (e) { /* generateOne already surfaces its own error state */ }
+        if (await generateOne(parseInt(b.dataset.idx), b.dataset.negid, b.dataset.name, b.dataset.sent === '1')) succeeded++;
+        else failed++;
+      } catch (e) { failed++; /* generateOne normally surfaces its own error state */ }
       finished++;
       btn.textContent = '⏳ ' + finished + '/' + total + '…';
     }
@@ -681,7 +687,8 @@ async function regenerateAll() {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
   btn.disabled = false;
   btn.textContent = '🔄 Перегенерировать все черновики';
-  showToast('✅ Перегенерировано: ' + finished + '/' + total);
+  if (failed === 0) showToast('✅ Черновики обновлены: ' + succeeded + '/' + total);
+  else showToast('⚠️ Обновлено: ' + succeeded + '/' + total + '. Не удалось: ' + failed + '. Ошибки показаны отдельно.', true);
 }
 
 async function generateOne(i, negId, candidateName, alreadySent) {
@@ -703,11 +710,15 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       // multi-vacancy profile that is another vacancy's criteria and no test task.
       vacancy_id: HH_VACANCY_ID || null,
     }, window.HH_GENERATION_TIMEOUT_MS);
+    const card=document.getElementById('card-'+i);
+    if(card?.querySelector('.draft-stale')&&!data.communication_steps) throw new Error('Сценарий не подтвердил обновление черновика. Старый текст оставлен без изменений.');
     if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; }
     const step = document.querySelector('#card-'+i+' .funnel-step');
     if (step) step.textContent = data.funnel_action
       ? 'Шаг воронки: ' + data.funnel_action + (data.funnel_reason ? ' — ' + data.funnel_reason : '')
       : '';
+    card?.querySelector('.draft-stale')?.remove();
+    const sendBtn=card?.querySelector('.btn-send');if(sendBtn)sendBtn.disabled=false;
     if(data.communication_steps){
       const panel=document.querySelector('#card-'+i+' .communication-review');
       if(panel){
@@ -730,12 +741,14 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       const banner = document.getElementById('no-ats-banner');
       if (banner) banner.hidden = false;
     }
+    return true;
   } catch(e) {
     if (ta) { ta.classList.remove('generating'); ta.placeholder = ''; }
     if (btn) { btn.disabled = false; btn.textContent = '✦ Сгенерировать'; }
     // The failure used to be swallowed here: the button simply reset and the
     // recruiter read it as "nothing changed" (issue #126, defect 2).
     showToast('❌ Ошибка генерации: ' + (e && e.message ? e.message : e), true);
+    return false;
   } finally { clearInterval(progressTimer); }
 }
 
