@@ -89,6 +89,30 @@ describe('ATS score', () => {
     expect(api.atsScoringHash(CONFIG)).toBe(api.atsScoringHash({ ...CONFIG }));
   });
 
+  it('reports ATS backlog during a live batch, then marks the vacancy complete', async () => {
+    const dir = path.join(process.env.AGENT_DATA_DIR, 'hh', 'alice', 'proactive');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'search-results-2026-10-05-A.json'), JSON.stringify({
+      vacancy_id: 'A', searched_at: '2026-10-05T10:00:00Z', ats_config: CONFIG,
+      candidates: [{ id: 'r1', title: 'Инженер-конструктор', experience: [] }],
+    }));
+    let finishRequest, markStarted;
+    const started = new Promise(resolve => { markStarted = resolve; });
+    const responseGate = new Promise(resolve => { finishRequest = resolve; });
+    vi.stubGlobal('fetch', async () => {
+      markStarted();
+      await responseGate;
+      return response(200, { choices: [{ message: { content: JSON.stringify({ score: 7, plus_tags: ['опыт'], yellow_tags: [], red_tags: [], summary_why: 'Подходит' }) } }] });
+    });
+
+    const run = api.scoreUnscoredProactiveCandidates('alice', { vacancyId: 'A' });
+    await started;
+    expect(api.getAtsRefreshProgress('alice', 'A')).toMatchObject({ status: 'running', completed: 0, total: 1, pending: 1 });
+    finishRequest();
+    expect(await run).toBe(1);
+    expect(api.getAtsRefreshProgress('alice', 'A')).toMatchObject({ status: 'complete', completed: 1, total: 1, pending: 0, progress: 100 });
+  });
+
   it('carryAssessment moves a stored assessment onto a fresh search object only under the same funnel', () => {
     const hash = api.atsScoringHash(CONFIG);
     const fresh = { id: 'r1', title: 'Инженер', pre_score: 7 };   // what a new search builds: no ats_* at all

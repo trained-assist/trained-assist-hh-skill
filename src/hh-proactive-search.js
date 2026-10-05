@@ -143,6 +143,52 @@ function needsAtsScore(candidate, hash) {
   return !candidate?.ats_scored || candidate.ats_hash !== hash;
 }
 
+function atsRefreshProgressFile(username, vacancyId) {
+  return path.join(dataRoot(), 'hh', String(username), 'proactive', `ats-progress-${String(vacancyId)}.json`);
+}
+
+function writeAtsRefreshProgress(username, vacancyId, fields) {
+  const file = atsRefreshProgressFile(username, vacancyId);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const temp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ vacancy_id: String(vacancyId), ...fields, updated_at: new Date().toISOString() }), { mode: 0o600 });
+    fs.renameSync(temp, file);
+  } catch (error) { console.warn('[proactive-ats-progress] write failed:', error.message); }
+}
+
+function readAtsRefreshProgress(username, vacancyId) {
+  try { return JSON.parse(fs.readFileSync(atsRefreshProgressFile(username, vacancyId), 'utf8')); }
+  catch { return null; }
+}
+
+function getAtsRefreshProgress(username, vacancyId) {
+  const file = require('./hh-cold-search-snapshots').latestProactiveFile(username, vacancyId);
+  if (!file) return { status: 'idle', completed: 0, total: 0, pending: 0, progress: 100, message: 'Холодный поиск ещё не запускался.' };
+  let results;
+  try { results = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { return { status: 'unavailable', completed: 0, total: 0, pending: 0, progress: 0, message: 'Не удалось прочитать результаты холодного поиска.' }; }
+  let config = results.ats_config || {};
+  try { config = require('./hh-cold-search-context').resolveSearchContext(path.join(usersRoot(), String(username)), vacancyId).config; }
+  catch { /* the last search snapshot remains a safe read-only fallback */ }
+  const hash = atsScoringHash(config);
+  const candidates = results.candidates || [];
+  const completed = candidates.filter(candidate => !needsAtsScore(candidate, hash)).length;
+  const pending = Math.max(0, candidates.length - completed);
+  const saved = readAtsRefreshProgress(username, vacancyId);
+  const isFreshRun = saved?.config_hash === hash && Date.now() - Date.parse(saved.updated_at || 0) < 90_000;
+  let status = pending === 0 ? 'complete' : isFreshRun && saved.status === 'running' ? 'running' : !ladderToken() ? 'blocked' : 'queued';
+  let message = status === 'complete' ? 'Все кандидаты оценены по текущей ATS-воронке.'
+    : status === 'running' ? 'Идёт переоценка кандидатов по ATS-воронке.'
+      : status === 'blocked' ? 'Нужен доступ к сервису AI-оценки; обновление пока не запущено.'
+        : 'Оценка ожидает фоновой обработки и продолжится автоматически.';
+  const age = saved?.updated_at ? Math.max(0, Math.round((Date.now() - Date.parse(saved.updated_at)) / 1000)) : null;
+  if (status === 'running' && age != null) message += ` Обновлено ${age} сек. назад.`;
+  return { status, vacancy_id: String(vacancyId), completed, total: candidates.length, pending,
+    progress: candidates.length ? Math.round(completed * 100 / candidates.length) : 100,
+    message, updated_at: saved?.updated_at || null, failures: isFreshRun ? Number(saved.failures) || 0 : 0 };
+}
+
 // The fields that make up an ATS assessment. A fresh search snapshot rebuilds
 // candidates from the HH payload (score/tags are absent until enriched), so the
 // assessment is carried over from the unified store instead of being bought from
@@ -288,7 +334,7 @@ ${expStr}
 }
 
 // Enrich top-N candidates in parallel batches of 5
-async function enrichCandidates(candidates, atsConfig) {
+async function enrichCandidates(candidates, atsConfig, onBatch = null) {
   const BATCH = 10;
   const enriched = [...candidates];
   for (let i = 0; i < enriched.length; i += BATCH) {
@@ -304,6 +350,7 @@ async function enrichCandidates(candidates, atsConfig) {
         console.error(`[proactive-enrich] candidate ${batch[j].id} failed:`, r.reason?.message);
       }
     }
+    if (typeof onBatch === 'function') await onBatch({ attempted: Math.min(i + BATCH, enriched.length), total: enriched.length, failed: results.filter(r => r.status === 'rejected').length });
     if (i + BATCH < enriched.length) await new Promise(r => setTimeout(r, 500));
   }
   return enriched;
@@ -909,6 +956,11 @@ async function trackVacancy(workDir, vacancyId, known, fallbackTitle, token) {
 
 async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   const refreshAccessToken = typeof options.refreshAccessToken === 'function' ? options.refreshAccessToken : null;
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : async () => {};
+  const report = progress => Promise.resolve(onProgress({ ...progress, state: 'running' })).catch(e => {
+    console.warn('[proactive-search] progress update failed:', e.message);
+  });
+  await report({ phase: 'preparing', message: 'Подготавливаю поисковые запросы…', progress: 2, completed: 0, total: null });
   let token = readHhToken(username);
   if (!token) throw new Error(`HH токен не найден для пользователя "${username}"`);
 
@@ -954,17 +1006,21 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   }
   if (!queries) {
     if (!ladderToken()) throw new Error('llm-ladder токен не найден — нужен, чтобы сгенерировать поисковые запросы под эту вакансию.');
+    await report({ phase: 'queries', message: 'Формирую запросы для HH…', progress: 5, completed: 0, total: null });
     queries = await generateSearchQueries(atsConfig, null, exclusions);
     saveStoredQueries(username, vacancyKey, queries, configHash);
   }
 
   const allCandidates = new Map();
 
-  for (const query of queries) {
+  await report({ phase: 'search', message: 'Ищу резюме на HeadHunter…', progress: 8, completed: 0, total: queries.length });
+  for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
+    const query = queries[queryIndex];
     const data = await searchResumes(query, token, username, { areas: searchAreas, refreshAccessToken });
     for (const r of (data.items || [])) {
       if (r.id && !allCandidates.has(r.id)) allCandidates.set(r.id, r);
     }
+    await report({ phase: 'search', message: `Ищу резюме на HeadHunter… (${queryIndex + 1} из ${queries.length} запросов)`, progress: 8 + Math.round(((queryIndex + 1) / queries.length) * 22), completed: queryIndex + 1, total: queries.length });
     await new Promise(r => setTimeout(r, 300));
   }
 
@@ -1056,10 +1112,20 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   } else if (pending.length > 0) {
     console.error(`[proactive-search] enriching ${toEnrich.length} candidates with AI (top-30 + ${newButNotTop30.length} new)…`);
     try {
-      enriched = [...cached, ...await enrichCandidates(pending, atsConfig)];
+      await report({ phase: 'ai_scoring', message: `Оцениваю кандидатов по ATS… (0 из ${toEnrich.length})`, progress: 35, completed: cached.length, total: toEnrich.length, failures: 0 });
+      let failures = 0;
+      enriched = [...cached, ...await enrichCandidates(pending, atsConfig, async batch => {
+        failures += batch.failed;
+        const completed = cached.length + batch.attempted;
+        const percent = 35 + Math.round((completed / Math.max(1, toEnrich.length)) * 60);
+        await report({ phase: 'ai_scoring', message: `Оцениваю кандидатов по ATS… (${completed} из ${toEnrich.length})`, progress: percent, completed, total: toEnrich.length, failures });
+      })];
     } catch (e) {
       console.error('[proactive-search] enrichment failed:', e.message);
+      await report({ phase: 'ai_scoring', message: 'Не удалось завершить AI-оценку; сохраняю результаты поиска…', progress: 95, completed: cached.length, total: toEnrich.length, failures: pending.length });
     }
+  } else {
+    await report({ phase: 'ai_scoring', message: 'Актуальные AI-оценки уже есть; завершаю поиск…', progress: 95, completed: toEnrich.length, total: toEnrich.length, failures: 0 });
   }
 
   const now = new Date();
@@ -1113,6 +1179,7 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
   // must still show up in the /hh/* vacancy pickers — otherwise its results page exists
   // but the recruiter can't reach it from the list.
   await trackVacancy(workDir, vacancyKey, activeVacancy, output.vacancy_title, token);
+  await report({ phase: 'saving', message: 'Сохраняю кандидатов и оценки…', progress: 98, completed: enriched.filter(c => c.ats_scored).length, total: toEnrich.length, failures: Math.max(0, enriched.filter(c => !c.ats_scored).length) });
 
   const pass_count = enriched.filter(c => c.tag === 'PASS').length;
   const review_count = enriched.filter(c => c.tag === 'REVIEW').length;
@@ -1142,7 +1209,16 @@ async function runProactiveSearchUnlocked(username, workDir, options = {}) {
 async function scoreUnscoredProactiveCandidates(username, options = {}) {
   let release;
   try { release = require('./hh-cold-search-lock').acquireSearchLock(username); }
-  catch (error) { if (error.code === 'SEARCH_BUSY') return 0; throw error; }
+  catch (error) {
+    if (error.code === 'SEARCH_BUSY') {
+      if (options.vacancyId) {
+        const progress = getAtsRefreshProgress(username, options.vacancyId);
+        if (progress.pending) writeAtsRefreshProgress(username, options.vacancyId, { config_hash: atsScoringHash(require('./hh-cold-search-context').resolveSearchContext(path.join(usersRoot(), String(username)), options.vacancyId).config), status: 'queued', completed: progress.completed, total: progress.total, failures: 0 });
+      }
+      return 0;
+    }
+    throw error;
+  }
   try {
     const dataDir = dataRoot();
     const dir = path.join(dataDir, 'hh', String(username), 'proactive');
@@ -1153,7 +1229,7 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       const file = path.join(dir, name);
       let results;
       try { results = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
-      if (!results.vacancy_id) continue;
+      if (!results.vacancy_id || (options.vacancyId && String(results.vacancy_id) !== String(options.vacancyId))) continue;
       const prior = latest.get(String(results.vacancy_id));
       if (!prior || Date.parse(results.searched_at) > Date.parse(prior.results.searched_at)) latest.set(String(results.vacancy_id), { file, results });
     }
@@ -1178,6 +1254,12 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       results.ats_config = atsConfig;
       const hash = atsScoringHash(atsConfig);
       const candidates = results.candidates || [];
+      const currentCompleted = () => candidates.filter(candidate => !needsAtsScore(candidate, hash)).length;
+      const currentPending = () => Math.max(0, candidates.length - currentCompleted());
+      writeAtsRefreshProgress(username, results.vacancy_id, {
+        config_hash: hash, status: currentPending() ? 'running' : 'complete',
+        completed: currentCompleted(), total: candidates.length, failures: 0,
+      });
       const allowance = Math.ceil(remaining / vacanciesLeft--);
       const unscored = candidates.filter(c => needsAtsScore(c, hash)).slice(0, allowance);
       if (!unscored.length) continue;
@@ -1199,10 +1281,17 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
           fs.renameSync(temp0, file);
           completed += carried.length;
         }
+        writeAtsRefreshProgress(username, results.vacancy_id, { config_hash: hash, status: currentPending() ? 'queued' : 'complete', completed: currentCompleted(), total: candidates.length, failures: 0 });
         continue;
       }
       remaining -= needScore.length;
-      const enriched = await enrichCandidates(needScore, atsConfig);
+      let failures = 0;
+      const enriched = await enrichCandidates(needScore, atsConfig, async batch => {
+        failures += batch.failed;
+        writeAtsRefreshProgress(username, results.vacancy_id, {
+          config_hash: hash, status: 'running', completed: currentCompleted(), total: candidates.length, failures,
+        });
+      });
       for (const candidate of enriched) {
         const idx = candidates.findIndex(c => c.id === candidate.id);
         if (idx >= 0) Object.assign(candidates[idx], candidate);
@@ -1215,6 +1304,10 @@ async function scoreUnscoredProactiveCandidates(username, options = {}) {
       fs.writeFileSync(temp, JSON.stringify(results, null, 2), 'utf8');
       fs.renameSync(temp, file);
       completed += carried.length + enriched.filter(c => c.ats_scored).length;
+      writeAtsRefreshProgress(username, results.vacancy_id, {
+        config_hash: hash, status: currentPending() ? 'queued' : 'complete',
+        completed: currentCompleted(), total: candidates.length, failures,
+      });
     }
     return completed;
   } finally { release(); }
@@ -1250,6 +1343,7 @@ module.exports = {
   trackVacancy,
   buildScoringPromptText,
   scoreUnscoredProactiveCandidates,
+  getAtsRefreshProgress,
   queriesLookSane,
   deriveFallbackQueries,
   normalizeAtsConfig,

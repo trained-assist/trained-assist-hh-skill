@@ -19,7 +19,7 @@ async function createFixture({ connected = true, llm = false } = {}) {
   const put = (key, value) => fs.writeFileSync(path.join(ctx, key + '.json'), JSON.stringify({ value }));
   put('active_vacancy', VACANCY); put('active_vacancies', [VACANCY]);
   put('ats_config:100', { vacancy_id: '100', vacancy_title: VACANCY.name, required: [{ name: 'Node.js', weight: 5 }], preferred: [] });
-  const requests = []; let searchStatus = 200; const unexpected = [];
+  const requests = []; let searchStatus = 200, searchDelay = 0, searchJob = null; const unexpected = [];
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, 'http://localhost');
@@ -37,14 +37,31 @@ async function createFixture({ connected = true, llm = false } = {}) {
         if (!snapshot) return send(404, { error: 'No snapshot' });
         const { generateProactivePageHtml } = require('../../src/hh-proactive-page');
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        return res.end(generateProactivePageHtml(snapshot, USER, baseUrl, u.searchParams.get('token'), {}, { vacancyId: '100', activeVacancies: [VACANCY] }));
+        return res.end(generateProactivePageHtml(snapshot, USER, baseUrl, u.searchParams.get('token'), {}, { vacancyId: '100', activeVacancies: [VACANCY], searchJob: searchJob?.state === 'running' ? searchJob : null }));
       }
       // This adapter models core's HTTP boundary; actual provider executes behind MCP.
+      if (req.method === 'GET' && u.pathname === '/api/hh/proactive/search') {
+        if (!searchJob || (u.searchParams.get('job_id') && u.searchParams.get('job_id') !== searchJob.id)) return send(404, { error: 'Search job not found' });
+        return send(200, { job: searchJob });
+      }
       if (req.method === 'POST' && u.pathname === '/api/hh/proactive/search') {
         let raw = ''; for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         if (body.username !== USER || body.vacancy_id !== '100' || !body.token) return send(400, { error: 'Bad core callback contract' });
-        return send(200, await client.call('hh_proactive_search', { vacancy_id: body.vacancy_id }));
+        if (searchJob?.state === 'running') return send(200, { ok: true, job: searchJob });
+        searchJob = { id: require('node:crypto').randomUUID(), state: 'running', phase: 'search', message: 'Ищу резюме на HeadHunter…', progress: 15, completed: 0, total: 1 };
+        send(202, { ok: true, job: searchJob });
+        (async () => {
+          if (searchDelay) await new Promise(resolve => setTimeout(resolve, searchDelay));
+          try {
+            const result = await client.call('hh_proactive_search', { vacancy_id: body.vacancy_id });
+            if (result?.error) throw new Error(result.error);
+            searchJob = { ...searchJob, state: 'done', phase: 'done', progress: 100, completed: 1, total: 1, message: 'Поиск и оценка завершены.' };
+          } catch (error) {
+            searchJob = { ...searchJob, state: 'failed', phase: 'failed', message: error.message };
+          }
+        })();
+        return;
       }
       unexpected.push(`${req.method} ${u.pathname}`); send(500, { error: 'Unexpected fixture request' });
     } catch (error) { unexpected.push(error.message); res.writeHead(500); res.end(JSON.stringify({ error: error.message })); }
@@ -66,6 +83,7 @@ async function createFixture({ connected = true, llm = false } = {}) {
       client = new McpClient(process.execPath, [...(llm ? ['--require', path.join(repo, 'tests/support/llm-fixture.cjs')] : []), path.join(repo, 'src/mcp-skills/index.js')], { cwd: workDir, env });
     },
     setSearchStatus: status => { searchStatus = status; },
+    setSearchDelay: ms => { searchDelay = ms; },
     llmRequests: () => fs.existsSync(env.FIXTURE_LLM_LOG) ? fs.readFileSync(env.FIXTURE_LLM_LOG, 'utf8').trim().split('\n').map(JSON.parse) : [],
     close: async () => { await client.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); fs.rmSync(root, { recursive: true, force: true }); },
   };
