@@ -674,14 +674,13 @@ async function regenerateAll() {
   let finished = 0;
   let succeeded = 0;
   let failed = 0;
+  const durations = [];
   const concurrency = Math.min(5, total);
-  const startedAt = Date.now();
   const status = document.getElementById('bulkGenerationStatus');
   const etaText = (minutes) => minutes < 1 ? 'меньше минуты' : 'около ' + Math.ceil(minutes) + ' мин';
   const renderProgress = () => {
-    const elapsed = Date.now() - startedAt;
-    const perItem = finished ? elapsed / finished : 60000 / concurrency;
-    const etaMinutes = ((total - finished) * perItem) / 60000;
+    const meanDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : 60000;
+    const etaMinutes = ((total - finished) * meanDuration / concurrency) / 60000;
     if (status) { status.hidden = false; status.textContent = 'Перегенерация черновиков: ' + finished + '/' + total + ' · ошибок ' + failed + ' · осталось ' + etaText(etaMinutes) + '. Не закрывайте вкладку. Параллельно: ' + concurrency + '.'; }
   };
   const progressTimer = setInterval(renderProgress, 10000);
@@ -693,11 +692,13 @@ async function regenerateAll() {
   async function worker() {
     while (cursor < targets.length) {
       const b = targets[cursor++];
+      const itemStartedAt = Date.now();
       try {
         if (await generateOne(parseInt(b.dataset.idx), b.dataset.negid, b.dataset.name, b.dataset.sent === '1')) succeeded++;
         else failed++;
       } catch (e) { failed++; /* generateOne normally surfaces its own error state */ }
       b.disabled = true;
+      durations.push(Date.now() - itemStartedAt);
       finished++;
       renderProgress();
     }

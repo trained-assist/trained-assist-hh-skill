@@ -111,7 +111,7 @@ describe('review page selects score buckets and reports regeneration failures ho
     let active=0,maximum=0;
     const context={document:{getElementById:(id)=>id==='regenAllBtn'?button:status,querySelectorAll:()=>targets},done:new Set(),bulkGenerationActive:false,parseInt,Array,Math,Promise,Date,generateOne:async()=>{active++;maximum=Math.max(maximum,active);await new Promise(resolve=>setTimeout(resolve,5));active--;return true},setInterval:()=>1,clearInterval(){},showToast(){}};
     vm.runInNewContext(source.slice(start,end)+';this.regenerateAll=regenerateAll;',context);
-    await context.regenerateAll();expect(maximum).toBe(5);expect(status.hidden).toBe(false);expect(status.textContent).toContain('завершена: 12/12');expect(targets.every(target=>!target.disabled)).toBe(true);expect(context.bulkGenerationActive).toBe(false);
+    const batch=context.regenerateAll();expect(status.textContent).toContain('около 3 мин');await batch;expect(maximum).toBe(5);expect(status.hidden).toBe(false);expect(status.textContent).toContain('завершена: 12/12');expect(targets.every(target=>!target.disabled)).toBe(true);expect(context.bulkGenerationActive).toBe(false);
   });
 
   it('does not report failed bulk generation as a green success', async () => {
