@@ -48,6 +48,49 @@ test('a delivered message shows up in the thread at once, without a reload', asy
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('score buckets select stale drafts, preserve hand edits, then batch-send only selected text after confirmation', async ({ page }) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'send-stale-batch-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'hh', 'alice', 'candidates'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'hh', 'alice', 'candidates', `${NEG}.json`), JSON.stringify({
+      ats_result: { draft_message: 'Approved existing draft', verdict: 'ПРОПУСТИТЬ', score: 9.5 },
+      messages: [{ hh_id: '1', role: 'applicant', text: 'Здравствуйте!', timestamp: '2026-09-11T05:38:49.635Z' }],
+    }));
+    const negotiation = { id: NEG, resume: { first_name: 'Элла' }, created_at: '2026-09-11', updated_at: '2026-09-30' };
+    const html = generateReviewPageHtml([negotiation], 'Финансовый советник', 'alice', 'https://hh.test', dir, { vacancyId: 'v1', communicationEnabled: true });
+    let payload;
+    await page.route('**/hh/send', async route => {
+      payload = route.request().postDataJSON();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+    page.on('dialog', dialog => dialog.accept());
+    await page.setContent(html);
+
+    const card = page.locator(`#tab-all .card[data-neg="${NEG}"]`);
+    const checkbox = card.locator('.card-cb');
+    await expect(checkbox).toBeEnabled();
+    await expect(checkbox).not.toBeChecked();
+    await page.locator('.score-btn[data-bucket="10"]').click();
+    await expect(checkbox).toBeChecked();
+
+    // A recruiter can remove one candidate by hand; adding another bucket must not undo it.
+    await checkbox.uncheck();
+    await page.locator('.score-btn[data-bucket="9"]').click();
+    await expect(checkbox).not.toBeChecked();
+
+    await page.locator('.score-btn[data-bucket="10"]').click();
+    await page.locator('.score-btn[data-bucket="10"]').click();
+    await expect(checkbox).toBeChecked();
+    await page.locator('#sendAllBtn').click();
+    await expect.poll(() => payload).toMatchObject({
+      negotiation_id: NEG,
+      message: 'Approved existing draft',
+      force_stale: true,
+    });
+    await expect(card).toHaveClass(/done/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a guard block offers both ways out and leaves the page usable', async ({ page }) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'send-blocked-'));
   try {

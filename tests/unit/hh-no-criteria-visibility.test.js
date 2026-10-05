@@ -79,14 +79,15 @@ describe('review page stops swallowing generation failures (issue #126, slice 3)
 });
 
 
-describe('review page marks legacy drafts as stale', () => {
-  it('requires explicit per-candidate confirmation while keeping stale drafts out of bulk send', () => {
+describe('review page allows stale drafts in an explicitly confirmed batch', () => {
+  it('keeps stale drafts selectable and labels them for batch confirmation', () => {
     const root=dataRoot();writeAtsConfig({vacancy_title:'Vac'});writeHistory(root,{ats_result:{draft_message:'Old draft',verdict:'ПРОПУСТИТЬ',score:9.5}});
     const html=generateReviewPageHtml([neg()],'Vac',USERNAME,'',root,{vacancyId:VACANCY,communicationEnabled:true});
     expect(html).toContain('Старый черновик: обновите его по сценарию перед отправкой.');
     expect(html).toMatch(/class="btn btn-send" data-stale="1" onclick="sendOne/);
     expect(html).not.toMatch(/class="btn btn-send"[^>]* disabled/);
-    expect(html).toMatch(/class="card-cb"[^>]* disabled/);
+    expect(html).toMatch(/class="card-cb"[^>]*data-stale="1"/);
+    expect(html).not.toMatch(/class="card-cb"[^>]* disabled/);
     dropAtsConfig();
   });
 });
@@ -97,11 +98,58 @@ describe('review page selects score buckets and reports regeneration failures ho
     const source=scriptOf(html), start=source.indexOf('function toggleBucket(n) {'), end=source.indexOf('\nfunction selectAll',start);
     const selected=[];let checks=0;
     const button={classList:{add(){},remove(){}}};
-    const checkboxes=[{dataset:{idx:'1',score:'9.5'},checked:false},{dataset:{idx:'2',score:'9.4'},checked:false}];
+    const checkboxes=[{dataset:{idx:'1',score:'9.5',stale:'1'},checked:false},{dataset:{idx:'2',score:'9.4',stale:'0'},checked:false}];
     const context={Set,parseInt,parseFloat,Math,activeBuckets:new Set(),done:new Set(),document:{querySelector:()=>button,querySelectorAll:()=>checkboxes},onCheck:()=>checks++};
     vm.runInNewContext(source.slice(start,end)+';this.toggleBucket=toggleBucket;',context);
     context.toggleBucket(10);
     expect(checkboxes.map(cb=>cb.checked)).toEqual([true,false]);expect(checks).toBe(1);
+  });
+
+  it('preserves manual unchecks when selecting another score bucket', () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('function toggleBucket(n) {'), end=source.indexOf('\nfunction selectAll',start);
+    const buttons=new Map([10,9].map(n=>[n,{classList:{add(){},remove(){}}}]));
+    const checkboxes=[{dataset:{idx:'1',score:'9.5'},checked:false},{dataset:{idx:'2',score:'9.4'},checked:false}];
+    const context={Set,parseInt,parseFloat,Math,activeBuckets:new Set(),done:new Set(),document:{querySelector:(selector)=>buttons.get(Number(selector.match(/data-bucket="(\d+)/)?.[1])),querySelectorAll:()=>checkboxes},onCheck(){}};
+    vm.runInNewContext(source.slice(start,end)+';this.toggleBucket=toggleBucket;',context);
+    context.toggleBucket(10);checkboxes[0].checked=false;context.toggleBucket(9);
+    expect(checkboxes.map(cb=>cb.checked)).toEqual([false,true]);
+  });
+
+  it('confirms and sends selected stale drafts with a per-candidate stale override', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function sendAll() {'), end=source.indexOf('\nfunction standardRejection',start);
+    const cb={dataset:{idx:'3',stale:'1'},checked:true};const button={disabled:false,textContent:''};const card={dataset:{neg:'neg-3'}};const textarea={value:'approved exact text'};
+    const calls=[];const completed=[];const confirmations=[];
+    const context={document:{querySelectorAll:()=>[cb],getElementById:(id)=>id==='sendAllBtn'?button:id==='card-3'?card:id==='msg-3'?textarea:null},window:{confirm:(message)=>{confirmations.push(message);return true}},parseInt,hhAction:async(endpoint,payload)=>{calls.push({endpoint,payload});return{ok:true}},markDone:(i)=>{completed.push(i);cb.checked=false},onCheck(){button.disabled=!cb.checked},showToast(){}};
+    vm.runInNewContext(source.slice(start,end)+';this.sendAll=sendAll;',context);
+    await context.sendAll();
+    expect(confirmations).toHaveLength(1);expect(confirmations[0]).toContain('1 выбранных кандидатов');
+    expect(calls).toEqual([{endpoint:'/hh/send',payload:{negotiation_id:'neg-3',message:'approved exact text',force_stale:true}}]);
+    expect(completed).toEqual([3]);expect(button.disabled).toBe(true);
+  });
+
+  it('does not send when the stale batch confirmation is declined', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function sendAll() {'), end=source.indexOf('\nfunction standardRejection',start);
+    const cb={dataset:{idx:'3',stale:'1'}};const button={disabled:false,textContent:''};let calls=0;
+    const context={document:{querySelectorAll:()=>[cb],getElementById:(id)=>id==='sendAllBtn'?button:id==='card-3'?{dataset:{neg:'neg-3'}}:id==='msg-3'?{value:'draft'}:null},window:{confirm:()=>false},parseInt,hhAction:async()=>{calls++},onCheck(){},showToast(){}};
+    vm.runInNewContext(source.slice(start,end)+';this.sendAll=sendAll;',context);
+    await context.sendAll();expect(calls).toBe(0);expect(button.disabled).toBe(false);
+  });
+
+  it('asks before retrying a selected draft when the send route discovers staleness', async () => {
+    const html=generateReviewPageHtml([], 'Vac', USERNAME, '', dataRoot(), {});
+    const source=scriptOf(html), start=source.indexOf('async function sendAll() {'), end=source.indexOf('\nfunction standardRejection',start);
+    const cb={dataset:{idx:'4',stale:'0'},checked:true};const button={disabled:false,textContent:''};const calls=[];const completed=[];let confirmed=0;
+    const error=Object.assign(new Error('stale'),{code:'STALE_COMMUNICATION_DRAFT'});
+    const context={document:{querySelectorAll:()=>[cb],getElementById:(id)=>id==='sendAllBtn'?button:id==='card-4'?{dataset:{neg:'neg-4'}}:id==='msg-4'?{value:'approved exact text'}:null},window:{confirm:()=>{confirmed++;return true}},parseInt,hhAction:async(endpoint,payload)=>{calls.push(payload);if(calls.length===1)throw error;return{ok:true}},markDone:(i)=>{completed.push(i);cb.checked=false},onCheck(){},showToast(){}};
+    vm.runInNewContext(source.slice(start,end)+';this.sendAll=sendAll;',context);
+    await context.sendAll();
+    expect(confirmed).toBe(1);expect(calls).toEqual([
+      {negotiation_id:'neg-4',message:'approved exact text',force_stale:false},
+      {negotiation_id:'neg-4',message:'approved exact text',force_stale:true},
+    ]);expect(completed).toEqual([4]);
   });
 
   it('runs a bounded batch and keeps a visible completion status', async () => {
