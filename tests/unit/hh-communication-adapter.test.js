@@ -148,3 +148,20 @@ it('writer needs_context remains typed and preserves missing fields, reason and 
   expect(error.code).toBe('NEEDS_CONTEXT');expect(error.message).toBe('Нет подтверждённой доступности отправителя');expect(error.missing_fields).toEqual(['sender availability']);expect(error.steps.writer.status).toBe('needs_context');expect(error.metrics.stages.map(x=>x.stage)).toEqual(['state','goal','writer']);
  }
 });
+
+describe('Communication failure diagnostics without provider text disclosure',()=>{
+ it('preserves upstream request ID and attempts but does not expose its message',async()=>{
+  const {communicationFailurePayload}=require('../../src/hh-communication-client');
+  const options={baseUrl:'https://communication.example',token:'fixture',fetchImpl:async()=>({ok:false,status:503,json:async()=>({request_id:'diagnostic-request',error:{code:'LLM_UNAVAILABLE',attempts:2,message:'Provider echoed private candidate text'}})})};
+  let error;try{await callCommunication('state',{conversation_revision:'fixture'},options);}catch(e){error=e;}
+  expect(error).toMatchObject({code:'LLM_UNAVAILABLE',status:503,communication_stage:'state',request_id:'diagnostic-request',provider_attempts:2,provider_message:'Provider echoed private candidate text'});
+  const publicBody=communicationFailurePayload(error);expect(publicBody.error).toContain('временно недоступен');expect(publicBody.request_id).toBe('diagnostic-request');expect(JSON.stringify(publicBody)).not.toContain('private candidate text');
+ });
+ it.each(['state','goal','writer'])('identifies failed %s and stops the chain',async failedStage=>{
+  const {CommunicationError,communicationFailurePayload}=require('../../src/hh-communication-client');const f=fixture();const original=f.options.call;
+  f.options.call=async(method,input)=>{const result=await original(method,input);if(method===failedStage){const error=new CommunicationError('LLM_UNAVAILABLE','Opaque failure',503);error.request_id='diagnostic-request';error.provider_attempts=1;throw error;}return result;};
+  let error;try{await generateCommunicationDraft(f.options);}catch(e){error=e;}
+  expect(error.communication_stage).toBe(failedStage);expect(f.calls.map(c=>c.method)).toEqual(['state','goal','writer'].slice(0,['state','goal','writer'].indexOf(failedStage)+1));
+  const body=communicationFailurePayload(error);expect(body).toMatchObject({code:'LLM_UNAVAILABLE',communication_stage:failedStage,request_id:'diagnostic-request'});expect(body.communication_metrics.stages.at(-1)).toMatchObject({stage:failedStage,attempts:1,retries:0,error_code:'LLM_UNAVAILABLE'});
+ });
+});

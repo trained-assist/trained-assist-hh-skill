@@ -25,7 +25,16 @@ async function callCommunication(method,input,{baseUrl=process.env.COMMUNICATION
  catch(e){throw new CommunicationError(e.name==='TimeoutError'?'COMMUNICATION_TIMEOUT':'COMMUNICATION_UNAVAILABLE','Communication не ответил');}
  let out;try {out=await response.json();}catch{throw new CommunicationError('COMMUNICATION_INVALID_RESPONSE','Communication вернул некорректный JSON',response.status);}
  if(!out || typeof out!=='object' || Array.isArray(out))throw new CommunicationError('COMMUNICATION_INVALID_RESPONSE','Communication вернул некорректную форму ответа',response.status);
- if(!response.ok || out.error) throw new CommunicationError(out.error?.code || 'COMMUNICATION_UNAVAILABLE','Ошибка Communication: '+(out.error?.code || response.status),response.status);
+ if(!response.ok || out.error) {
+  const error = new CommunicationError(out.error?.code || 'COMMUNICATION_UNAVAILABLE','Ошибка Communication: '+(out.error?.code || response.status),response.status);
+  error.communication_stage = method;
+  if (typeof out.request_id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(out.request_id)) error.request_id = out.request_id;
+  if (Number.isInteger(out.error?.attempts) && out.error.attempts >= 0) error.provider_attempts = out.error.attempts;
+  // Keep upstream detail inside the error; HTTP responses and logs expose only
+  // safe identifiers/statuses, never a provider body that might echo input text.
+  if (typeof out.error?.message === 'string') error.provider_message = out.error.message;
+  throw error;
+ }
  const version=response.headers.get('x-contract-version') || out.generation?.contract_version;
  if(version!=='v1')throw new CommunicationError('COMMUNICATION_VERSION_MISMATCH','Несовместимая версия контракта Communication');
  const expected=method==='writer'?input.context_revision:input.conversation_revision;
@@ -33,4 +42,12 @@ async function callCommunication(method,input,{baseUrl=process.env.COMMUNICATION
  if(expected!==actual)throw new CommunicationError('STALE_CONVERSATION','Communication вернул другую ревизию снимка');
  return out;
 }
-module.exports={CommunicationError,communicationEnabled,communicationToken,callCommunication,ROUTES};
+function communicationFailurePayload(error) {
+ const unavailable = ['LLM_UNAVAILABLE','COMMUNICATION_TIMEOUT','COMMUNICATION_UNAVAILABLE'].includes(error.code);
+ return {error: unavailable ? 'Не удалось подготовить черновик: сервис генерации временно недоступен. Повторите попытку чуть позже.' : error.message,
+  code:error.code || 'COMMUNICATION_FAILED',
+  ...(error.communication_stage ? {communication_stage:error.communication_stage} : {}),
+  ...(error.request_id ? {request_id:error.request_id} : {}),
+  ...(error.communication_metrics ? {communication_metrics:error.communication_metrics} : {})};
+}
+module.exports={CommunicationError,communicationEnabled,communicationToken,callCommunication,communicationFailurePayload,ROUTES};
