@@ -60,6 +60,29 @@ describe('bullshitGuard — placeholder regex', () => {
   });
 });
 
+describe('bullshitGuard — exact duplicate', () => {
+  it('blocks an identical earlier recruiter message before relying on the LLM', async () => {
+    const message = 'Алена, здравствуйте!\n\nГотовы ли вы выполнить тестовое задание?';
+    let llmCalls = 0;
+    const r = await guard.bullshitGuard(message, [
+      { role: 'employer', text: 'Алена, здравствуйте! Готовы ли вы выполнить тестовое задание?' },
+      { role: 'applicant', text: 'Готова выполнить ТЗ.' },
+    ], { apiKey: 'fixture', llmCall: async () => { llmCalls++; return {}; } });
+    expect(r).toMatchObject({ ok: false, checks: { exact_duplicate: true } });
+    expect(r.reason).toMatch(/уже отправляли/);
+    expect(llmCalls).toBe(0);
+  });
+
+  it('allows a genuinely new follow-up even when the earlier message was an intro', async () => {
+    const r = await guard.bullshitGuard('Отправляю задание по ссылке: https://example.test/task', [
+      { role: 'employer', text: 'Готовы выполнить тестовое?' },
+      { role: 'applicant', text: 'Да, готова.' },
+    ], { apiKey: 'fixture', llmCall: async () => JSON.stringify({ repeated_question: false, repeated_intro: false, template_garbage: false }) });
+    expect(r.ok).toBe(true);
+    expect(r.checks.exact_duplicate).toBe(false);
+  });
+});
+
 // ─── 2. LLM checks (monkey-patched) ──────────────────────────────────────────
 
 describe('bullshitGuard — LLM checks', () => {
@@ -82,7 +105,7 @@ describe('bullshitGuard — LLM checks', () => {
     });
 
     const r = await guard.bullshitGuard(
-      'Расскажите про ваш опыт в private banking?',
+      'Поделитесь, пожалуйста, вашим опытом в private banking?',
       HISTORY,
       { apiKey: 'fake-key' },
     );

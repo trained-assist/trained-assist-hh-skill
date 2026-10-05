@@ -5,9 +5,10 @@ const { usersRoot } = require('./data-paths.js');
 
 const path = require('path');
 const os = require('os');
+const { randomUUID } = require('node:crypto');
 const { publicPageBase, HH_PAGES_ENV, COLD_SEARCH_ENV } = require('./hh-publish-domain');
 
-const { readHhToken, readHhContext, writeHhContext, hhFetch, hhPost } = require('./hh-utils');
+const { readHhToken, readHhContext, writeHhContext, hhFetch, hhPost, hhPostForm } = require('./hh-utils');
 
 function _hhWorkDir(userId) {
   // Must match BASE_USERS_DIR in server.js — Claude writes contexts here via cwd
@@ -381,7 +382,7 @@ function _readPending(workDir, key) {
   if (!workDir) return null;
   const p = readHhContext(workDir, 'hh', key)?.value;
   if (!p) return null;
-  if (p.expires_at && new Date(p.expires_at) < new Date()) {
+  if ((!p.status || p.status === 'ready') && p.expires_at && new Date(p.expires_at) < new Date()) {
     // Expired — clear and return null
     writeHhContext(workDir, 'hh', key, null).catch(() => {});
     return null;
@@ -405,6 +406,8 @@ async function hhSendPreview(userId, workDir, task) {
   await writeHhContext(workDir, 'hh', 'pending_send', {
     negotiation_id: negId,
     message: text,
+    status: 'ready',
+    idempotency_key: randomUUID(),
     vacancy_id: vacancy.id,
     vacancy_title: vacancy.title,
     created_at: new Date().toISOString(),
@@ -437,11 +440,90 @@ async function hhSendConfirm(userId, workDir) {
   if (!token?.access_token) return '⚠️ HH не подключён.';
 
   try {
-    await hhPost(`/negotiations/${pending.negotiation_id}/messages`, token, {
-      message: pending.message,
-    });
-    await writeHhContext(workDir, 'hh', 'pending_send', null).catch(() => {});
-    return `✅ Сообщение отправлено кандидату ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+    if (pending.status === 'sent') return `✅ Сообщение уже отправлено кандидату ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+    pending.idempotency_key ||= randomUUID();
+    const negotiation = await hhFetch(`/negotiations/${pending.negotiation_id}`, token);
+    const chatId = negotiation.chat_id || null;
+    const chatHistory = async () => {
+      if (chatId) {
+        const query = new URLSearchParams({ limit: '50', order: 'prev' });
+        return hhFetch(`/common/chats/${encodeURIComponent(chatId)}/messages?${query}`, token);
+      }
+      return hhFetch(`/negotiations/${encodeURIComponent(pending.negotiation_id)}/messages?per_page=50&page=0`, token);
+    };
+    const messageExists = async () => {
+      const data = await chatHistory();
+      const messages = data.messages || data.items || [];
+      const sentAt = Date.parse(pending.created_at || 0) || 0;
+      return messages.some(item => {
+        const text = item.payload?.text ?? item.text ?? '';
+        const role = String(item.sender_display_info?.role || item.author?.participant_type || '').toUpperCase();
+        const created = Date.parse(item.creation_time || item.created_at || 0) || 0;
+        return role === 'EMPLOYER' && text === pending.message && (!sentAt || !created || created >= sentAt);
+      });
+    };
+
+    // After a crash/timeout, look in HH first. If the chat API accepted the
+    // previous POST, this resolves it without producing a second message.
+    if (['sending', 'uncertain'].includes(pending.status) && await messageExists()) {
+      pending.status = 'sent';
+      await writeHhContext(workDir, 'hh', 'pending_send', pending);
+      await writeHhContext(workDir, 'hh', 'pending_send', null).catch(() => {});
+      return `✅ Сообщение подтверждено в HH для кандидата ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+    }
+    if (!chatId && ['sending', 'uncertain'].includes(pending.status)) {
+      return '⚠️ Исход предыдущей отправки не подтверждён. Проверьте переписку HH; автоматический повтор заблокирован.';
+    }
+
+    pending.status = 'sending';
+    pending.idempotency_key ||= randomUUID();
+    delete pending.expires_at;
+    await writeHhContext(workDir, 'hh', 'pending_send', pending);
+    try {
+      const sent = chatId
+        ? await hhPost(`/common/chats/${encodeURIComponent(chatId)}/messages`, token, { text: pending.message, idempotency_key: pending.idempotency_key })
+        : await hhPostForm(`/negotiations/${pending.negotiation_id}/messages`, token, { message: pending.message });
+      if (chatId && (sent?.id || sent?.message?.id)) {
+        pending.status = 'sent';
+        pending.provider_message_id = String(sent.id || sent.message.id);
+        pending.sent_at = new Date().toISOString();
+        await writeHhContext(workDir, 'hh', 'pending_send', pending);
+        await writeHhContext(workDir, 'hh', 'pending_send', null).catch(() => {});
+        return `✅ Сообщение отправлено кандидату ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+      }
+      if (!chatId && sent?.id) {
+        pending.status = 'sent';
+        pending.provider_message_id = String(sent.id);
+        pending.sent_at = new Date().toISOString();
+        await writeHhContext(workDir, 'hh', 'pending_send', pending);
+        await writeHhContext(workDir, 'hh', 'pending_send', null).catch(() => {});
+        return `✅ Сообщение отправлено кандидату ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+      }
+      if (await messageExists()) {
+        pending.status = 'sent';
+        pending.sent_at = new Date().toISOString();
+        await writeHhContext(workDir, 'hh', 'pending_send', pending);
+        await writeHhContext(workDir, 'hh', 'pending_send', null).catch(() => {});
+        return `✅ Сообщение подтверждено в HH для кандидата ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+      }
+      pending.status = 'uncertain';
+      await writeHhContext(workDir, 'hh', 'pending_send', pending);
+      return '⚠️ HH не подтвердил отправку сообщением в переписке. Проверьте статус на HH; повтор через текущий UUID безопасен.';
+    } catch (error) {
+      pending.status = 'uncertain';
+      pending.last_error = String(error?.message || 'send outcome unknown').slice(0, 300);
+      await writeHhContext(workDir, 'hh', 'pending_send', pending);
+      try { if (await messageExists()) {
+        pending.status = 'sent';
+        pending.sent_at = new Date().toISOString();
+        await writeHhContext(workDir, 'hh', 'pending_send', pending);
+        await writeHhContext(workDir, 'hh', 'pending_send', null).catch(() => {});
+        return `✅ Сообщение подтверждено в HH для кандидата ${pending.negotiation_id} (вакансия «${pending.vacancy_title || '?'}»).`;
+      }} catch { /* keep the durable intent uncertain when HH history is unavailable */ }
+      return chatId
+        ? '⚠️ Ответ HH не пришёл. Повторное подтверждение проверит переписку и использует тот же ключ идемпотентности.'
+        : '⚠️ Ответ HH не пришёл; исход отправки неизвестен. Проверьте переписку HH, повтор заблокирован.';
+    }
   } catch (e) {
     return `❌ Не удалось отправить: ${e.message}`;
   }

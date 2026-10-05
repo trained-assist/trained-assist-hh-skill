@@ -344,7 +344,7 @@ describe('hhStatus — HH token expiry awareness', () => {
 // reached HH.
 
 describe('confirm paths reach the HH API', () => {
-  it('hhSendConfirm posts the pending message to the negotiation', async () => {
+  it('hhSendConfirm uses the HH common chat API with a persisted idempotency UUID', async () => {
     const { hhSendConfirm } = freshModule();
     const { writeHhContext } = require('../../src/hh-utils.js');
     await writeHhContext(workDir, 'hh', 'pending_send', {
@@ -352,7 +352,9 @@ describe('confirm paths reach the HH API', () => {
     });
     const result = await hhSendConfirm(TEST_UID, workDir);
     expect(result).toContain('✅');
-    expect(mockHh.state.messages['neg-001']).toEqual(['Добрый день!']);
+    expect(mockHh.state.chatMessages['chat-neg-001']).toHaveLength(1);
+    expect(mockHh.state.chatMessages['chat-neg-001'][0].payload.text).toBe('Добрый день!');
+    expect(mockHh.state.idempotencyKeys.size).toBe(1);
   });
 
   it('hhRejectConfirm reaches HH for each pending candidate (no ReferenceError)', async () => {

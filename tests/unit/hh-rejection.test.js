@@ -11,9 +11,15 @@ async function fixture(run) {
   try { await run(historyFile); } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-it('persists delivery before stage change and retries only the stage', () => fixture(async historyFile => {
+it('persists a stable HH idempotency UUID before delivery and retries only the stage', () => fixture(async historyFile => {
   let sends = 0, discards = 0;
-  const args = { historyFile, message: 'Спасибо за отклик', send: async () => { sends++; }, discard: async () => {
+  const args = { historyFile, message: 'Спасибо за отклик', send: async (text, key) => {
+    sends++;
+    const op = JSON.parse(fs.readFileSync(historyFile)).rejection_operation;
+    expect(text).toBe('Спасибо за отклик');
+    expect(key).toBe(op.idempotency_key);
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+  }, discard: async () => {
     expect(JSON.parse(fs.readFileSync(historyFile)).messages).toHaveLength(1);
     if (++discards === 1) throw new Error('HH 503: unavailable');
   } };
@@ -50,4 +56,47 @@ it('allows retry after a definite HTTP rejection of delivery', () => fixture(asy
   expect((await sendRejection(args)).error).toContain('не отправлено');
   args.send = async () => {};
   expect(await sendRejection(args)).toEqual({ ok: true });
+}));
+
+it('reconciles an uncertain chat send from HH history before trying the stored UUID again', () => fixture(async historyFile => {
+  let sends = 0, refreshes = 0, discards = 0;
+  let operation;
+  const args = {
+    historyFile, message: 'Отказ кандидату', retryUncertain: true,
+    send: async (_text, key) => {
+      sends++;
+      operation = JSON.parse(fs.readFileSync(historyFile)).rejection_operation;
+      expect(key).toBe(operation.idempotency_key);
+      throw Object.assign(new Error('socket timeout'), { code: 'ETIMEDOUT' });
+    },
+    refresh: async () => {
+      refreshes++;
+      const created = JSON.parse(fs.readFileSync(historyFile)).rejection_operation?.created_at;
+      return refreshes > 1 ? [{ role: 'employer', text: 'Отказ кандидату', hh_id: 'hh-message', timestamp: created }] : [];
+    },
+    discard: async () => { discards++; },
+  };
+  expect((await sendRejection(args)).ok).toBe(false);
+  const key = JSON.parse(fs.readFileSync(historyFile)).rejection_operation.idempotency_key;
+  expect((await sendRejection({ ...args, send: async () => { sends++; throw new Error('must not resend after history confirms'); } })).ok).toBe(true);
+  expect(sends).toBe(1);
+  expect(discards).toBe(1);
+  expect(JSON.parse(fs.readFileSync(historyFile)).rejection_operation).toMatchObject({ status: 'done', idempotency_key: key, provider_message_id: 'hh-message' });
+}));
+
+it('retries an uncertain chat operation with exactly the persisted UUID', () => fixture(async historyFile => {
+  let sends = 0, key;
+  const args = {
+    historyFile, message: 'Отказ кандидату', retryUncertain: true,
+    send: async (_text, candidateKey) => {
+      sends++;
+      if (!key) { key = candidateKey; throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }); }
+      expect(candidateKey).toBe(key);
+      return { id: 'hh-message' };
+    }, refresh: async () => [], discard: async () => {},
+  };
+  expect((await sendRejection(args)).ok).toBe(false);
+  expect(await sendRejection(args)).toEqual({ ok: true });
+  expect(sends).toBe(2);
+  expect(JSON.parse(fs.readFileSync(historyFile)).rejection_operation).toMatchObject({ status: 'done', idempotency_key: key, provider_message_id: 'hh-message' });
 }));
