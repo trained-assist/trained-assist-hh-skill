@@ -12,7 +12,13 @@ const { readCredentialFile, isMetaSidecar, deleteCredential } = require('./crede
 
 const TOKENS_ROOT = tokensRoot();
 const CONNECT_PENDING_DIR = connectPendingDir();
-const AGENT_PUBLIC_URL = (process.env.AGENT_PUBLIC_URL || 'https://136-65-7-197.sslip.io').replace(/\/$/, '');
+// The retiring GCP VM must never be an implicit credential callback target.
+const AGENT_PUBLIC_URL = (process.env.AGENT_PUBLIC_URL || '').replace(/\/$/, '');
+
+function requireAgentPublicUrl() {
+  if (!AGENT_PUBLIC_URL) throw new Error('AGENT_PUBLIC_URL is required for credential links');
+  return AGENT_PUBLIC_URL;
+}
 
 const ZEROCREDS_URL = (process.env.ZEROCREDS_URL || 'https://zerocreds.ru').replace(/\/$/, '');
 const ZEROCREDS_ADMIN_TOKEN = process.env.ZEROCREDS_ADMIN_TOKEN || '';
@@ -305,6 +311,7 @@ function getSecretsLog(userId) {
 }
 
 async function generateConnectLink(userId, service, inlineSchema) {
+  const agentPublicUrl = requireAgentPublicUrl();
   const schema = inlineSchema || SERVICE_FORM_SCHEMA[service];
   const agentSecret = process.env.AGENT_SECRET || '';
 
@@ -316,7 +323,7 @@ async function generateConnectLink(userId, service, inlineSchema) {
         fields: schema.fields,
         destination: {
           type: 'http_post',
-          url: `${AGENT_PUBLIC_URL}/tokens?userId=${encodeURIComponent(userId)}&label=${encodeURIComponent(service)}`,
+          url: `${agentPublicUrl}/tokens?userId=${encodeURIComponent(userId)}&label=${encodeURIComponent(service)}`,
           headers: { 'Authorization': `Bearer ${agentSecret}` },
           body: { value: '{fields_json}' },
         },
@@ -350,6 +357,7 @@ async function generateConnectLink(userId, service, inlineSchema) {
 }
 
 function generateLegacyConnectLink(userId, service, schema) {
+  const agentPublicUrl = requireAgentPublicUrl();
   const token = crypto.randomBytes(16).toString('hex');
   fs.mkdirSync(CONNECT_PENDING_DIR, { recursive: true });
   const pending = { uid: String(userId), service, expires: Date.now() + 30 * 60 * 1000 };
@@ -359,7 +367,7 @@ function generateLegacyConnectLink(userId, service, schema) {
     JSON.stringify(pending),
     { mode: 0o600 }
   );
-  return `${AGENT_PUBLIC_URL}/connect/${service}?t=${token}`;
+  return `${agentPublicUrl}/connect/${service}?t=${token}`;
 }
 
 /**
