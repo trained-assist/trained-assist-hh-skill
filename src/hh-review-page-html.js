@@ -579,7 +579,7 @@ async function hhAction(endpoint, payload, timeoutMs) {
       body: JSON.stringify({ username: HH_USER, token: HH_PAGE_TOKEN, ...payload }),
     });
     const data = await r.json();
-    if (!r.ok) { const error = new Error(data.error || r.statusText); error.code = data.code; throw error; }
+    if (!r.ok) { const error = new Error(data.error || r.statusText); error.code = data.code; error.communication_stage = data.communication_stage; error.request_id = data.request_id; error.missing_fields = Array.isArray(data.missing_fields) ? data.missing_fields : []; throw error; }
     return data;
   } catch(e) {
     if (e.name === 'AbortError') {
@@ -926,7 +926,9 @@ async function generateOne(i, negId, candidateName, alreadySent) {
     if (btn) { btn.disabled = false; btn.textContent = '✦ Сгенерировать'; }
     // The failure used to be swallowed here: the button simply reset and the
     // recruiter read it as "nothing changed" (issue #126, defect 2).
-    const errorMessage = e && e.message ? e.message : String(e);
+    const missingContext=Array.isArray(e?.missing_fields)&&e.missing_fields.length?' Не хватает подтверждённого контекста: '+e.missing_fields.join('; ')+'.':'';
+    const diagnostic=[e?.communication_stage?'этап: '+e.communication_stage:'',e?.request_id?'ID: '+e.request_id:''].filter(Boolean);
+    const errorMessage = (e && e.message ? e.message : String(e)) + missingContext + (diagnostic.length?' ('+diagnostic.join(', ')+')':'');
     const step = document.querySelector('#card-'+i+' .funnel-step');
     if (step) { step.style.color='#b91c1c';step.setAttribute('role','alert');step.textContent = 'Ошибка обновления черновика: ' + errorMessage; }
     if (!bulkGenerationActive) showToast('❌ Ошибка генерации: ' + errorMessage, true);

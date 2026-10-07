@@ -3,6 +3,7 @@ const {createHash}=require('crypto');
 const {normalizeCommunicationPlan,buildCommunicationObjective,resolveStageMaterial}=require('./hh-communication-plan');
 const {callCommunication,CommunicationError,communicationEnabled}=require('./hh-communication-client');
 const {stageMetrics,chainMetrics}=require('./hh-communication-metrics');
+const {candidateAgreedToTestTask,candidateHasOpenQuestion,testTaskWasSent}=require('./hh-funnel');
 const VERSION='hh-state-goal-v1';
 function stable(v){if(Array.isArray(v))return v.map(stable);if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])]));return v;}
 function signature(v){return createHash('sha256').update(JSON.stringify(stable(v))).digest('hex');}
@@ -45,6 +46,15 @@ function snapshotInput({history=[],resumeText='',candidateName='',atsConfig={},a
  return {history:normalizedHistory(history),profile:{format:'text',text:resumeText,...(candidateName?{name:candidateName}:{})},atsConfig,atsResult,senderProfile,context};
 }
 function conversationRevision(input){return signature(snapshotInput(input));}
+function pendingAgreedTestMaterial(plan,thread){
+ const stages=plan.stages.filter(stage=>stage.material_mode==='verbatim'&&stage.material.trim()
+  &&(stage.template_id==='test_task'||/(?:тестов|test\s*task)/i.test([stage.title,stage.instruction,stage.completion_result].join(' '))));
+ if(stages.length!==1)return null;
+ const history=thread.map(message=>({role:message.speaker==='sender'?'employer':message.speaker==='partner'?'applicant':'other',text:message.text}));
+ const stage=stages[0];
+ if(!candidateAgreedToTestTask(history)||candidateHasOpenQuestion(history)||testTaskWasSent(history,stage.material))return null;
+ return stage;
+}
 async function generateCommunicationDraft(options={}){
  const {atsConfig={},atsResult={},senderProfile={},context={},resumeText='',candidateName='',history=[],communicationStyle='Деловой, вежливый и краткий тон.',language='ru',previousSteps=null,now=Date.now(),call=callCommunication,forceGoal=null}=options;
  if(!atsConfig.communication_plan)throw new CommunicationError('PLAN_REVIEW_REQUIRED','Сохраните проверенный сценарий найма в редакторе вакансии перед генерацией.');
@@ -74,15 +84,17 @@ async function generateCommunicationDraft(options={}){
  const bindings=plan.stages.filter(s=>s.material_mode==='verbatim'&&s.material.trim()).map(s=>({stage_id:s.id}));
  const sourceSpeakers=Object.fromEntries([...thread.map(m=>[m.id,m.speaker]),['profile','partner'],['context','other']]);
  const goalState={...state,source_speakers:sourceSpeakers};
+ const pendingMaterial=pendingAgreedTestMaterial(plan,thread);
  const actorPolicy='Автор каждого источника указан в conversation_state.source_speakers: sender — рекрутер, partner — кандидат, other — внешний контекст. Определяй, кто предложил условие и от кого нужен следующий ответ, по автору evidence.source_id, а не по пассивной формулировке summary. Не ожидай подтверждения от стороны, которая уже предложила условие. Не спрашивай автора предложения, подходит ли ему его же условие, и не проси повторять уже данное. Если возможность sender исполнить предложенное условие неизвестна, цель и сообщение — принять предложение к сведению и честно обозначить необходимость проверки своей возможности. Не выдавай это за подтверждение доступности, не выдумывай согласие и не переноси проверку собственной возможности на partner. Подтверждай условие только при известных фактах о возможности sender. Предложение одной стороны не является двусторонней договорённостью.';
  const baseObjective=buildCommunicationObjective(atsConfig)+'\n'+actorPolicy;
  const objective=baseObjective+'\nАктуальное время: '+new Date(now).toISOString();
- const goalSig=signature({version:VERSION,stateSig,state:goalState,sourceSpeakers,objective:baseObjective,bindings,forceGoal});
+ const goalSig=signature({version:VERSION,stateSig,state:goalState,sourceSpeakers,objective:baseObjective,bindings,forceGoal,pendingMaterial:pendingMaterial?.id||null});
  const next=Date.parse(previousSteps?.next_check_at || state.next_check_at || '');
  const waitExpired=validPrevious&&(['wait','no_matching_option'].includes(previousSteps.goal?.status)||previousSteps.writer?.status==='no_message_needed') && (Number.isFinite(next)?now>=next:now-Date.parse(previousSteps.computed_at)>=60000);
  let goalResponse;
  if(state.contact_allowed===false)goalResponse={status:'do_not_contact',requires_message:false,goal:null,execution:null,reason:'Явный запрет контакта',conversation_revision:revision};
  else if(forceGoal)goalResponse={status:'goal_ready',requires_message:true,goal:forceGoal,execution:null,reason:'Явное действие рекрутера',conversation_revision:revision};
+ else if(pendingMaterial)goalResponse={status:'goal_ready',requires_message:true,goal:{instruction:'Передать согласованное тестовое задание без повторного вопроса о готовности.',required_points:[],forbidden_points:[]},execution:{type:'send_material',stage_id:pendingMaterial.id},reason:'Кандидат согласился на сохранённое тестовое задание.',conversation_revision:revision};
  else if(validPrevious&&previousSteps.goal_sig===goalSig&&!waitExpired)goalResponse=cached('goal',previousSteps.goal);
  else goalResponse=await invoke('goal',{conversation_revision:revision,conversation_state:goalState,conversation_objective:objective,material_bindings:bindings,language});
  if(goalResponse.conversation_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Цель относится к другому снимку');
@@ -110,6 +122,8 @@ async function generateCommunicationDraft(options={}){
    if(written.context_revision!==revision)throw new CommunicationError('STALE_CONVERSATION','Черновик относится к другому снимку');
    if(written.status==='needs_context'){
     const error=new CommunicationError('NEEDS_CONTEXT',written.reason || 'Для черновика не хватает подтверждённого контекста');
+    error.communication_stage='writer';
+    if(typeof written.request_id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(written.request_id))error.request_id=written.request_id;
     error.missing_fields=Array.isArray(written.missing_fields)?written.missing_fields:[];
     steps.writer=written;steps.metrics=chainMetrics(events);steps.missing_fields=error.missing_fields;error.steps=steps;error.metrics=steps.metrics;error.communication_metrics=steps.metrics;throw error;
    }
@@ -124,4 +138,4 @@ async function generateCommunicationDraft(options={}){
  steps.message=message;
  return {message,action,reason:goalResponse.reason || goalResponse.goal.instruction,steps,revision};
 }
-module.exports={VERSION,signature,normalizedHistory,stateSchema,conversationRevision,generateCommunicationDraft,communicationEnabled};
+module.exports={VERSION,signature,normalizedHistory,stateSchema,conversationRevision,pendingAgreedTestMaterial,generateCommunicationDraft,communicationEnabled};

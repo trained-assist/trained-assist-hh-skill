@@ -1,15 +1,46 @@
 import {describe,it,expect} from 'vitest';
 import {createRequire} from 'module';
 const require=createRequire(import.meta.url);
-const {generateCommunicationDraft,conversationRevision}=require('../../src/hh-communication-adapter');
+const {generateCommunicationDraft,conversationRevision,pendingAgreedTestMaterial,normalizedHistory}=require('../../src/hh-communication-adapter');
+const {normalizeCommunicationPlan}=require('../../src/hh-communication-plan');
 const {callCommunication}=require('../../src/hh-communication-client');
 const config={required:[],preferred:[],communication_plan:{version:1,stages:[{id:'portfolio',title:'Портфолио',instruction:'Попросить работы',completion_result:'Получена ссылка',material:' Точный текст\nhttps://example.com/работы ',material_mode:'verbatim'}]}};
-function fixture({execution=null,status='goal_ready',contact=true,history=[],extra={}}={}){
- const calls=[];const options={atsConfig:config,resumeText:'Опыт\nПолное резюме',history,...extra,call:async(method,input)=>{calls.push({method,input});const revision=input.conversation_revision||input.context_revision;if(method==='state')return {conversation_revision:revision,state:{summary:'',contact_allowed:contact,stages:[{stage_id:'portfolio',status:'unknown',evidence:[]}],requirements:[],open_questions:[],uncertainties:[],next_check_at:null}};if(method==='goal')return {conversation_revision:revision,status,goal:status==='goal_ready'?{instruction:'Ответить кандидату о следующем шаге'}:null,execution,reason:'Сценарий'};return {context_revision:revision,status:'generated',message_text:'Сообщение'};}};return {options,calls};
+function fixture({execution=null,status='goal_ready',contact=true,history=[],extra={},atsConfig=config}={}){
+ const calls=[];const options={atsConfig,resumeText:'Опыт\nПолное резюме',history,...extra,call:async(method,input)=>{calls.push({method,input});const revision=input.conversation_revision||input.context_revision;if(method==='state')return {conversation_revision:revision,state:{summary:'',contact_allowed:contact,stages:atsConfig.communication_plan.stages.map(s=>({stage_id:s.id,status:'unknown',evidence:[]})),requirements:[],open_questions:[],uncertainties:[],next_check_at:null}};if(method==='goal')return {conversation_revision:revision,status,goal:status==='goal_ready'?{instruction:'Ответить кандидату о следующем шаге'}:null,execution,reason:'Сценарий'};return {context_revision:revision,status:'generated',message_text:'Сообщение'};}};return {options,calls};
 }
 describe('HH Communication unified adapter',()=>{
  it('executes state goal writer and reuses state after style change',async()=>{const f=fixture();const a=await generateCommunicationDraft(f.options);expect(f.calls.map(c=>c.method)).toEqual(['state','goal','writer']);f.calls.length=0;await generateCommunicationDraft({...f.options,previousSteps:a.steps,communicationStyle:'Дружелюбно'});expect(f.calls.map(c=>c.method)).toEqual(['writer']);});
  it('sends exact arbitrary stage material without writer',async()=>{const f=fixture({execution:{type:'send_material',stage_id:'portfolio'}});const a=await generateCommunicationDraft(f.options);expect(a.message).toBe(config.communication_plan.stages[0].material);expect(f.calls.map(c=>c.method)).toEqual(['state','goal']);});
+ it('sends saved test material after explicit candidate consent without asking the goal or writer models',async()=>{
+  const task='Проверьте карточку товара по гайду и пришлите выводы.';
+  const atsConfig={...config,communication_plan:{version:1,stages:[{id:'assignment',template_id:'test_task',title:'Тестовое задание',instruction:'Получить результат задания',completion_result:'Кандидат прислал выполненное тестовое',material:task,material_mode:'verbatim'}]}};
+  const history=[
+   {id:'offer',role:'employer',text:'Следующим этапом предлагаем выполнить небольшое тестовое задание. Подскажите, пожалуйста, готовы ли вы его выполнить?'},
+   {id:'consent',role:'applicant',text:'Да, конечно. Присылайте задание.'},
+  ];
+  const f=fixture({atsConfig,history});
+  const result=await generateCommunicationDraft(f.options);
+  expect(result).toMatchObject({message:task,action:'send_material',steps:{material:{stage_id:'assignment'}}});
+  expect(f.calls.map(c=>c.method)).toEqual(['state']);
+ });
+ it('does not send saved material when state marks contact forbidden, even after consent',async()=>{
+  const task='Проверьте карточку товара по гайду.';
+  const atsConfig={...config,communication_plan:{version:1,stages:[{id:'assignment',template_id:'test_task',title:'Тестовое',instruction:'Результат',completion_result:'Готово',material:task,material_mode:'verbatim'}]}};
+  const f=fixture({atsConfig,contact:false,history:[{role:'employer',text:'Предлагаем тестовое задание. Готовы?'},{role:'applicant',text:'Да, пришлите задание.'}]});
+  const result=await generateCommunicationDraft(f.options);
+  expect(result.action).toBe('do_not_contact');expect(result.message).toBeNull();expect(f.calls.map(c=>c.method)).toEqual(['state']);
+ });
+ it('does not force saved test material when agreement has a question, refusal, later recruiter message, or no exact stage',()=>{
+  const task='Сохранённый текст тестового задания';
+  const atsConfig={...config,communication_plan:{version:1,stages:[{id:'assignment',template_id:'test_task',title:'Задание',instruction:'Получить результат',completion_result:'Результат получен',material:task,material_mode:'verbatim'}]}};
+  const base=[{role:'employer',text:'Предлагаем выполнить тестовое задание. Готовы?'},{role:'applicant',text:'Да, присылайте задание.'}];
+  const plan=normalizeCommunicationPlan(atsConfig.communication_plan);
+  expect(pendingAgreedTestMaterial(plan,normalizedHistory(base))).toMatchObject({id:'assignment'});
+  expect(pendingAgreedTestMaterial(plan,normalizedHistory([...base.slice(0,1),{role:'applicant',text:'Да, присылайте задание. А какой срок?'}]))).toBeNull();
+  expect(pendingAgreedTestMaterial(plan,normalizedHistory([...base,{role:'applicant',text:'Но я не готова выполнить задание.'}]))).toBeNull();
+  expect(pendingAgreedTestMaterial(plan,normalizedHistory([...base,{role:'employer',text:'Спасибо, вернусь с ответом.'}]))).toBeNull();
+  expect(pendingAgreedTestMaterial(normalizeCommunicationPlan(config.communication_plan),normalizedHistory(base))).toBeNull();
+ });
  it('tells the goal planner to send saved material after readiness instead of asking again',async()=>{const f=fixture({execution:{type:'send_material',stage_id:'portfolio'},history:[{id:'ask',role:'employer',text:'Готовы выполнить задание?'},{id:'yes',role:'applicant',text:'Да, готова выполнить ТЗ.'}]});const a=await generateCommunicationDraft(f.options);expect(a.message).toBe(config.communication_plan.stages[0].material);expect(f.calls[1].input.conversation_objective).toContain('следующий шаг — передать этот материал через send_material');expect(f.calls[1].input.conversation_objective).toContain('Не спрашивай готовность повторно');});
  it('prevents accidental duplicate but permits explicit resend',async()=>{const history=[{role:'employer',text:config.communication_plan.stages[0].material}];const f=fixture({history,execution:{type:'send_material',stage_id:'portfolio'}});expect((await generateCommunicationDraft(f.options)).message).toBeNull();const r=fixture({history,execution:{type:'send_material',stage_id:'portfolio',resend_requested:true}});expect((await generateCommunicationDraft(r.options)).message).toBe(config.communication_plan.stages[0].material);});
  it('never overrides contact refusal with recruiter forceGoal',async()=>{const f=fixture({contact:false,extra:{forceGoal:{instruction:'Отправить приглашение'}}});const a=await generateCommunicationDraft(f.options);expect(a.action).toBe('do_not_contact');expect(f.calls.map(c=>c.method)).toEqual(['state']);});
@@ -144,9 +175,11 @@ it('goal receives trusted source authors rather than guessing who proposed from 
 
 
 it('writer needs_context remains typed and preserves missing fields, reason and generation metrics',async()=>{
- const f=fixture();const original=f.options.call;f.options.call=async(m,i)=>{const r=await original(m,i);return m==='writer'?{context_revision:i.context_revision,status:'needs_context',reason:'Нет подтверждённой доступности отправителя',missing_fields:['sender availability'],generation:{model:'fixture-model',attempts:0},usage:{source:'none'}}:r;};
+ const f=fixture();const original=f.options.call;f.options.call=async(m,i)=>{const r=await original(m,i);return m==='writer'?{context_revision:i.context_revision,status:'needs_context',reason:'Нет подтверждённой доступности отправителя',missing_fields:['availability of sender','start date'],request_id:'writer-diagnostic-request',generation:{model:'fixture-model',attempts:0},usage:{source:'none'}}:r;};
  try{await generateCommunicationDraft(f.options);throw new Error('expected NEEDS_CONTEXT');}catch(error){
-  expect(error.code).toBe('NEEDS_CONTEXT');expect(error.message).toBe('Нет подтверждённой доступности отправителя');expect(error.missing_fields).toEqual(['sender availability']);expect(error.steps.writer.status).toBe('needs_context');expect(error.metrics.stages.map(x=>x.stage)).toEqual(['state','goal','writer']);
+  expect(error.code).toBe('NEEDS_CONTEXT');expect(error.communication_stage).toBe('writer');expect(error.request_id).toBe('writer-diagnostic-request');expect(error.message).toBe('Нет подтверждённой доступности отправителя');expect(error.missing_fields).toEqual(['availability of sender','start date']);expect(error.steps.writer.status).toBe('needs_context');expect(error.metrics.stages.map(x=>x.stage)).toEqual(['state','goal','writer']);
+  const {communicationFailurePayload}=require('../../src/hh-communication-client');const payload=communicationFailurePayload(error);
+  expect(payload).toMatchObject({code:'NEEDS_CONTEXT',communication_stage:'writer',request_id:'writer-diagnostic-request',missing_fields:['availability of sender','start date']});expect(JSON.stringify(payload)).not.toContain('private candidate text');
  }
 });
 
