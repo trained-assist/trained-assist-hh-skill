@@ -17,4 +17,4 @@ Use package.json check/test/manifest commands. Offline fixtures, staging smoke a
 
 Shared model: [architecture](https://github.com/trained-assist/trained-agent-architecture/blob/main/ARCHITECTURE.md).
 
-Retiring GCP VM is not a development or fallback target. Use the own Agent Run API and serverless by default; a necessary persistent service belongs on the existing French VM. Other Google services remain allowed. Exit coordination: https://github.com/trained-assist/trained-agent-architecture/issues/145.
+Retiring GCP VM is not a development or fallback target. Keep its existing runtime and public routes until HH #187 acceptance. Do not add new work there; the cold-search replacement requires an independently verified non-GCP host. Cloud Run is not the selected HH host. Other Google services remain allowed. Exit coordination: https://github.com/trained-assist/trained-agent-architecture/issues/145.
