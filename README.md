@@ -9,6 +9,7 @@ Recruiting/HeadHunter domain implementation: candidate/vacancy data, ATS, cold s
 - `src/` — domain implementation; `mcp.manifest.json`, `provider-manifest.json`, `action-provider-manifest.json` — declared interfaces.
 - [User scenarios](docs/user-scenarios/README.md) — domain requirements.
 - [CI contract](docs/skill-ci.md), `tests/`, `scenarios/`, `fixtures/` — executable verification.
+- [Strict credential storage for the replacement target](docs/strict-credential-storage-target.md) — fail-closed encryption mode; legacy compatibility remains the default.
 - `playbooks/recruiting-vacancy-launch.json` — domain playbook artifact.
 
 Host owns profile/credential binding and permissions. Draft generation and provider send are separate effects; repeated delivery needs durable operation identity. Candidate/document ownership is verified; callback/input IDs alone do not authenticate a user.

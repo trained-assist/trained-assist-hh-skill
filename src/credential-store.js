@@ -7,8 +7,10 @@
 //     base64( <version_byte=2> || iv[16] || auth_tag[16] || ciphertext )
 //
 // Legacy plaintext files (no v2 envelope) are still readable — transparent
-// passthrough — and are re-encrypted on the next write. When CRED_ENCRYPTION_KEY
-// is missing the store degrades to plaintext WITH a warning: never a hard failure.
+// passthrough — and are re-encrypted on the next write. For legacy compatibility,
+// a missing CRED_ENCRYPTION_KEY degrades to plaintext WITH a warning. A new
+// isolated host can set CRED_ENCRYPTION_REQUIRED=true to fail closed instead:
+// no plaintext reads/writes and no fallback after a decrypt/integrity failure.
 //
 // WHY EVERY READER MUST GO THROUGH HERE: a raw fs.readFileSync on an encrypted
 // file returns base64 garbage, and JSON.parse of it silently yields no token.
@@ -63,6 +65,11 @@ function parseKey(raw) {
   return Buffer.from(s, 'hex');
 }
 
+function encryptionRequired() {
+  // [sibling] Replacement-host policy; the legacy Agent mirror stays compatible.
+  return process.env.CRED_ENCRYPTION_REQUIRED === 'true';
+}
+
 function masterKey() {
   if (cachedKey) return cachedKey;
   const raw = process.env.CRED_ENCRYPTION_KEY;
@@ -70,6 +77,11 @@ function masterKey() {
   if (key) {
     cachedKey = key;
     return key;
+  }
+  if (encryptionRequired()) {
+    throw new Error(raw
+      ? '[credential-store] CRED_ENCRYPTION_KEY must be 64 hex chars when CRED_ENCRYPTION_REQUIRED=true'
+      : '[credential-store] CRED_ENCRYPTION_KEY is required when CRED_ENCRYPTION_REQUIRED=true');
   }
   if (!warnedMissing) {
     warnedMissing = true;
@@ -303,7 +315,12 @@ function removeFromIndex(username, service) {
 function readCredentialFile(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
   const envelope = decodeEnvelope(raw);
-  if (!envelope) return raw; // legacy plaintext (or a non-credential file)
+  if (!envelope) {
+    if (encryptionRequired() && shouldEncrypt(path.basename(filePath))) {
+      throw new Error(`[credential-store] ${filePath} is plaintext while CRED_ENCRYPTION_REQUIRED=true`);
+    }
+    return raw; // legacy plaintext (or a non-credential file)
+  }
 
   const key = masterKey();
   if (!key) {
@@ -312,6 +329,7 @@ function readCredentialFile(filePath) {
   try {
     return decryptEnvelope(envelope, key);
   } catch (e) {
+    if (encryptionRequired()) throw e;
     // Tampered blob WITH a v2 sidecar → this is a real integrity failure: loud, no garbage.
     if ((readMeta(filePath) || {}).version === FORMAT_VERSION) throw e;
     // No sidecar → almost certainly a plaintext value that happens to decode as an

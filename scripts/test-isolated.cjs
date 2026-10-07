@@ -23,6 +23,9 @@ const env = { PATH: process.env.PATH, HOME: root, TMPDIR: root, NODE_ENV: 'test'
   NODE_OPTIONS: `--require=${path.join(repo, 'tests/support/network-guard.cjs')}`,
   PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(os.homedir(), '.cache/ms-playwright'),
 };
+if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+  env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+}
 if (process.env.CI) env.CI = 'true';
 let status = 0;
 try {

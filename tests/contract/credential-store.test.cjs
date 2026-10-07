@@ -9,7 +9,8 @@
 //   - an encrypted (v2 base64 envelope) file is decrypted;
 //   - a base64 stub is NEVER returned as a value;
 //   - a missing CRED_ENCRYPTION_KEY degrades to plaintext WITH a warning —
-//     never a hard failure;
+//     never a hard failure in legacy-compatible mode;
+//   - target strict mode rejects plaintext and missing/invalid keys;
 //   - `.meta` sidecars are bookkeeping, not services, not env values.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -22,6 +23,7 @@ const savedEnv = {
   AGENT_TOKENS_DIR: process.env.AGENT_TOKENS_DIR,
   AGENT_TOKENS_ROOT: process.env.AGENT_TOKENS_ROOT,
   CRED_ENCRYPTION_KEY: process.env.CRED_ENCRYPTION_KEY,
+  CRED_ENCRYPTION_REQUIRED: process.env.CRED_ENCRYPTION_REQUIRED,
   USER_ID: process.env.USER_ID,
 };
 process.env.AGENT_TOKENS_DIR = root;
@@ -44,12 +46,16 @@ const basePromptFile = () => path.join(root, PROFILE, BASE_PROMPT_FILENAME);
 
 function reset(t) {
   const saved = process.env.CRED_ENCRYPTION_KEY;
+  const savedRequired = process.env.CRED_ENCRYPTION_REQUIRED;
   delete process.env.CRED_ENCRYPTION_KEY;
+  delete process.env.CRED_ENCRYPTION_REQUIRED;
   store._resetMasterKey();
   fs.rmSync(profileDir(), { recursive: true, force: true });
   t.after(() => {
     if (saved === undefined) delete process.env.CRED_ENCRYPTION_KEY;
     else process.env.CRED_ENCRYPTION_KEY = saved;
+    if (savedRequired === undefined) delete process.env.CRED_ENCRYPTION_REQUIRED;
+    else process.env.CRED_ENCRYPTION_REQUIRED = savedRequired;
     store._resetMasterKey();
   });
 }
@@ -103,6 +109,39 @@ test('missing CRED_ENCRYPTION_KEY → plaintext write with a warning, never a fa
   assert.ok(warnings.some(w => /PLAINTEXT/.test(w)), `expected a plaintext warning, got: ${warnings.join(' | ')}`);
   assert.equal(readState(PROFILE).enabled, true, 'the state we just wrote is readable');
   assert.equal(fs.statSync(autoscanFile()).mode & 0o777, 0o600, 'credential file must stay 0o600');
+});
+
+test('strict target mode rejects missing or invalid encryption keys before writing', (t) => {
+  reset(t);
+  process.env.CRED_ENCRYPTION_REQUIRED = 'true';
+  assert.throws(() => store.writeCredentialFile(hhFile(), 'private-token'), /CRED_ENCRYPTION_KEY is required/);
+  assert.equal(fs.existsSync(hhFile()), false, 'missing key must not create a plaintext credential');
+
+  process.env.CRED_ENCRYPTION_KEY = 'not-a-valid-key';
+  store._resetMasterKey();
+  assert.throws(() => store.writeCredentialFile(hhFile(), 'private-token'), /must be 64 hex chars/);
+  assert.equal(fs.existsSync(hhFile()), false, 'invalid key must not create a plaintext credential');
+});
+
+test('strict target mode rejects plaintext reads and wrong-key fallback, while valid ciphertext round-trips', (t) => {
+  reset(t);
+  process.env.CRED_ENCRYPTION_REQUIRED = 'true';
+  withKey();
+
+  fs.mkdirSync(profileDir(), { recursive: true });
+  fs.writeFileSync(hhFile(), JSON.stringify({ access_token: 'legacy-plaintext' }), { mode: 0o600 });
+  assert.throws(() => store.readCredentialFile(hhFile()), /is plaintext while CRED_ENCRYPTION_REQUIRED=true/);
+
+  store.writeCredentialFile(hhFile(), JSON.stringify({ access_token: 'encrypted-target-token' }));
+  const ciphertext = fs.readFileSync(hhFile(), 'utf8');
+  assert.ok(store.isEncrypted(ciphertext));
+  assert.equal(ciphertext.includes('encrypted-target-token'), false);
+  assert.deepEqual(JSON.parse(store.readCredentialFile(hhFile())), { access_token: 'encrypted-target-token' });
+
+  fs.rmSync(`${hhFile()}.meta`, { force: true });
+  process.env.CRED_ENCRYPTION_KEY = '0'.repeat(64);
+  store._resetMasterKey();
+  assert.throws(() => store.readCredentialFile(hhFile()));
 });
 
 test('double read: with a key the files are encrypted at rest and still read back', (t) => {
