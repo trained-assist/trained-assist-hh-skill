@@ -66,7 +66,12 @@ function syncBoundCredentials({ env = process.env } = {}) {
     try {
       targetStat = fs.statSync(target);
     } catch { /* no copy yet */ }
-    if (targetStat && targetStat.mtimeMs >= sourceStat.mtimeMs && targetStat.size === sourceStat.size) {
+    // The source is copied only when it is NEWER than the bound copy. A refresh
+    // inside the worker rewrites the bound copy (new access token, rotated
+    // refresh token) while the source keeps the spent one: copying that back
+    // would restore a dead credential, and the next HH call would fail with
+    // invalid_grant instead of a clear "re-login needed".
+    if (targetStat && targetStat.mtimeMs >= sourceStat.mtimeMs) {
       out.push({ profile: binding.profile, credential: binding.credential, action: 'unchanged' });
       continue;
     }

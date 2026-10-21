@@ -74,6 +74,22 @@ test('a missing source is reported instead of failing silently', () => {
   assert.equal(result[0].action, 'source_missing');
 });
 
+test('a spent source is not copied over a newer bound copy', () => {
+  const { env, source, tokensDir } = freshEnv();
+  syncBoundCredentials({ env });
+  const target = path.join(tokensDir, 'tes-recruiter', 'hh');
+  // The worker refreshed the credential: the bound copy is newer and holds the
+  // rotated refresh token, the source still holds the spent one.
+  fs.writeFileSync(target, '{"access_token":"new","refresh_token":"rotated"}', { mode: 0o600 });
+  fs.utimesSync(target, new Date(), new Date());
+  fs.writeFileSync(source, '{"access_token":"old","refresh_token":"spent"}', { mode: 0o600 });
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(source, old, old);
+  const result = syncBoundCredentials({ env });
+  assert.equal(result[0].action, 'unchanged');
+  assert.equal(JSON.parse(fs.readFileSync(target, 'utf8')).refresh_token, 'rotated');
+});
+
 test('the verification checks reading and writing', () => {
   const { env } = freshEnv();
   syncBoundCredentials({ env });
