@@ -6,7 +6,7 @@
       "providerId": "hh",
       "mcpServerId": "hh-skills",
       "repository": "trained-assist/trained-assist-hh-skill",
-      "revision": "38b5931eeb095d635856ae45c4919dbb88c1977b",
+      "revision": "8c49251f5862465c5ef923a282d91bc187a4f978",
       "manifestVersion": 1,
       "artifactDir": ".",
       "entrypoint": "src/mcp-skills/index.js",
