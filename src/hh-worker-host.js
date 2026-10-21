@@ -34,6 +34,20 @@ function readSecretFile(file) {
   }
 }
 
+// The skill's tool modules capture the profile (USER_ID) when they load, and
+// they stay in the require cache. A worker serves many profiles in one
+// process, so the profile-scoped modules are dropped from the cache before
+// every call — otherwise the first profile would answer every later call.
+// The rest of the skill (src/*.js) reads the profile from its arguments and
+// stays cached.
+function purgeProfileScopedModules() {
+  for (const key of Object.keys(require.cache)) {
+    if (key.includes(`${path.sep}mcp-skills${path.sep}tools${path.sep}`) || key.endsWith(`${path.sep}mcp-skills${path.sep}registry.js`)) {
+      delete require.cache[key];
+    }
+  }
+}
+
 function createHost({ env = process.env, fetchImpl = fetch, now = () => new Date() } = {}) {
   const secrets = {
     HH_CLIENT_ID: env.HH_CLIENT_ID || '',
@@ -86,12 +100,22 @@ function createHost({ env = process.env, fetchImpl = fetch, now = () => new Date
   let queue = Promise.resolve();
   const runMcpTool = ({ tool, params, username, workDir, timeoutMs = 120_000 }) => {
     const task = async () => {
-      const registry = require('./mcp-skills/registry');
       const previousUser = process.env.USER_ID;
       const previousWorkDir = process.env.WORK_DIR;
+      // The profile must be in the environment BEFORE the registry is loaded:
+      // the tool modules capture USER_ID when they load, and the registry asks
+      // the HH module whether that profile has a credential to decide which
+      // tools exist. Loaded too early, the worker would expose no HH tools at
+      // all ("Unknown tool: hh_...") — for every profile.
       process.env.USER_ID = String(username || '');
       process.env.WORK_DIR = String(workDir || path.join(usersRoot(), String(username || '')));
       try {
+        // One process serves many profiles, and the modules that captured the
+        // profile stay in the require cache. Re-load them per call, otherwise
+        // the FIRST profile would answer every later call — and a profile
+        // without an HH credential would hide the tools from the others.
+        purgeProfileScopedModules();
+        const registry = require('./mcp-skills/registry');
         const result = await Promise.race([
           Promise.resolve(registry.callTool(tool, params || {})),
           new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`tool timed out after ${timeoutMs}ms`)), timeoutMs).unref?.()),
@@ -136,4 +160,4 @@ function createHost({ env = process.env, fetchImpl = fetch, now = () => new Date
   };
 }
 
-module.exports = { createHost, readSecretFile };
+module.exports = { createHost, readSecretFile, purgeProfileScopedModules };
