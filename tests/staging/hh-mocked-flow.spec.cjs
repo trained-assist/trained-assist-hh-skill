@@ -97,7 +97,7 @@ function stubLadder({ score, letter, seen = null }) {
     });
 }
 
-async function boot() {
+async function boot({ messages, history } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-flow-e2e-'));
   const users = path.join(root, 'users');
   const ctx = {
@@ -145,8 +145,8 @@ async function boot() {
   // The candidate: a resume and one applicant reply, so the route takes the «reply» path.
   const candDir = path.join(root, 'data', 'hh', USER, 'candidates');
   fs.mkdirSync(candDir, { recursive: true });
-  fs.writeFileSync(path.join(candDir, `${NEG}.json`), JSON.stringify({
-    messages: [
+  fs.writeFileSync(path.join(candDir, `${NEG}.json`), JSON.stringify(history || {
+    messages: messages || [
       { hh_id: '1', role: 'employer', text: 'Здравствуйте! Расскажите про опыт с карточками на WB.', timestamp: '2026-09-28T10:00:00+03:00' },
       { hh_id: '2', role: 'applicant', text: RESUME, timestamp: '2026-10-01T10:00:00+03:00' },
     ],
@@ -304,5 +304,70 @@ test.describe('recruiter flow with HH API and LLM mocked', () => {
     await expect(card.locator('.msg-area').first()).toHaveValue(/Леван, спасибо за цифры/);
     // The send button is still there and enabled — a blocked send must not strand the UI.
     await expect(card.locator('.btn-send').first()).toBeEnabled();
+  });
+});
+
+// issue #191 — the letter the AGENT wrote must be visible to the recruiter.
+// The live defect: the MCP tool generated a letter and returned it, but never
+// stored it, so the review page showed an empty box and the recruiter generated
+// a second, different letter instead of sending the one the agent prepared.
+test.describe('the review page shows the letter the agent wrote', () => {
+  let stack;
+  test.afterEach(async () => { if (stack) await stack.stop(); });
+
+  test('a draft saved by the tool is on the page, not an empty box', async ({ page }) => {
+    const AGENT_LETTER = 'Леван, посмотрел профиль — вопрос по внутренней рекламе: какой ДРР держали?';
+    stack = await boot({
+      history: {
+        messages: [
+          { hh_id: '1', role: 'employer', text: 'Здравствуйте! Расскажите про опыт с карточками на WB.', timestamp: '2026-09-28T10:00:00+03:00' },
+          { hh_id: '2', role: 'applicant', text: RESUME, timestamp: '2026-10-01T10:00:00+03:00' },
+        ],
+        // Exactly what hh_generate_message_to_applicant now stores.
+        message_draft: { text: AGENT_LETTER, generated_at: new Date().toISOString(), config_version: null },
+        ats_result: { draft_message: AGENT_LETTER },
+      },
+    });
+    await page.goto(stack.reviewUrl);
+    const card = page.locator(`#tab-all .card[data-neg="${NEG}"]`);
+    await expect(card.locator('.msg-area').first()).toHaveValue(/вопрос по внутренней рекламе/);
+  });
+});
+
+// issue #191 — the funnel's «wait» is a decision, and the page must show it as one.
+// The live defect: «✦ Сгенерировать» wrote a second letter into the void for a
+// candidate we had already written to and who had not answered (#66/#70).
+test.describe('the review page honours a deliberate «wait»', () => {
+  let stack;
+  test.beforeEach(async () => {
+    // We wrote three hours ago, the candidate has not answered → «wait» by rule.
+    stack = await boot({
+      messages: [{ hh_id: '1', role: 'employer', text: 'Здравствуйте! Расскажите про опыт.', timestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString() }],
+    });
+  });
+  test.afterEach(async () => { await stack.stop(); });
+
+  test('no letter is written, the recruiter\'s own text survives and the reason is shown', async ({ page }) => {
+    const seen = [];
+    stubLadder({ score: { score: 8, verdict: 'pass', criteria: {} }, letter: LETTER, seen });
+    await page.goto(stack.reviewUrl);
+    const card = page.locator(`#tab-all .card[data-neg="${NEG}"]`);
+    const area = card.locator('.msg-area').first();
+
+    // The recruiter's own words are in the box before the click.
+    await area.fill('Своими словами: добрый день, удобно созвониться в среду?');
+    await card.locator('.btn-gen').first().click();
+
+    // The funnel decided «wait»: no letter was written, and the writer never ran.
+    expect(seen.some(s => s.job === 'writer'), 'the writer must not run for a «wait»').toBe(false);
+    // …and the recruiter's text is still there: a silent funnel is not a reason to
+    // wipe what a human typed.
+    await expect(area).toHaveValue(/добрый день, удобно созвониться/);
+    // WHY is on the card, not just in a console.
+    await expect(card.locator('.funnel-step').first()).toContainText('wait');
+    await expect(card.locator('.funnel-step').first()).toContainText('письмо сейчас не нужно');
+    // The button is back to normal — a skipped generation must not strand the UI.
+    await expect(card.locator('.btn-gen').first()).toHaveText(/Переписать/);
+    await expect(card.locator('.btn-gen').first()).toBeEnabled();
   });
 });

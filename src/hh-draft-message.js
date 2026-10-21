@@ -244,6 +244,25 @@ function historySignature(history = [], vacancyInstruction = '', atsConfig = {})
 // silent candidate — 'no draft' is a decision, not missing work.
 const NO_LETTER_ACTIONS = ['wait', 'reject'];
 
+// Does this funnel plan DECIDE that no letter is due?
+//
+// 'wait'/'reject' are the two actions that must not produce a letter (issue #191,
+// docs/user-scenarios/recruiting/02-ats-config-to-scored-responses.md:84) — a
+// second letter into the void was the live defect #66/#70. But a DEGRADED plan is
+// not a decision: planNextStep falls back to 'wait' when the planner LLM could not
+// answer (no key, timeout, non-JSON). That fallback means "we don't know", and
+// blocking a letter on it loses a letter the recruiter explicitly asked for — the
+// exact loss issue #126 was filed about.
+//
+// The automatic background loop still treats every 'wait' as silence (that is the
+// safe default there: nobody is waiting on a letter). The MANUAL paths — the
+// recruiter pressing «Сгенерировать», the agent calling the tool — only honour a
+// plan the funnel actually decided.
+function producesNoLetter(plan) {
+  if (!plan || !NO_LETTER_ACTIONS.includes(plan.action)) return false;
+  return !plan.degraded;
+}
+
 function isDraftStale(history = {}, vacancyInstruction = '', atsConfig = {}) {
   const ats = history?.ats_result || {};
   const sig = historySignature(history.messages || [], vacancyInstruction, atsConfig);
@@ -263,6 +282,7 @@ module.exports = {
   TYPE_INSTRUCTION,
   ACTION_INSTRUCTION,
   NO_LETTER_ACTIONS,
+  producesNoLetter,
   FUNNEL_LOGIC_VERSION,
   detectMessageType,
   buildDraftUserMessage,

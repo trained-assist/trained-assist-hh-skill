@@ -888,6 +888,18 @@ async function generateOne(i, negId, candidateName, alreadySent) {
       vacancy_id: HH_VACANCY_ID || null,
     }, window.HH_GENERATION_TIMEOUT_MS);
     const card=document.getElementById('card-'+i);
+    if (data.skipped) {
+      // The funnel decided that no letter is due ('wait'/'reject') — issue #191.
+      // Keep whatever the recruiter has in the field: their own text or a saved
+      // draft is theirs to send or edit. Say WHY there is no new letter, and do
+      // not leave the box shimmering as if something were still being written.
+      if (ta) { ta.classList.remove('generating'); ta.placeholder = ''; }
+      const step = document.querySelector('#card-'+i+' .funnel-step');
+      if (step) { step.style.color='';step.removeAttribute('role');step.textContent = 'Шаг воронки: ' + (data.funnel_action||'') + (data.funnel_reason ? ' — ' + data.funnel_reason : '') + ' — письмо сейчас не нужно'; }
+      if (btn) { btn.disabled = false; btn.textContent = '✦ Переписать'; }
+      if (!bulkGenerationActive) showToast(data.note || 'Письмо сейчас не нужно: ждём ответа кандидата.');
+      return true;
+    }
     if(card?.querySelector('.draft-stale')&&!data.communication_steps) throw new Error('Сценарий не подтвердил обновление черновика. Старый текст оставлен без изменений.');
     if (ta) { ta.value = data.message || ''; ta.classList.remove('generating'); ta.placeholder = ''; delete ta.dataset?.edited; }
     const step = document.querySelector('#card-'+i+' .funnel-step');

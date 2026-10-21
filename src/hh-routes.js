@@ -26,7 +26,7 @@ const { hhFetchWithRefresh, isHhAuthError, hhAuthErrorResponse, hhFetch, hhPut, 
 const { writeCredentialFile, deleteCredential } = require('./credential-store');
 const { bullshitGuard } = require('./hh-bullshit-guard');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, loadInstructionsTemplate, resolveMessageInstructions, DEFAULT_MESSAGE_BASE, DEFAULT_MESSAGE_INSTRUCTIONS, BASE_PROMPT_FILENAME, INSTRUCTIONS_TEMPLATE_FILENAME } = require('./hh-message-prompts');
-const { buildDraftUserMessage, historySignature } = require('./hh-draft-message');
+const { buildDraftUserMessage, historySignature, producesNoLetter } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const {readCommunicationGenerationInputs,captureGenerationGuard,contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
 const { generateConversation } = require('./conversation-generation');
@@ -1234,6 +1234,35 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       atsConfig: atsConfig || {},
       resumeText: fullResumeText,
       username,
+    });
+  }
+
+  // 'wait' and 'reject' mean NO letter (issue #191). The background loop has always
+  // short-circuited here (src/hh-scoring.js:417-424); this route did not, so the
+  // «Сгенерировать» button wrote a second letter into the void — the live defect
+  // #66/#70 the funnel exists to prevent. Record WHY (same thread signature the
+  // background loop uses) and answer without a draft.
+  //
+  // A DEGRADED plan (the planner could not answer) is not a decision and does not
+  // block the letter: the recruiter pressed the button and is owed a letter
+  // (issue #126 — the letter was written and then lost).
+  if (producesNoLetter(plan)) {
+    if (!history.ats_result) history.ats_result = {};
+    history.ats_result.funnel_action = plan.action;
+    history.ats_result.funnel_reason = plan.reason;
+    history.ats_result.draft_skip_sig = historySignature(msgs, vacancyInstruction, atsConfig);
+    if (plan.action === 'reject') delete history.ats_result.draft_message;
+    fs.mkdirSync(candDir, { recursive: true });
+    fs.writeFileSync(histFile, JSON.stringify(history, null, 2), { mode: 0o600 });
+    return json(res, 200, {
+      ok: true,
+      skipped: true,
+      message: '',
+      funnel_action: plan.action,
+      funnel_reason: plan.reason,
+      note: plan.action === 'reject'
+        ? 'Отказ — это отдельное действие, письмо не создано.'
+        : 'Письмо сейчас не нужно: ждём ответа кандидата.',
     });
   }
 
