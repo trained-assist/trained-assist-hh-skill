@@ -1,0 +1,17 @@
+[Unit]
+Description=Trained Assist — HH worker scheduler tick (every minute, #187)
+Documentation=https://github.com/trained-assist/trained-assist-hh-skill/issues/187
+
+[Timer]
+# The tick materializes the due occurrences and runs the due searches. A minute
+# is the finest granularity the legacy schedules used.
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+RandomizedDelaySec=0
+# Persistent=false: a missed tick is caught by the coalescing rule of the
+# scheduler (one run per gap), so a reboot must not replay a backlog.
+Persistent=false
+Unit=hh-worker-tick.service
+
+[Install]
+WantedBy=timers.target

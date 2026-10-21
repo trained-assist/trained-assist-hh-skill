@@ -1,0 +1,66 @@
+[Unit]
+Description=Trained Assist — standalone HH worker (HH skill surface, #187)
+Documentation=https://github.com/trained-assist/trained-assist-hh-skill/issues/187
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hh-worker
+Group=hh-worker
+WorkingDirectory=/opt/trained-assist-hh-worker/current
+
+# Secrets and public URLs live in a root-owned file: the unit itself carries no
+# credential value. AGENT_SECRET is the same value the recruiter's links were
+# signed with, so the pages keep validating the links that already exist.
+EnvironmentFile=/etc/trained-assist-hh-worker/worker.env
+Environment=NODE_ENV=production
+Environment=PORT=8091
+Environment=HH_WORKER_HOST=127.0.0.1
+# The worker owns its schedule store — the retiring agent's generic cron is gone.
+Environment=HH_SCHEDULE_BACKEND=local
+
+# Own directories: profile state, HH data and the scheduler ledger never mix
+# with the RU edge's.
+Environment=USERS_DIR=/var/lib/trained-assist-hh-worker/users
+Environment=AGENT_DATA_DIR=/var/lib/trained-assist-hh-worker/data
+Environment=AGENT_TOKENS_DIR=/var/lib/trained-assist-hh-worker/agent-tokens
+Environment=AGENT_TOKENS_ROOT=/var/lib/trained-assist-hh-worker/agent-tokens
+Environment=HH_WORKER_STATE_DIR=/var/lib/trained-assist-hh-worker/state
+
+ExecStart=/usr/bin/node src/hh-worker.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+# Limits: the worker serves pages and runs searches; it must not be able to
+# starve the RU edge that shares the host.
+MemoryMax=1024M
+CPUQuota=100%
+TasksMax=128
+
+# Hardening: the worker only writes its own state directory.
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/trained-assist-hh-worker
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Journal: every worker line lands in the host journal under one identifier.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hh-worker
+
+[Install]
+WantedBy=multi-user.target

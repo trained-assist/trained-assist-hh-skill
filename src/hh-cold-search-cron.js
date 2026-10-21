@@ -44,7 +44,43 @@ function coreBase(env = process.env) {
   return (env.AGENT_PUBLIC_URL || '').replace(/\/$/, '');
 }
 
+// The standalone HH worker (#187) owns its own schedule store instead of the
+// retiring agent's generic cron. The backend is chosen by the environment, not
+// by the call site: with the core deployment nothing changes, and on the worker
+// the same tool drives the worker's durable store.
+function localBackendEnabled(env = process.env) {
+  return String(env.HH_SCHEDULE_BACKEND || '').toLowerCase() === 'local';
+}
+
+async function callLocal(body, { env = process.env } = {}) {
+  const { createScheduleStore } = require('./hh-worker-schedule-store');
+  const store = createScheduleStore({ env });
+  const op = String(body.op || '');
+  if (op === 'upsert') {
+    const job = store.upsert({
+      profileId: body.profileId,
+      action: body.action,
+      name: body.name,
+      schedule: body.schedule,
+      timezone: body.timezone,
+      arguments: body.arguments,
+      enabled: body.enabled,
+    });
+    return { ok: true, job, scheduler_role: 'primary' };
+  }
+  if (op === 'delete') {
+    const out = store.remove({ profileId: body.profileId, name: body.name });
+    return { ok: true, deleted: out.deleted, scheduler_role: 'primary' };
+  }
+  if (op === 'list') {
+    const out = store.list({ profileId: body.profileId, action: body.action });
+    return { ok: true, jobs: out.jobs, scheduler_role: out.scheduler_role };
+  }
+  throw new Error(`Неизвестная операция планировщика: ${op}`);
+}
+
 async function callCore(body, { env = process.env, fetchImpl = fetch } = {}) {
+  if (localBackendEnabled(env)) return callLocal(body, { env });
   const base = coreBase(env);
   if (!base || !env.AGENT_SECRET) throw new Error('Планировщик агента недоступен из этого окружения (нет адреса ядра или секрета)');
   const res = await fetchImpl(`${base}/internal/cron/jobs`, {
@@ -83,4 +119,4 @@ async function listColdSearch(profileId, opts) {
   return { jobs, role: out.scheduler_role };
 }
 
-module.exports = { ACTION, TIMEZONE, jobName, intervalToCron, coreBase, callCore, enableColdSearch, disableColdSearch, listColdSearch };
+module.exports = { ACTION, TIMEZONE, jobName, intervalToCron, coreBase, callCore, callLocal, localBackendEnabled, enableColdSearch, disableColdSearch, listColdSearch };
