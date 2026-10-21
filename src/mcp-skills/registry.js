@@ -34,7 +34,13 @@ const hiddenSet = hiddenModules(process.env.SKILLS_RESOLVED);
 // Each module may export:
 //   isReady()    — returns bool; if false, only setupTools are registered (default: true)
 //   setupTools   — tool names always registered even when !isReady (for configure/status tools)
-for (const file of fs.readdirSync(toolsDir).filter(f => f.endsWith('.js')).sort()) {
+//
+// A dot-file is skipped: macOS writes AppleDouble metadata as `._90-hh.js` — a
+// name that ends with .js and is NOT JavaScript. Requiring it throws a syntax
+// error and takes the WHOLE tool surface down (the scan is not per-file
+// isolated). A release that carried one such file would answer every tool call
+// with "Invalid or unexpected token".
+for (const file of fs.readdirSync(toolsDir).filter(f => f.endsWith('.js') && !f.startsWith('.')).sort()) {
   const mod = require(path.join(toolsDir, file));
   const ready = typeof mod.isReady === 'function' ? mod.isReady() : true;
   const setupSet = new Set(mod.setupTools || []);

@@ -113,6 +113,13 @@ else
   STAGING="$RELEASES_DIR/.staging-$HH_REV-$$"
   $SUDO install -d -m 0755 -o root -g root "$STAGING"
   $SUDO cp -a "$FROM_DIR/." "$STAGING/"
+  # A release must not carry filesystem metadata: macOS writes AppleDouble files
+  # as `._90-hh.js` — a name that ends with .js and is not JavaScript. The skill's
+  # tool scan requires every .js file it finds, so one such file takes the whole
+  # tool surface down with a syntax error. Drop them before the release is used.
+  $SUDO find "$STAGING" -name '._*' -o -name '.DS_Store' | while read -r junk; do
+    $SUDO rm -f "$junk"
+  done
   $SUDO chown -R root:root "$STAGING"
   $SUDO chmod -R a+rX "$STAGING"
   $SUDO mv -T "$STAGING" "$TARGET_DIR"
@@ -122,7 +129,10 @@ fi
 echo '-- gates'
 ( cd "$TARGET_DIR" && node --test tests/guards/guards.test.cjs )
 ( cd "$TARGET_DIR" && node --test tests/hh-worker-cron.run.cjs tests/hh-worker-schedule-store.run.cjs tests/hh-worker-credentials.run.cjs )
-( cd "$TARGET_DIR" && node -e "require('./src/hh-worker.js'); require('./src/hh-worker-tick.js');" )
+# The registry scans the tools directory by file name and requires every .js it
+# finds: a stray metadata file in the release would break every tool call. Load
+# it here so the gate fails before the release is activated.
+( cd "$TARGET_DIR" && node -e "require('./src/hh-worker.js'); require('./src/hh-worker-tick.js'); const r = require('./src/mcp-skills/registry'); if (!r.listTools().length) throw new Error('the tool surface is empty');" )
 
 # ── units ─────────────────────────────────────────────────────────────────────
 UNIT_SRC="$TARGET_DIR/ops"
