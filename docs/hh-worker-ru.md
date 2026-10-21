@@ -43,7 +43,14 @@ Limits and hardening live in `ops/hh-worker.service`: `MemoryMax=1024M`,
   `/agent/hh/…`, so links written before the cutover keep working.
 - `src/hh-worker-host.js` — the host contract the routes expect: secrets,
   `readChatId`, `notifyProfile`, `runMcpTool` (the skill's own MCP registry, in
-  process, serialized per call) and the negotiation helpers.
+  process, serialized per call) and the negotiation helpers. The registry reads
+  the profile from `USER_ID`, and the skill's tool modules capture it **when
+  they load** — so the host puts the profile into the environment *before* the
+  registry is required and drops the profile-scoped modules
+  (`src/mcp-skills/tools/*`, the registry) from the require cache before every
+  call. One worker process serves many profiles: loaded once, the first profile
+  would answer every later call, and a profile without an HH credential would
+  hide the tools from everyone (`Unknown tool: hh_…`).
 - `src/hh-worker-cron.js` — five-field cron in a named zone (`Europe/Moscow`).
   A broken expression throws instead of matching nothing.
 - `src/hh-worker-schedule-store.js` — the durable store: one occurrence per
@@ -70,16 +77,28 @@ The release travels as a file, so the host needs no repository credentials:
 git -C <repo> archive <sha> | tar -x -C /tmp/hh-worker-release
 echo <sha> > /tmp/hh-worker-release/.release-sha
 
-# 2. copy it to the host and run the installer
-scp -r /tmp/hh-worker-release root@<ru-host>:/tmp/hh-worker-release
-ssh root@<ru-host> 'bash scripts/deploy-hh-worker.sh <sha> --from-dir /tmp/hh-worker-release'
+# 2. pack it WITHOUT filesystem metadata and copy it to the host
+COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf /tmp/hh-worker-release.tgz \
+  -C /tmp/hh-worker-release .
+scp /tmp/hh-worker-release.tgz root@<ru-host>:/tmp/hh-worker-release.tgz
+ssh root@<ru-host> 'tar -xzf /tmp/hh-worker-release.tgz -C /tmp/hh-worker-release && \
+  bash scripts/deploy-hh-worker.sh <sha> --from-dir /tmp/hh-worker-release'
 ```
+
+**Build the tarball with `git archive`, not with the platform `tar`.** macOS
+`tar` writes an AppleDouble sidecar (`._90-hh.js`) next to every file. The
+skill's tool scan reads the tools directory *by file name* and requires every
+`.js` it finds, so one sidecar takes the **whole** tool surface down with a
+syntax error — the pages answer, and every tool call fails. The installer
+therefore removes `._*` and `.DS_Store` before activation, and the gate loads
+the registry (a surface that does not load, or loads empty, stops the deploy).
 
 `scripts/deploy-hh-worker.sh` creates the account and the directories, unpacks
 the release, runs the gates (`tests/guards/guards.test.cjs`, the worker's own
-tests and a module-load smoke), installs the units, switches the `current`
-symlink, restarts the service, checks `/health` and writes the deploy record.
-On any failure it restores the previous release and restarts the service.
+tests, a module-load smoke and a registry-load smoke), installs the units,
+switches the `current` symlink, restarts the service, checks `/health` and
+writes the deploy record. On any failure it restores the previous release and
+restarts the service.
 
 The environment file is never written by the installer. It must exist:
 
@@ -152,11 +171,51 @@ location ^~ /api/hh/   { proxy_pass http://127.0.0.1:8091; … }
 credential storage do not move. The public URL (`https://recruiter-assistant.ru/hh/…`)
 is unchanged.
 
+The cutover as applied (2026-10-21) keeps the host and the forwarded headers of
+the old upstream, so the pages see the same request shape as before:
+
+```nginx
+location ^~ /hh/ {
+    proxy_pass http://127.0.0.1:8091;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_buffering off;
+}
+```
+
+`^~ /api/hh/proactive/` points at the worker as well; `/p/` and `/s/` are not
+touched (they still point at the dead GCP host — out of scope here). The
+previous configuration is kept at `/etc/nginx/backups/recruiter-assistant.<ts>`
+and is the first step of a rollback.
+
+## Live verification (what was checked on the RU host)
+
+After the cutover, in this order:
+
+1. `/health` — the revision that is actually running, the schedule counts and
+   the occurrence ledger.
+2. The pages through the public URL: `/hh/proactive`, `/hh/review`,
+   `/hh/vacancies`, `/hh/ats-editor`, `/api/hh/proactive/candidates`,
+   `/api/hh/proactive/ats-progress`; a wrong token answers the "Ссылка
+   недействительна" page, `/connect/hh` still answers 401 from the edge.
+3. A real search: the snapshot, the query cache, the seen ids, and a repeat
+   search that finds nothing new (no duplicates).
+4. A full scheduler cycle: the occurrence goes `running → succeeded` with the
+   counters, and the ledger keeps it (`GET /hh-worker/occurrences`).
+5. The reply-loop behaviors of #191 against the live account: `wait` produces
+   no letter and records `draft_skip_sig`; a due letter is written, saved
+   (`message_draft` + `ats_result.draft_message`) and visible in the review
+   page.
+
+The `send` step is not part of the automatic check: it writes to a real
+applicant's chat, so it needs the owner's explicit decision.
+
 ## Rollback
 
 1. `ln -sfn <previous release> /opt/trained-assist-hh-worker/current && systemctl restart hh-worker`
    (the previous release directory is kept, the deploy record names it), or
-2. restore the previous nginx configuration (`/etc/nginx/sites-enabled/recruiter-assistant.bak-<ts>`)
+2. restore the previous nginx configuration (`/etc/nginx/backups/recruiter-assistant.<ts>`)
    and `nginx -t && systemctl reload nginx`.
 
 The timer can be stopped without touching the service: `systemctl stop hh-worker.timer`.
@@ -166,6 +225,13 @@ The timer can be stopped without touching the service: `systemctl stop hh-worker
 - Telegram push from the RU host goes through `TELEGRAM_API_URL`; the default
   Telegram endpoint may be unreachable from this network. The worker never fails
   a recruiter action because of a failed push.
-- The working profile's credential in the legacy archive is encrypted with a
-  master key that lived on the retired host. Until that key (or a fresh login)
-  is available, the working profile's schedules stay imported and disabled.
+- One legacy profile's credential in the archive is encrypted with a master key
+  that lived on the retired host. Until that key (or a fresh login) is
+  available, that profile's schedules stay imported and disabled.
+- The free LLM rungs of the shared ladder can answer `403`/empty at times. The
+  search itself completes and the candidates are stored; the enrichment of the
+  candidates that the ladder refused is reported per candidate, not hidden.
+- The HH access token of the restored profile cannot be refreshed (`invalid_grant`:
+  the refresh token was rotated once and the stored access token still works).
+  A re-login is needed for a long-running operation.
+
