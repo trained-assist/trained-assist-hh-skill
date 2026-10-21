@@ -102,6 +102,9 @@ for dir in users data state agent-tokens logs; do
 done
 $SUDO install -d -m 0750 -o root -g "$SERVICE_GROUP" "$(dirname "$ENV_FILE")"
 $SUDO chmod 0640 "$ENV_FILE"
+# The state belongs to the service account — including the files an earlier
+# migration may have written as root.
+$SUDO chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$STATE_ROOT"
 
 # ── release ───────────────────────────────────────────────────────────────────
 if [ -d "$TARGET_DIR" ]; then
