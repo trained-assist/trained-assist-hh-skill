@@ -41,6 +41,7 @@ usage() {
   exit 2
 }
 
+shift || true
 while [ $# -gt 0 ]; do
   case "$1" in
     --from-dir) FROM_DIR="${2:-}"; shift 2 ;;
@@ -136,8 +137,12 @@ fi
 $SUDO ln -sfn "$TARGET_DIR" "$CURRENT_LINK.new.$$"
 $SUDO mv -Tf "$CURRENT_LINK.new.$$" "$CURRENT_LINK"
 $SUDO systemctl restart "$SERVICE"
-sleep 2
-HEALTH_CODE=$(curl -s -o /tmp/hh-worker-health.json -w '%{http_code}' -m 10 "http://127.0.0.1:$PORT/health" || true)
+HEALTH_CODE=""
+for attempt in $(seq 1 20); do
+  sleep 1
+  HEALTH_CODE=$(curl -s -o /tmp/hh-worker-health.json -w '%{http_code}' -m 5 "http://127.0.0.1:$PORT/health" || true)
+  [ "$HEALTH_CODE" = "200" ] && break
+done
 if [ "$HEALTH_CODE" != "200" ]; then
   echo "Health check failed (HTTP $HEALTH_CODE)" >&2
   $SUDO journalctl -u "$SERVICE" -n 40 --no-pager >&2 || true
