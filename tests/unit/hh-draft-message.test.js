@@ -30,6 +30,7 @@ const {
   historySignature,
   criteriaSignature,
   isDraftStale,
+  producesNoLetter,
 } = require('../../src/hh-draft-message');
 const { DEFAULT_MESSAGE_BASE } = require('../../src/hh-message-prompts');
 
@@ -406,5 +407,45 @@ describe('buildDraftUserMessage — candidate name is an explicit fact', () => {
       ...base, firstName: '', candidateContext: '# Кандидат: Иван Петров',
     });
     expect(msg).toContain('имя: Иван Петров');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// issue #191 — «wait»/«reject» must not produce a letter, but a BROKEN planner
+// must not eat one either.
+//
+// The live defect: the review page and the MCP tool wrote a second letter into
+// the void for a candidate we had already written to and who had not answered
+// (#66/#70). The funnel says «wait» there, and the background loop has always
+// honoured it (src/hh-scoring.js:417-424) — the manual paths did not.
+//
+// The counterweight: planNextStep falls back to «wait» when the planner LLM
+// cannot answer (no key, timeout, non-JSON). That fallback means «we do not
+// know», not «we decided to be silent». Blocking a letter on it loses a letter
+// the recruiter explicitly asked for — exactly the loss issue #126 was filed
+// about (the model wrote a good letter, the route died after the write).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('producesNoLetter — a decision to be silent is not a failure to decide', () => {
+  it('a deliberate wait produces no letter', () => {
+    expect(producesNoLetter({ action: 'wait', by: 'rule' })).toBe(true);
+  });
+
+  it('a deliberate reject produces no letter', () => {
+    expect(producesNoLetter({ action: 'reject', by: 'rule' })).toBe(true);
+  });
+
+  it('a DEGRADED wait is not a decision — the letter must still be written', () => {
+    expect(producesNoLetter({ action: 'wait', by: 'rule', degraded: true })).toBe(false);
+  });
+
+  it('every other action writes a letter', () => {
+    for (const action of ['ask_skills', 'clarify_answer', 'confirm_conditions', 'propose_test', 'send_test', 'invite_call', 'followup']) {
+      expect(producesNoLetter({ action, by: 'rule' })).toBe(false);
+    }
+  });
+
+  it('no plan at all writes a letter', () => {
+    expect(producesNoLetter(null)).toBe(false);
+    expect(producesNoLetter(undefined)).toBe(false);
   });
 });

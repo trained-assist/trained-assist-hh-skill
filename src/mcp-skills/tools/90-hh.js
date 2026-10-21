@@ -6,8 +6,8 @@ const { hydrateResume, buildResumeText, resumeHash, RESUME_VERSION } = require('
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride } = require('../../hh-message-prompts');
-const { detectMessageType, buildDraftUserMessage } = require('../../hh-draft-message');
+const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, loadBaseOverride, resolveMessageInstructions } = require('../../hh-message-prompts');
+const { detectMessageType, buildDraftUserMessage, historySignature, producesNoLetter } = require('../../hh-draft-message');
 const { checkCriteria, dropViolations } = require('../../hh-criteria-guard');
 const { applyCriteriaGuard } = require('../../hh-criteria-apply');
 const { planNextStep, buildTestTaskMessage } = require('../../hh-funnel');
@@ -1235,6 +1235,7 @@ module.exports = {
           const vid=neg.vacancy?.id||neg.vacancy_id||readContext('hh','active_vacancy')?.value?.id;
           const atsConfigCtx={value:vid?readAtsConfigForVacancy(profileWorkDir(),vid):null};
 
+          const planOut = {};
           const message = await generateMessage(
             contextWithVacancy,
             ats_result || history.ats_result || {},
@@ -1244,8 +1245,68 @@ module.exports = {
             history.messages || [],
             USER_ID,
             atsConfigCtx?.value || null,
-            null,history,
+            planOut,history,
           );
+
+          if (planOut.no_letter) {
+            // The funnel decided that no letter is due ('wait'/'reject') — issue #191.
+            // Record WHY, against the same thread signature the background loop uses,
+            // and answer without a draft: silence is a decision, not a failed write.
+            if (!history.ats_result) history.ats_result = {};
+            history.ats_result.funnel_action = planOut.action || null;
+            history.ats_result.funnel_reason = planOut.reason || null;
+            history.ats_result.draft_skip_sig = historySignature(
+              history.messages || [],
+              resolveMessageInstructions({ username: USER_ID, tokensBase: tokenBase(), atsConfig: atsConfigCtx?.value || {} }),
+              atsConfigCtx?.value || null,
+            );
+            if (planOut.action === 'reject') delete history.ats_result.draft_message;
+            saveCandidateHistory(USER_ID,negotiation_id,history);
+            return {
+              negotiation_id,
+              name,
+              message_type,
+              message: '',
+              skipped: true,
+              funnel_action: planOut.action || null,
+              funnel_reason: planOut.reason || null,
+              note: planOut.action === 'reject'
+                ? 'Отказ — это отдельное действие, письмо не создано.'
+                : 'Письмо сейчас не нужно: ждём ответа кандидата.',
+            };
+          }
+
+          if (!message) {
+            // The model answered with nothing — that is a failure, not a decision.
+            // Say so instead of saving an empty letter as if it were one.
+            return {
+              negotiation_id,
+              name,
+              message_type,
+              error: 'Модель вернула пустой текст письма. Попробуй ещё раз.',
+            };
+          }
+
+          // The draft has to outlive the tool call: the review page reads
+          // message_draft / ats_result.draft_message (src/hh-review-page-html.js) and
+          // every other writer in the skill stores it. This one did not — the agent
+          // generated a letter and the recruiter's textarea stayed empty (#191).
+          const configVersion = atsConfigCtx?.value?.updated_at || null;
+          history.message_draft = { text: message, generated_at: new Date().toISOString(), config_version: configVersion };
+          if (!history.ats_result) history.ats_result = {};
+          history.ats_result.draft_message = message;
+          history.ats_result.draft_history_sig = historySignature(
+            history.messages || [],
+            resolveMessageInstructions({ username: USER_ID, tokensBase: tokenBase(), atsConfig: atsConfigCtx?.value || {} }),
+            atsConfigCtx?.value || null,
+          );
+          // The funnel's decision must describe the letter that now exists. isDraftStale()
+          // branches on funnel_action: a 'wait' left over from an earlier cycle would make
+          // the background loop treat the agent's letter as skipped work and overwrite it.
+          // A degraded plan is no decision at all, so it is recorded as none.
+          history.ats_result.funnel_action = planOut.degraded ? null : (planOut.action || null);
+          history.ats_result.funnel_reason = planOut.reason || null;
+          delete history.ats_result.draft_skip_sig;
           saveCandidateHistory(USER_ID,negotiation_id,history);
 
           return {
@@ -1253,6 +1314,8 @@ module.exports = {
             name,
             message_type,
             message,
+            funnel_action: planOut.action || null,
+            funnel_reason: planOut.reason || null,
             note: 'Проверь сообщение и отправь через hh_send_message если всё ок.',
           };
         } catch (e) {
@@ -1361,6 +1424,21 @@ module.exports = {
             hhId: sent?.id ?? null, timestamp: sent?.created_at || null,
           });
           saveCandidateHistory(USER_ID, negotiation_id, history);
+
+          // An answered отклик leaves the "response" stage. The review route has
+          // always done this (src/hh-routes.js:1085-1096); the tool did not, so a
+          // candidate answered through the agent stayed in "response" forever and the
+          // recruiter kept seeing them as unanswered (issue #191). Best effort: the
+          // letter is already delivered, a failed stage move must not turn a sent
+          // message into an error.
+          try {
+            const neg = currentNegotiation?.state ? currentNegotiation : await hhGet(`/negotiations/${negotiation_id}`, token);
+            if (neg?.state?.id === 'response') {
+              await hhPut(`/negotiations/consider/${negotiation_id}`, token);
+            }
+          } catch (e) {
+            console.warn('[hh/send-message] stage move to consider failed:', e.message);
+          }
 
           return { ok: true, negotiation_id, send_event:delivery.event,reconciled:delivery.reconciled, message_sent: message.slice(0, 80) + (message.length > 80 ? '...' : '') };
         } catch (e) {
@@ -2191,6 +2269,9 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
       username: userId || USER_ID,
       apiKey,
     });
+    // A degraded plan is "we could not decide", not "we decided to be silent" — the
+    // caller has to be able to tell the two apart.
+    if (planOut) planOut.degraded = !!plan.degraded;
     // The test task leaves word-for-word, assembled in code — a model paraphrase
     // would break the promise the vacancy text makes.
     if (plan.action === 'send_test') {
@@ -2199,6 +2280,18 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
         if (planOut) { planOut.action = plan.action; planOut.reason = plan.reason; planOut.by = plan.by; }
         return verbatim;
       }
+    }
+    // 'wait' and 'reject' mean NO letter at all (issue #191). The background loop
+    // has always short-circuited here (src/hh-scoring.js:417-424) and wrote the
+    // reason into the history; the manual paths did not, so «Переписать» wrote a
+    // second letter into the void — the live defect #66/#70 the funnel exists to
+    // prevent. Silence is a first-class outcome, not a failed generation.
+    //
+    // A DEGRADED plan (the planner could not answer) is not a decision: the agent
+    // asked for a letter, so it gets one — with the degraded reason attached.
+    if (producesNoLetter(plan)) {
+      if (planOut) { planOut.action = plan.action; planOut.reason = plan.reason; planOut.by = plan.by; planOut.no_letter = true; }
+      return '';
     }
   }
 

@@ -998,7 +998,12 @@ describe('POST /hh/generate-message on a vacancy without ATS criteria (issue #12
     }));
     const candDir = path.join(root, 'data', 'hh', 'alice', 'candidates');
     fs.mkdirSync(candDir, { recursive: true });
-    fs.writeFileSync(path.join(candDir, 'neg2.json'), JSON.stringify({ messages: [{ role: 'employer', text: 'Здравствуйте!', hh_id: '3' }] }));
+    // The candidate answered us — a first contact would be a deliberate «wait» and
+    // would (correctly) produce no letter at all, which would make this test vacuous.
+    fs.writeFileSync(path.join(candDir, 'neg2.json'), JSON.stringify({ messages: [
+      { role: 'employer', text: 'Здравствуйте!', hh_id: '3' },
+      { role: 'applicant', text: 'Здравствуйте, да', hh_id: '4' },
+    ] }));
     stubLadder('Леван, вернёмся к разговору на следующей неделе.');
     try {
       const u = new URL('http://x/hh/generate-message');
@@ -1008,6 +1013,9 @@ describe('POST /hh/generate-message on a vacancy without ATS criteria (issue #12
       }), u, res, ctx());
       expect(res.status).toBe(200);
       expect(JSON.parse(res.body).no_ats_config).toBeUndefined();
+      // …and the letter really was written: the flag is absent because the criteria
+      // were there, not because the flow never reached the writer.
+      expect(JSON.parse(res.body).message).toContain('вернёмся к разговору');
     } finally {
       nock.cleanAll();
       if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
@@ -1016,6 +1024,143 @@ describe('POST /hh/generate-message on a vacancy without ATS criteria (issue #12
   });
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// issue #191 — the reply loop of the отклики domain, end to end through the route.
+//
+// Three defects, one page:
+//   1. «✦ Сгенерировать» wrote a letter even when the funnel had decided «wait»
+//      (we already wrote, the candidate did not answer) — the second letter into
+//      the void, the live defect #66/#70;
+//   2. the letter the agent wrote was never persisted, so the textarea stayed
+//      empty and the recruiter regenerated instead of sending;
+//   3. a sent letter did not move the negotiation out of the «response» stage.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('POST /hh/generate-message — the funnel decides, the writer only renders (issue #191)', () => {
+  const tok = () => require('crypto').createHmac('sha256', 's3cret').update('alice').digest('hex').slice(0, 16);
+
+  function writeHistory(id, history) {
+    const dir = path.join(root, 'data', 'hh', 'alice', 'candidates');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(history, null, 2));
+    return path.join(dir, `${id}.json`);
+  }
+  const readHistory = (id) => JSON.parse(fs.readFileSync(path.join(root, 'data', 'hh', 'alice', 'candidates', `${id}.json`), 'utf8'));
+
+  // Counts every ladder call. A deliberate «wait» must not spend a single one.
+  function countLadderCalls() {
+    const calls = [];
+    nock('https://llm-ladder.trainedassist.store')
+      .persist().post('/v1/chat/completions')
+      .reply(200, (_uri, body) => {
+        calls.push(body);
+        return { choices: [{ message: { content: 'Леван, давайте созвонимся.' } }], model: body.model };
+      });
+    return calls;
+  }
+
+  let savedTokens, savedLadder;
+  beforeEach(() => {
+    savedTokens = process.env.AGENT_TOKENS_DIR;
+    savedLadder = process.env.LLM_LADDER_TOKEN;
+    process.env.AGENT_TOKENS_DIR = path.join(root, 'tokens');
+    process.env.LLM_LADDER_TOKEN = 'test-ladder-token';
+  });
+  afterEach(() => {
+    nock.cleanAll();
+    if (savedTokens === undefined) delete process.env.AGENT_TOKENS_DIR; else process.env.AGENT_TOKENS_DIR = savedTokens;
+    if (savedLadder === undefined) delete process.env.LLM_LADDER_TOKEN; else process.env.LLM_LADDER_TOKEN = savedLadder;
+  });
+
+  it('a deliberate «wait» writes NO letter, spends no LLM call and records why', async () => {
+    // We wrote 3 hours ago, the candidate has not answered → «wait» by the
+    // deterministic rule (src/hh-funnel.js:238-244).
+    writeHistory('neg-wait', {
+      messages: [{ role: 'employer', text: 'Здравствуйте! Расскажите про опыт.', hh_id: '1', timestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString() }],
+    });
+    const calls = countLadderCalls();
+
+    const u = new URL('http://x/hh/generate-message');
+    const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), negotiation_id: 'neg-wait', candidate_name: 'Бахтадзе Леван', vacancy_id: 'V1',
+    }), u, res, ctx());
+
+    expect(res.status).toBe(200);
+    const d = JSON.parse(res.body);
+    expect(d.ok).toBe(true);
+    expect(d.skipped).toBe(true);
+    expect(d.message).toBe('');
+    expect(d.funnel_action).toBe('wait');
+    expect(d.funnel_reason).toBeTruthy();
+    expect(calls.length).toBe(0); // silence must be free
+
+    // WHY is recorded against the same thread signature the background loop uses,
+    // so the next cycle knows this was decided and not forgotten.
+    const saved = readHistory('neg-wait');
+    expect(saved.ats_result.funnel_action).toBe('wait');
+    expect(saved.ats_result.funnel_reason).toBeTruthy();
+    expect(saved.ats_result.draft_skip_sig).toMatch(/^funnel-v\d/);
+    expect(saved.ats_result.draft_message).toBeUndefined();
+  });
+
+  it('a deliberate «reject» writes no letter and drops the stale draft', async () => {
+    const ctxDir = path.join(root, 'users', 'alice', 'contexts', 'hh');
+    fs.mkdirSync(ctxDir, { recursive: true });
+    fs.writeFileSync(path.join(ctxDir, 'ats_config:V1.json'), JSON.stringify({
+      value: { vacancy_title: 'X', required: [{ name: 'Node.js', weight: 2 }], review_threshold: 4 },
+      updated_at: new Date().toISOString(),
+    }));
+    writeHistory('neg-reject', {
+      messages: [{ role: 'applicant', text: 'Здравствуйте', hh_id: '1', timestamp: new Date().toISOString() }],
+      ats_result: { verdict: 'ОТКЛОНИТЬ', score: 2, draft_message: 'Старое письмо, которое надо выкинуть' },
+    });
+    const calls = countLadderCalls();
+
+    const u = new URL('http://x/hh/generate-message');
+    const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), negotiation_id: 'neg-reject', candidate_name: 'Бахтадзе Леван', vacancy_id: 'V1',
+    }), u, res, ctx());
+
+    expect(res.status).toBe(200);
+    const d = JSON.parse(res.body);
+    expect(d.skipped).toBe(true);
+    expect(d.funnel_action).toBe('reject');
+    expect(calls.length).toBe(0);
+
+    const saved = readHistory('neg-reject');
+    expect(saved.ats_result.draft_message).toBeUndefined();
+    expect(saved.ats_result.draft_skip_sig).toMatch(/^funnel-v\d/);
+  });
+
+  it('a DEGRADED planner (the LLM could not answer) still writes the letter', async () => {
+    // planNextStep falls back to «wait» when the planner cannot answer. That is
+    // «we do not know», not «we decided to be silent» — the recruiter pressed the
+    // button and is owed a letter (issue #126 was exactly this loss).
+    writeHistory('neg-degraded', {
+      messages: [
+        { role: 'employer', text: 'Здравствуйте!', hh_id: '1', timestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString() },
+        { role: 'applicant', text: 'Здравствуйте, да', hh_id: '2', timestamp: new Date().toISOString() },
+      ],
+    });
+    // The ladder answers prose where the planner wants JSON → the planner degrades.
+    countLadderCalls();
+
+    const u = new URL('http://x/hh/generate-message');
+    const res = fakeRes();
+    await handleHhPublic(req('POST', u.pathname, {
+      username: 'alice', token: tok(), negotiation_id: 'neg-degraded', candidate_name: 'Бахтадзе Леван', vacancy_id: 'V1',
+    }), u, res, ctx());
+
+    expect(res.status).toBe(200);
+    const d = JSON.parse(res.body);
+    expect(d.ok).toBe(true);
+    expect(d.skipped).toBeUndefined();
+    expect(d.message).toContain('созвонимся');
+    expect(readHistory('neg-degraded').ats_result.draft_message).toContain('созвонимся');
+  });
+});
 
 describe('vacancy scoped communication storage',()=>{
  const plan=(id='s')=>({version:1,stages:[{id,title:'Этап',instruction:'Спросить',completion_result:'Ответ',material:' exact\n',material_mode:'verbatim'}]});
