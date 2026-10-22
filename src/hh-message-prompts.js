@@ -80,6 +80,32 @@ const MESSAGE_SYSTEM_BASE = 'Ты — рекрутер. ВСЕГДА пиши с
   'НЕЛЬЗЯ: обещать перезвонить или позвонить — только переписка в HH. Не используй слова «перезвоню», «позвоню», «свяжусь по телефону», «созвонимся». Не обещай трудоустройство или конкретные условия — только предлагай следующий шаг процесса.\n' +
   'НЕЛЬЗЯ оставлять плейсхолдеры в квадратных или фигурных скобках (например «[Ваше имя]», «{company}») — если имя рекрутера не задано явно в контексте, просто не называй себя по имени, представься только по компании/роли ("Я — рекрутер компании X").';
 
+// «Материалы» — единственный разрешённый канал материалов для кандидата.
+//
+// До 22.10.2026 в конфиге вакансии не было ссылки на материалы, в промпте не было
+// блока про них — и модель выбирала ссылку сама: в проде уходила ссылка на публичный
+// GitHub-репозиторий вместо материалов (12 кандидатов просили ТЗ — вакансия
+// 138336566), а троим, кто просил материалы, агент отказал. Теперь ссылка приходит
+// из ATS-конфига вакансии и является единственным разрешённым источником; при её
+// отсутствии письмо обязано сказать, что материалы вышлют, и спросить удобный
+// формат — но не выдумывать другую ссылку.
+const MATERIALS_RULES = [
+  'Если кандидат просит техническое описание, ТЗ, материалы, документацию или рецептуру — это НЕ отказ и не повод закрыть переписку. Ответь по существу: пришли ссылку из блока «Материалы» и коротко скажи, что внутри.',
+  'Ссылка из блока «Материалы» — единственный канал материалов. НИКОГДА не подставляй другие ссылки (репозитории, сайты, документы, «вот описание» от себя) — только ту, что дана в блоке.',
+  'Если блока «Материалы» нет или ссылка в нём пустая — напиши, что материалы вышлют, и спроси, в каком виде удобно (ссылка, файл на почту, в чате). Ссылку не выдумывай.',
+  'Кандидат просит ТЗ — не выдумывай требования и не отказывай. Сначала дай то, что просили (материалы), потом задай один уточняющий вопрос.',
+].join('\n');
+
+function buildMaterialsBlock(atsConfig = {}) {
+  const url = String(atsConfig?.materials_url || '').trim();
+  const note = String(atsConfig?.materials_note || '').trim();
+  const lines = [];
+  lines.push('Материалы для кандидата (ссылка из ATS-конфига вакансии):');
+  lines.push(url ? `- ссылка: ${url}` : '- ссылка не задана в конфиге вакансии (не выдумывай свою)');
+  if (note) lines.push(`- что внутри: ${note}`);
+  return '\n\n## Материалы\n' + lines.join('\n') + '\n\nПравила работы с материалами:\n' + MATERIALS_RULES;
+}
+
 const REJECTION_SYSTEM_BASE = 'Ты — рекрутер. Напиши вежливый отказ кандидату.\n' +
   'Тон: уважительный, тёплый, без объяснения причин. Пожелай удачи в поиске. 2-3 предложения. Пиши на русском языке.';
 
@@ -149,6 +175,10 @@ function buildMessageSystemPrompt({ vacancyContext = '', recruiterCtx = '', comm
   // Always present — see buildCriteriaBlock. Independent of vacancyContext: the raw HH
   // description and the recruiter's measurable criteria are different fields.
   prompt += buildCriteriaBlock(atsConfig);
+  // Same rule for materials: the block is always present, an empty link is a fact
+  // ("материалы не заданы"), a missing block is a hole the model fills with a link
+  // of its own choosing (issue #202).
+  prompt += buildMaterialsBlock(atsConfig);
   if (recruiterCtx) prompt += `\n\n## Идентичность рекрутера\n${recruiterCtx}`;
   if (commStyle) prompt += `\n\n## Стиль общения рекрутера\n${commStyle}`;
   if (vacancyInstruction) {
@@ -172,6 +202,8 @@ module.exports = {
   buildMessageSystemPrompt,
   buildRejectionSystemPrompt,
   buildCriteriaBlock,
+  buildMaterialsBlock,
+  MATERIALS_RULES,
   criteriaNamesForPrompt,
   loadBaseOverride,
   loadInstructionsTemplate,

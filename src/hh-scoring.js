@@ -452,6 +452,8 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
           missingSkills: plan.missing_skills,
           testTask: legacyTestTask(atsConfig),
           vacancyInstruction,
+          materialsUrl: atsConfig?.materials_url || '',
+          materialsNote: atsConfig?.materials_note || '',
         });
 
         const messages = [

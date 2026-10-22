@@ -395,6 +395,12 @@ ${require('./hh-nav').vacancyPickerHtml(vacancies, activeVacancyId, v => `${call
       <textarea id="fContext" rows="2" placeholder="Краткое описание: продукт, команда, задачи..."></textarea>
     </div>
     <div class="field">
+      <label>Ссылка на материалы (Google Drive)</label>
+      <input type="url" id="fMaterialsUrl" placeholder="https://drive.google.com/drive/folders/...">
+      <input type="text" id="fMaterialsNote" placeholder="Что внутри, одна строка (необязательно)" style="margin-top:6px">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Единственный канал материалов для кандидата. Когда кандидат просит ТЗ или техническое описание, агент присылает ровно эту ссылку и не отказывает; свои ссылки (репозитории, сайты) подставлять нельзя.</div>
+    </div>
+    <div class="field">
       <label>Инструкция для сообщений кандидатам</label>
       <textarea id="fMessageInstructions" rows="4" placeholder="Порядок работы с кандидатом для этой вакансии. Обязательные требования подставляются автоматически из «★ Обязательные навыки» — перечислять их здесь не нужно."></textarea>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Порядок работы с кандидатом для этой вакансии. Дополнительные ограничения для этой вакансии. Порядок работы и результат каждого этапа задаются ниже в сценарии.</div>
@@ -609,6 +615,8 @@ document.getElementById('tplSelect').addEventListener('change', e => {
 function loadFromConfig(config) {
   document.getElementById('fTitle').value = config.vacancy_title || '';
   document.getElementById('fContext').value = config.vacancy_context || '';
+  document.getElementById('fMaterialsUrl').value = config.materials_url || '';
+  document.getElementById('fMaterialsNote').value = config.materials_note || '';
   document.getElementById('fMessageInstructions').value = config.message_instructions || '';
   document.getElementById('fPass').value = config.pass_threshold ?? 6.5;
   document.getElementById('fReview').value = config.review_threshold ?? 4.0;
@@ -987,7 +995,7 @@ function renderPreferred() {
 
 // ── Field events ──────────────────────────────────────────────────────────────
 
-['fTitle','fContext','fMessageInstructions','fPass','fReview','fMinExp','fMaxSalary','fIcLevel','fIcBookingUrl','fIcRequirements','fIcAvailability'].forEach(id => {
+['fTitle','fContext','fMaterialsUrl','fMaterialsNote','fMessageInstructions','fPass','fReview','fMinExp','fMaxSalary','fIcLevel','fIcBookingUrl','fIcRequirements','fIcAvailability'].forEach(id => {
   document.getElementById(id).addEventListener('input', updateJsonPreview);
 });
 document.getElementById('fRemote').addEventListener('change', () => { updateRemoteLabel(); updateJsonPreview(); });
@@ -1035,6 +1043,8 @@ function buildConfig() {
   return {
     vacancy_title: document.getElementById('fTitle').value.trim(),
     vacancy_context: document.getElementById('fContext').value.trim(),
+    materials_url: document.getElementById('fMaterialsUrl').value.trim(),
+    materials_note: document.getElementById('fMaterialsNote').value.trim(),
     message_instructions: document.getElementById('fMessageInstructions').value.trim(),
     required: required.filter(r => r.name.trim()).map(r => ({ name: r.name.trim(), weight: +r.weight })),
     preferred: preferred.filter(p => p.name.trim()).map(p => ({ name: p.name.trim(), weight: +p.weight })),
