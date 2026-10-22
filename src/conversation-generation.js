@@ -25,6 +25,10 @@ const { ladderChat } = require('./llm-ladder');
 
 const DEFAULT_LADDER = 'conversation';
 const DEFAULT_HISTORY_LIMIT = 20;
+// Бюджет одной ступени лестницы для письма кандидату. Письмо — длинный контекст
+// (резюме + история), и 20 с на ступень с тремя ступенями воркера в сумме не
+// влезали в клиентский таймаут (issue #199).
+const DEFAULT_WRITE_TIMEOUT_MS = 30_000;
 
 let history = [];
 
@@ -50,14 +54,31 @@ function conversationHistoryFile() {
  * Generate the next message of a conversation through the ladder and remember
  * the exchange (question + answer) for the bench.
  *
+ * A timeout is retried once with a doubled budget (issue #199): the ladder walks
+ * several models and a slow first rung used to abort the whole request, so the
+ * letter was lost — the recruiter pressed «Сгенерировать» and got an error instead
+ * of a draft. The retry is safe: writing a message has no side effects.
+ *
  * @param {object} o — see src/llm-ladder.js ladderChat, plus:
  * @param {string} [o.source='hh-conversation'] x-ladder-app attribution
  * @returns {Promise<string>} the assistant message text
  */
-async function generateConversation({ messages, temperature = 0.7, maxTokens = 800, ladder, rung, timeoutMs, source = 'hh-conversation', fetchImpl } = {}) {
+async function generateConversation({ messages, temperature = 0.7, maxTokens = 800, ladder, rung, timeoutMs, httpTimeoutMs, retryOnTimeout = true, source = 'hh-conversation', fetchImpl } = {}) {
   const usedLadder = ladder || conversationLadder();
   const usedRung = rung !== undefined && rung !== null ? rung : conversationRung();
-  const res = await ladderChat({ messages, ladder: usedLadder, rung: usedRung, temperature, maxTokens, timeoutMs, source, fetchImpl });
+  const usedTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_WRITE_TIMEOUT_MS;
+  const call = (budgetMs, clientBudgetMs) => ladderChat({
+    messages, ladder: usedLadder, rung: usedRung, temperature, maxTokens,
+    timeoutMs: budgetMs, httpTimeoutMs: clientBudgetMs, source, fetchImpl,
+  });
+  let res;
+  try {
+    res = await call(usedTimeout, httpTimeoutMs);
+  } catch (e) {
+    if (!retryOnTimeout || e?.code !== 'LLM_TIMEOUT') throw e;
+    // One more attempt with a doubled budget — the same request, more room.
+    res = await call(usedTimeout * 2, Number.isFinite(httpTimeoutMs) && httpTimeoutMs > 0 ? httpTimeoutMs * 2 : null);
+  }
   rememberExchange({ messages, answer: res.content, ladder: usedLadder, rung: usedRung, model: res.model, temperature });
   return res.content;
 }
@@ -92,4 +113,5 @@ module.exports = {
   conversationHistoryFile,
   conversationLadder,
   conversationRung,
+  DEFAULT_WRITE_TIMEOUT_MS,
 };

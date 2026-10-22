@@ -25,6 +25,7 @@ const { hhFetchWithRefresh, isHhAuthError, hhAuthErrorResponse, hhFetch, hhPut, 
 // warning (never a hard failure).
 const { writeCredentialFile, deleteCredential } = require('./credential-store');
 const { bullshitGuard } = require('./hh-bullshit-guard');
+const { requirementSources: requirementSourcesOf } = require('./hh-letter-checks');
 const { buildAvailabilityBlock, buildRecruiterIdentity, buildMessageSystemPrompt, buildRejectionSystemPrompt, loadBaseOverride, loadInstructionsTemplate, resolveMessageInstructions, DEFAULT_MESSAGE_BASE, DEFAULT_MESSAGE_INSTRUCTIONS, BASE_PROMPT_FILENAME, INSTRUCTIONS_TEMPLATE_FILENAME } = require('./hh-message-prompts');
 const { buildDraftUserMessage, historySignature, producesNoLetter } = require('./hh-draft-message');
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
@@ -1299,17 +1300,26 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
     // what was wrong. Only a still-failing second attempt reaches the recruiter as a
     // visible warning — invented_time is informational-only so it never triggers this.
 const allowSpecificTime = hhInterviewConfigAllowsTime(username, effectiveVacancyId);
+    // Требования в письме — из данных вакансии (issue #198). Режим 'generate':
+    // выдуманное требование блокирует письмо, и цикл ниже переписывает его.
+    // Прежние письма рекрутера — тоже источник: то, что уже сказано кандидату,
+    // не считается выдумкой.
+    const reqSources = [
+      ...requirementSourcesOf({ atsConfig, vacancyContext }),
+      ...msgs.filter(m => m && m.role === 'employer' && String(m.text || '').trim()).map(m => String(m.text)),
+    ];
+    const guardOptions = { username, allowSpecificTime, resumeText: fullResumeText, mode: 'generate', requirementSources: reqSources };
     // The test task is the one letter that must NOT be written by a model: the
     // vacancy promises it goes out word-for-word.
     let message = plan?.action === 'send_test'
       ? (buildTestTaskMessage(legacyTestTask(atsConfig)) || await callLlm(userMsg))
       : await callLlm(userMsg);
-    let guard = await bullshitGuard(message, msgs, { username, allowSpecificTime, resumeText: fullResumeText });
+    let guard = await bullshitGuard(message, msgs, guardOptions);
     if (!guard.ok) {
       console.warn(`[hh/generate-message] draft failed guard, regenerating: user=${username} neg=${negotiation_id} reason="${guard.reason}"`);
       const retryMsg = `${userMsg}\n\n(Предыдущая попытка была отклонена автопроверкой: "${guard.reason}". Не повторяй эту ошибку — напиши новый вариант без неё.)`;
       message = await callLlm(retryMsg);
-      guard = await bullshitGuard(message, msgs, { username, allowSpecificTime, resumeText: fullResumeText });
+      guard = await bullshitGuard(message, msgs, guardOptions);
     }
 
     if (!history.ats_result) history.ats_result = {};

@@ -15,6 +15,7 @@ const {reconcilePendingSend,performCommunicationSend}=require('../../hh-communic
 const {acquireCandidateSendLock}=require('../../hh-send-lock');
 const {captureGenerationGuard,readCommunicationGenerationInputs,contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
 const { asksKnownFact } = require('../../hh-known-facts');
+const { findInventedRequirements, requirementSources: requirementSourcesOf } = require('../../hh-letter-checks');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
 const { ladderChat, ladderToken } = require('../../llm-ladder');
@@ -2205,6 +2206,16 @@ module.exports = {
 
 // ── Internal helpers (called from handler closures) ─────────────────────────
 
+// Источники правды о требованиях для проверки письма (issue #198): критерии ATS,
+// контекст вакансии и прежние письма рекрутера в этой переписке — то, что уже
+// было сказано кандидату и потому не является выдумкой.
+function requirementSourcesFor({ atsConfig = null, vacancyContext = '', history = [] } = {}) {
+  const own = (Array.isArray(history) ? history : [])
+    .filter(m => m && m.role === 'employer' && String(m.text || '').trim())
+    .map(m => String(m.text));
+  return [...requirementSourcesOf({ atsConfig, vacancyContext }), ...own];
+}
+
 async function evaluateCandidate(candidateText, atsConfig, apiKey) {
   const config = normalizeAtsConfig(atsConfig);
   const systemPrompt = buildAtsPrompt(config);
@@ -2247,7 +2258,10 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
   const commStyle = loadCommunicationStyle(userId || USER_ID);
   const baseOverride = loadBaseOverride(tokenBase(), userId || USER_ID);
   const recruiterCtx = buildRecruiterIdentity(loadRecruiterIdentityConfig());
-  const systemPrompt = buildMessageSystemPrompt({ recruiterCtx, commStyle, baseOverride, atsConfig: atsConfig || {} });
+  // The writer used to get only the criteria list here — the vacancy context never
+  // reached it, so a letter could name a requirement nobody recorded (issue #198).
+  const vacancyContext = [atsConfig?.vacancy_title, atsConfig?.vacancy_context].filter(Boolean).join('\n\n');
+  const systemPrompt = buildMessageSystemPrompt({ recruiterCtx, commStyle, baseOverride, vacancyContext, atsConfig: atsConfig || {} });
   const availabilityBlock = buildAvailabilityBlock(atsConfig?.interview_config);
 
   // messageType used to be accepted and then dropped on the floor — the prompt always
@@ -2345,6 +2359,31 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
       if (retryText && !asksKnownFact(retryText, candidateContext)) out = retryText;
     } catch (e) {
       console.warn('[hh/generate-message] known-facts retry failed:', e.message);
+    }
+  }
+
+  // Требования в письме — из данных вакансии (issue #198). Тот же бесплатный
+  // детерминированный гейт, что и known-facts: одно нарушение — одна
+  // перегенерация с причиной; если и она выдумывает — письмо уходит как есть,
+  // а вызывающий путь видит предупреждение.
+  const requirementSources = requirementSourcesFor({ atsConfig, vacancyContext, history });
+  const invented = findInventedRequirements(out, requirementSources);
+  if (invented.length) {
+    try {
+      const retried = await generateConversation({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `${userMsg}\n\n(Предыдущая попытка отклонена автопроверкой: в письме требование, которого нет в данных вакансии — `
+            + `«${invented[0].sentence.replace(/\s+/g, ' ').slice(0, 160)}». Напиши новый вариант, назвав только требования из блока «Обязательные требования вакансии» и описания вакансии.)` },
+        ],
+        temperature: 0.7,
+        maxTokens: 1000,
+        source: 'hh-generate-message',
+      });
+      const retryText = String(retried || '').trim();
+      if (retryText && !findInventedRequirements(retryText, requirementSources).length) out = retryText;
+    } catch (e) {
+      console.warn('[hh/generate-message] invented-requirement retry failed:', e.message);
     }
   }
 
