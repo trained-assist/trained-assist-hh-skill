@@ -1280,6 +1280,8 @@ if (req.method === 'POST' && url.pathname === '/hh/generate-message') {
       missingSkills: plan?.missing_skills || [],
       testTask: legacyTestTask(atsConfig),
       vacancyInstruction,
+      materialsUrl: atsConfig?.materials_url || '',
+      materialsNote: atsConfig?.materials_note || '',
     });
 
   function callLlm(userContent) {

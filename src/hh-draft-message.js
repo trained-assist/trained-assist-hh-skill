@@ -128,6 +128,11 @@ function buildDraftUserMessage({
   missingSkills = [],
   testTask = '',
   vacancyInstruction = '',
+  // Ссылка на материалы из ATS-конфига вакансии. До 22.10.2026 её не было ни в
+  // конфиге, ни в промпте — и модель подставляла свою ссылку (в проде — публичный
+  // GitHub-репозиторий) или отказывала кандидату, который просил ТЗ (issue #202).
+  materialsUrl = '',
+  materialsNote = '',
 } = {}) {
   const name = resolveCandidateName(firstName, resumeText) || resolveCandidateName(firstName, candidateContext);
   const parts = [];
@@ -189,6 +194,18 @@ function buildDraftUserMessage({
       + 'Если конкретных слотов с временем нет в блоке «Доступность» — не называй дату, спроси удобное время.');
   }
   if (availabilityBlock) parts.push(availabilityBlock);
+  // Материалы — рядом с историей переписки, а не только в системном промпте: когда
+  // кандидат просит ТЗ, ссылка обязана быть под рукой у пишущего письмо.
+  const materialsUrlText = String(materialsUrl || '').trim();
+  const materialsNoteText = String(materialsNote || '').trim();
+  if (materialsUrlText) {
+    parts.push('\n\nМатериалы (ссылка из конфига вакансии — единственная, которую можно прислать):\n' + materialsUrlText
+      + (materialsNoteText ? `\nЧто внутри: ${materialsNoteText}` : ''));
+  } else {
+    parts.push('\n\nМатериалы: ссылка в конфиге вакансии не задана. Если кандидат просит ТЗ, описание или материалы — '
+      + 'это НЕ отказ: напиши, что материалы вышлют, и спроси, в каком виде удобно (ссылка, файл на почту, в чате). '
+      + 'Свою ссылку не выдумывай.');
+  }
   parts.push('\n\nНапиши следующее сообщение кандидату.');
   return parts.join('\n');
 }

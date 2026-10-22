@@ -197,4 +197,77 @@ async function bullshitGuard(messageText, conversationHistory = [], options = {}
   return { ok: true, checks, degraded: conversationHistory.length > 0 && !llmChecked };
 }
 
-module.exports = { bullshitGuard, hasPlaceholder, hasInventedTime, getApiKey, llmCall };
+// ─── Quick check (deterministic only, no LLM) ─────────────────────────────────
+//
+// The web send path runs bullshitGuard() before POSTing; the MCP path
+// (hh_send_message, src/mcp-skills/tools/90-hh.js) did NOT — so a message that
+// carried no content at all went to the candidate. Live 22.10.2026 (vacancy
+// 138336566): "." (neg 5665252424, 5665911042), "отправил" (neg 5651089991) and a
+// completely empty message (neg 5670741266, 5670778186) were delivered, and the
+// recruiter's send log counted them as delivered.
+//
+// quickMessageCheck() is the deterministic part of the guard, extracted so the
+// MCP path can use it without an LLM round-trip: empty text, unresolved
+// placeholder, exact repeat of an earlier letter, and a message that is nothing
+// but a service word. No network, no credentials — safe to call on every send.
+//
+// Service words are matched on the WHOLE message (after normalisation), so a
+// legitimate letter that merely contains "написал" is not blocked.
+//
+// The list holds operational leftovers — the words a model writes when it thinks
+// it has already done something ("написал", "отправил") or when it is checking
+// the channel ("ок", "тест"). Greetings and answers ("Здравствуйте", "да", "нет")
+// are NOT here: a recruiter may deliberately send them, and the tool contract in
+// fixtures/tools.json expects hh_send_message("Здравствуйте!") to succeed.
+const SERVICE_WORD_MESSAGES = new Set([
+  'написал', 'написано', 'написали', 'отправил', 'отправлено', 'отправили',
+  'ок', 'окей', 'ok', 'тест', 'test', 'проверка',
+]);
+
+function normalizeMessage(value) {
+  return String(value || '')
+    .toLocaleLowerCase('ru')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[.,!?;:"'`«»()\[\]…—–-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Deterministic gate for an outgoing message. Returns the same shape as
+ * bullshitGuard() so callers can treat both the same way.
+ * @param {string} messageText
+ * @param {Array<{role:string, text:string}>} [conversationHistory]
+ * @returns {{ ok: boolean, reason?: string, checks: object }}
+ */
+function quickMessageCheck(messageText, conversationHistory = []) {
+  const checks = { empty: false, placeholder: false, exact_duplicate: false, service_word: false };
+  const raw = String(messageText || '');
+  if (!raw.trim()) {
+    checks.empty = true;
+    return { ok: false, reason: 'пустое сообщение', checks };
+  }
+  if (hasPlaceholder(raw)) {
+    checks.placeholder = true;
+    return { ok: false, reason: 'незаполненный placeholder в тексте', checks };
+  }
+  const normalized = normalizeMessage(raw);
+  // A message made of punctuation only (".", "…", "—") normalises to nothing: there
+  // is no letter in it, so there is nothing for the candidate to read. Live 22.10.2026:
+  // "." was delivered to neg 5665252424 and 5665911042.
+  if (!/[a-zа-яё]/i.test(normalized)) {
+    checks.service_word = true;
+    return { ok: false, reason: 'в сообщении нет ни одного слова — кандидату нечего прочитать', checks };
+  }
+  if (normalized && SERVICE_WORD_MESSAGES.has(normalized)) {
+    checks.service_word = true;
+    return { ok: false, reason: 'сообщение состоит только из служебного слова — кандидату нечего прочитать', checks };
+  }
+  if (normalized && (conversationHistory || []).some(m => m?.role === 'employer' && normalizeMessage(m.text) === normalized)) {
+    checks.exact_duplicate = true;
+    return { ok: false, reason: 'это сообщение уже отправляли кандидату', checks };
+  }
+  return { ok: true, checks };
+}
+
+module.exports = { bullshitGuard, quickMessageCheck, hasPlaceholder, hasInventedTime, getApiKey, llmCall, SERVICE_WORD_MESSAGES };

@@ -15,6 +15,7 @@ const {reconcilePendingSend,performCommunicationSend}=require('../../hh-communic
 const {acquireCandidateSendLock}=require('../../hh-send-lock');
 const {captureGenerationGuard,readCommunicationGenerationInputs,contactForbidden,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('../../hh-communication-runtime');
 const { asksKnownFact } = require('../../hh-known-facts');
+const { quickMessageCheck } = require('../../hh-bullshit-guard');
 const { findInventedRequirements, requirementSources: requirementSourcesOf } = require('../../hh-letter-checks');
 const { generateConversation } = require('../../conversation-generation');
 const { hhLlm } = require('../../hh-llm');
@@ -1400,6 +1401,24 @@ module.exports = {
           const persist=()=>saveCandidateHistory(USER_ID,negotiation_id,stored);
           try{const prior=await reconcilePendingSend({history:stored,message,refresh,persist});if(prior?.delivered)return {ok:true,negotiation_id,reconciled:true,send_event:prior.event};}
           catch(e){if(e.code==='SEND_OUTCOME_UNKNOWN')return {ok:false,code:e.code,error:e.message};throw e;}
+          // Deterministic gate before POST. The web send path runs the full guard
+          // (src/hh-routes.js), the MCP path did not — so on 22.10.2026 candidates
+          // received ".", "отправил" and an empty message (neg 5665252424, 5665911042,
+          // 5651089991, 5670741266, 5670778186) while the send log called them
+          // delivered (issue #202). No LLM call here: this must be cheap and always
+          // available.
+          //
+          // It runs AFTER the reconciliation above on purpose: a repeat of a message
+          // that was already delivered is an idempotent retry, not a duplicate letter,
+          // and must stay answerable with ok=true (tests/behavior/communication-paths).
+          const quick=quickMessageCheck(message,stored.messages||[]);
+          if(!quick.ok){
+            const code=quick.checks.empty?'EMPTY_MESSAGE'
+              :quick.checks.placeholder?'PLACEHOLDER_MESSAGE'
+              :quick.checks.service_word?'SERVICE_WORD_MESSAGE'
+              :'DUPLICATE_MESSAGE';
+            return {ok:false,code,error:`Письмо не отправлено: ${quick.reason}. Напиши кандидату нормальный текст.`};
+          }
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&contactForbidden(stored))return {ok:false,code:'CONTACT_FORBIDDEN',error:'Кандидат явно запретил дальнейший контакт.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id)&&!stored.communication_steps&&(message===stored.ats_result?.draft_message||message===stored.message_draft?.text))return {ok:false,code:'STALE_COMMUNICATION_DRAFT',error:'Обновите черновик по сохранённому сценарию.'};
           if(communicationEnabledFor(USER_ID,stored.communication_snapshot?.context?.vacancy_id||stored.vacancy_id)&&stored.communication_steps){
@@ -2319,6 +2338,8 @@ async function generateMessage(candidateContext, atsResult, name, apiKey, messag
     action: plan ? plan.action : null,
     missingSkills: plan?.missing_skills || [],
     testTask: legacyTestTask(atsConfig),
+    materialsUrl: atsConfig?.materials_url || '',
+    materialsNote: atsConfig?.materials_note || '',
   });
 
   // The write itself goes through conversation generation (ladder 'conversation',
