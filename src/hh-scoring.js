@@ -13,6 +13,7 @@ const { buildDraftUserMessage, historySignature, isDraftStale } = require('./hh-
 const { planNextStep, buildTestTaskMessage } = require('./hh-funnel');
 const {captureGenerationGuard,readCommunicationGenerationInputs,communicationEnabledFor,generateAndStoreCommunication,staleCommunicationDraft,refreshCommunicationHistory}=require('./hh-communication-runtime');
 const { bullshitGuard } = require('./hh-bullshit-guard');
+const { requirementSources: requirementSourcesOf } = require('./hh-letter-checks');
 const { generateConversation } = require('./conversation-generation');
 const { ladderChat, ladderToken } = require('./llm-ladder');
 // Credential store (trained-assist-agent#1939) via hh-utils' safe reader — the
@@ -469,7 +470,14 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
         // that tells the model what was wrong. Without it, a repeated intro landed on
         // the review page undetected (this path never ran the guard at all).
         const allowSpecificTime = hasRealAvailability(atsConfig?.interview_config);
-        let guard = await bullshitGuard(message, thread, { username, allowSpecificTime, resumeText });
+        // Требования в письме — из данных вакансии (issue #198): критерии ATS,
+        // контекст вакансии и прежние письма рекрутера в этой переписке.
+        const reqSources = [
+          ...requirementSourcesOf({ atsConfig, vacancyContext: vacancyCtx }),
+          ...thread.filter(m => m && m.role === 'employer' && String(m.text || '').trim()).map(m => String(m.text)),
+        ];
+        const guardOptions = { username, allowSpecificTime, resumeText, mode: 'generate', requirementSources: reqSources };
+        let guard = await bullshitGuard(message, thread, guardOptions);
         if (!guard.ok) {
           console.warn(`[hh-drafts] neg=${neg.id} failed guard (${guard.reason}), regenerating once`);
           const retryMessages = [
@@ -484,7 +492,7 @@ async function generateDraftMessages(negotiations, username, workDir, { maxConcu
             const retried = await generateConversation({ messages: retryMessages, temperature: 0.7, maxTokens: 600, source: 'hh-drafts' });
             if (retried && !hasGarbage(retried)) {
               message = retried.trim();
-              guard = await bullshitGuard(message, thread, { username, allowSpecificTime, resumeText });
+              guard = await bullshitGuard(message, thread, guardOptions);
             }
           } catch (e) {
             console.warn(`[hh-drafts] retry failed for ${neg.id}: ${e.message}`);

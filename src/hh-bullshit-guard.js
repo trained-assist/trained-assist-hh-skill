@@ -7,6 +7,7 @@
 
 const { hhLlm, ladderToken } = require('./hh-llm');
 const { asksKnownFact } = require('./hh-known-facts');
+const { findInventedRequirements } = require('./hh-letter-checks');
 
 // ─── Regex checks ─────────────────────────────────────────────────────────────
 
@@ -94,11 +95,16 @@ template_garbage = текст явно является незаполненны
 /**
  * @param {string} messageText
  * @param {Array<{role:string, text:string}>} conversationHistory
- * @param {{ username?: string, apiKey?: string }} [options]
+ * @param {{ username?: string, apiKey?: string, mode?: 'generate'|'send',
+ *           requirementSources?: string[] }} [options]
+ *   mode — 'generate' (письмо пишет модель: выдуманное требование блокирует и
+ *   письмо переписывается) или 'send' (письмо набрал рекрутер: только предупреждение).
+ *   requirementSources — источники правды о требованиях (критерии ATS, описание
+ *   вакансии, прежние письма рекрутера). Без них проверка не выполняется.
  * @returns {Promise<{ ok: boolean, reason?: string, checks: object }>}
  */
 async function bullshitGuard(messageText, conversationHistory = [], options = {}) {
-  const checks = { empty: false, placeholder: false, exact_duplicate: false, invented_time: false, known_fact: false, repeated_question: false, repeated_intro: false, template_garbage: false };
+  const checks = { empty: false, placeholder: false, exact_duplicate: false, invented_time: false, known_fact: false, repeated_question: false, repeated_intro: false, template_garbage: false, invented_requirement: false };
 
   if (!messageText || messageText.trim().length === 0) {
     checks.empty = true;
@@ -138,6 +144,28 @@ async function bullshitGuard(messageText, conversationHistory = [], options = {}
   // can't tell the two apart, so it flags for the guard log but lets the send through.
   if (options.allowSpecificTime !== true && hasInventedTime(messageText, conversationHistory)) {
     checks.invented_time = true;
+  }
+
+  // Требования в письме должны быть взяты из данных вакансии (критерии ATS,
+  // описание вакансии, прежние письма рекрутера). Модель иногда называет
+  // требование, которого нигде нет (issue #198) — и кандидат отвечает «Вы о
+  // чем??». Источники приходят от вызывающего пути: без них сравнивать не с чем.
+  //
+  // В режиме генерации ('generate') — блокирует: письмо можно переписать, и
+  // существующий цикл «гвард → перегенерация с причиной» это чинит. В режиме
+  // отправки ('send', по умолчанию) — только предупреждает: письмо мог написать
+  // сам рекрутер, и это его требование, а не выдумка модели.
+  const invented = findInventedRequirements(messageText, options.requirementSources || []);
+  if (invented.length) {
+    checks.invented_requirement = invented.map(x => x.sentence);
+    if (options.mode === 'generate') {
+      const first = invented[0];
+      return {
+        ok: false,
+        reason: `в письме требование, которого нет в данных вакансии: «${first.sentence.replace(/\s+/g, ' ').slice(0, 120)}»`,
+        checks,
+      };
+    }
   }
 
   const apiKey = options.apiKey || getApiKey(options.username);

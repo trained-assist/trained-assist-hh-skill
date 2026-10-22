@@ -230,3 +230,51 @@ describe('bullshitGuard — no LLM on empty history', () => {
     }
   });
 });
+
+// ─── 5. Invented requirements (issue #198) ───────────────────────────────────
+
+describe('bullshitGuard — invented requirement', () => {
+  const SOURCES = ['Высшее профильное образование (химия, химическая технология)'];
+
+  it('blocks a generated letter that names a requirement nobody recorded', async () => {
+    const r = await guard.bullshitGuard(
+      'Здравствуйте! Требуется опыт работы в НИИ не менее 5 лет.',
+      [],
+      { mode: 'generate', requirementSources: SOURCES },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.checks.invented_requirement).toHaveLength(1);
+    expect(r.reason).toMatch(/требование, которого нет в данных вакансии/);
+  });
+
+  it('lets a requirement from the vacancy through', async () => {
+    const r = await guard.bullshitGuard(
+      'Здравствуйте! Обязательно высшее профильное образование — химия или химическая технология.',
+      [],
+      { mode: 'generate', requirementSources: SOURCES },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.checks.invented_requirement).toBe(false);
+  });
+
+  it('only warns when the recruiter wrote the letter themselves (send mode)', async () => {
+    const r = await guard.bullshitGuard(
+      'Здравствуйте! Требуется опыт работы в НИИ не менее 5 лет.',
+      [],
+      { requirementSources: SOURCES },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.checks.invented_requirement).toHaveLength(1);
+  });
+
+  it('does not check requirements when there are no sources', async () => {
+    const r = await guard.bullshitGuard(
+      'Здравствуйте! Требуется опыт работы в НИИ не менее 5 лет.',
+      [],
+      { mode: 'generate' },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.checks.invented_requirement).toBe(false);
+  });
+});
+

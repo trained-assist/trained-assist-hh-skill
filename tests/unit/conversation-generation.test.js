@@ -16,7 +16,7 @@ import nock from 'nock';
 
 const require = createRequire(import.meta.url);
 const conv = require('../../src/conversation-generation.js');
-const { ladderChat, ladderToken } = require('../../src/llm-ladder.js');
+const { ladderChat, ladderToken, LADDER_RUNG_BUDGET, CLIENT_TIMEOUT_OVERHEAD_MS } = require('../../src/llm-ladder.js');
 
 const TOKEN = 'fixture-ladder-token';
 const LADDER = 'https://llm-ladder.trainedassist.store';
@@ -205,3 +205,74 @@ describe('llm-ladder client', () => {
       .rejects.toThrow(/llm-ladder unreachable: network down/);
   });
 });
+
+// ─── Timeout budget (issue #199) ─────────────────────────────────────────────
+//
+// The worker spends `ladder_timeout_ms` on EACH rung of the ladder. The client
+// request is ONE request, so its budget has to cover the whole walk — otherwise
+// the client aborts a generation the worker is still finishing, and the letter
+// is lost.
+
+describe('timeout budget', () => {
+  it('the client budget covers the whole ladder walk, not one rung', async () => {
+    let signal;
+    await ladderChat({
+      messages: MSG('q'),
+      timeoutMs: 20000,
+      fetchImpl: async (_url, opts) => {
+        signal = opts.signal;
+        return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+      },
+    });
+    // AbortSignal.timeout() does not expose its budget, so the budget is asserted
+    // through the constants the client is built from.
+    expect(LADDER_RUNG_BUDGET).toBeGreaterThanOrEqual(3);
+    expect(CLIENT_TIMEOUT_OVERHEAD_MS).toBeGreaterThan(0);
+    expect(signal).toBeTruthy();
+  });
+
+  it('a timeout is a distinguishable error, not "unreachable"', async () => {
+    const err = await ladderChat({
+      messages: MSG('q'),
+      fetchImpl: async () => { const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; },
+    }).catch(e => e);
+    expect(err.code).toBe('LLM_TIMEOUT');
+    expect(err.message).toMatch(/llm-ladder timeout after/);
+  });
+
+  it('a network failure keeps its own code', async () => {
+    const err = await ladderChat({
+      messages: MSG('q'),
+      fetchImpl: async () => { throw new Error('network down'); },
+    }).catch(e => e);
+    expect(err.code).toBe('LLM_UNREACHABLE');
+  });
+
+  it('a timeout is retried once with a bigger budget — the letter is not lost', async () => {
+    let calls = 0;
+    const out = await conv.generateConversation({
+      messages: MSG('q'),
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) { const e = new Error('aborted'); e.name = 'TimeoutError'; throw e; }
+        return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'Письмо готово' } }] }) };
+      },
+    });
+    expect(calls).toBe(2);
+    expect(out).toBe('Письмо готово');
+  });
+
+  it('a second timeout is not retried again — the error reaches the caller', async () => {
+    let calls = 0;
+    const err = await conv.generateConversation({
+      messages: MSG('q'),
+      fetchImpl: async () => {
+        calls += 1;
+        const e = new Error('aborted'); e.name = 'TimeoutError'; throw e;
+      },
+    }).catch(e => e);
+    expect(calls).toBe(2);
+    expect(err.code).toBe('LLM_TIMEOUT');
+  });
+});
+
